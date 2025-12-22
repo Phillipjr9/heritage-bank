@@ -196,52 +196,87 @@
 
     <script src="script.js"></script>
     <script>
-        const currentUserId = parseInt(localStorage.getItem('userId')) || 1;
-        const authToken = localStorage.getItem('authToken');
+        const API_URL = 'http://localhost:3000';
+        let userId = null;
+        const token = localStorage.getItem('token');
 
-        if (!authToken) {
-            window.location.href = '/signin.html';
+        if (!token) {
+            window.location.href = 'signin.html';
         }
 
-        function investNow(product, rate) {
+        // Get user info on load
+        async function checkAuth() {
+            try {
+                const res = await fetch(`${API_URL}/api/auth/profile`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    userId = data.user.id;
+                } else {
+                    window.location.href = 'signin.html';
+                }
+            } catch (err) {
+                console.error('Auth check failed:', err);
+                window.location.href = 'signin.html';
+            }
+        }
+
+        async function investNow(product, rate) {
+            if (!userId) {
+                alert('Please sign in to invest.');
+                window.location.href = 'signin.html';
+                return;
+            }
+            
             const amount = prompt(`Invest in ${product} (${rate}% APY)\n\nMinimum amount: $500\nEnter investment amount:`, '1000');
             
             if (amount && parseFloat(amount) >= 500) {
                 const amountNum = parseFloat(amount);
                 const payload = {
-                    userId: currentUserId,
+                    userId: userId,
                     product: `${product} (${rate}% APY)`,
                     amount: amountNum,
                     period: 5
                 };
 
-                fetch('/api/investments/invest', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + authToken
-                    },
-                    body: JSON.stringify(payload)
-                })
-                .then(r => r.json())
-                .then(data => {
+                try {
+                    const res = await fetch(`${API_URL}/api/investments/invest`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify(payload)
+                    });
+
+                    const data = await res.json();
+                    
                     if (data.success) {
                         showNotification(`✓ Investment of $${amountNum.toFixed(2)} in ${product} confirmed! Est. Return: $${data.investment.estimatedReturn}`, 'success');
                         setTimeout(() => {
-                            window.location.href = '/dashboard.html';
+                            window.location.href = 'dashboard.html';
                         }, 2000);
                     } else {
                         showNotification('Error: ' + data.message, 'error');
                     }
-                })
-                .catch(err => showNotification('Error: ' + err.message, 'error'));
+                } catch (err) {
+                    showNotification('Error: ' + err.message, 'error');
+                }
             } else if (amount) {
                 showNotification('Minimum investment amount is $500', 'error');
             }
         }
 
-        function handleInvestment(e) {
+        async function handleInvestment(e) {
             e.preventDefault();
+
+            if (!userId) {
+                alert('Please sign in to invest.');
+                window.location.href = 'signin.html';
+                return;
+            }
 
             const product = document.getElementById('product').value;
             const amount = parseFloat(document.getElementById('investAmount').value);
@@ -258,22 +293,24 @@
             }
 
             const payload = {
-                userId: currentUserId,
+                userId: userId,
                 product: product,
                 amount: amount,
                 period: period
             };
 
-            fetch('/api/investments/invest', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': 'Bearer ' + authToken
-                },
-                body: JSON.stringify(payload)
-            })
-            .then(r => r.json())
-            .then(data => {
+            try {
+                const res = await fetch(`${API_URL}/api/investments/invest`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await res.json();
+
                 if (data.success) {
                     const { estimatedReturn, maturityDate } = data.investment;
                     const confirmMsg = `
@@ -291,14 +328,18 @@ Funds have been invested immediately.
                     alert(confirmMsg);
                     showNotification('✓ Investment confirmed!', 'success');
                     setTimeout(() => {
-                        window.location.href = '/dashboard.html';
+                        window.location.href = 'dashboard.html';
                     }, 2000);
                 } else {
                     showNotification('Error: ' + data.message, 'error');
                 }
-            })
-            .catch(err => showNotification('Error: ' + err.message, 'error'));
+            } catch (err) {
+                showNotification('Error: ' + err.message, 'error');
+            }
         }
+
+        // Initialize
+        checkAuth();
     </script>
 </body>
 </html>

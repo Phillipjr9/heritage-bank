@@ -215,31 +215,50 @@
 
     <script src="script.js"></script>
     <script>
-        const currentUserId = parseInt(localStorage.getItem('userId')) || 1;
-        const authToken = localStorage.getItem('authToken');
+        const API_URL = 'http://localhost:3000';
+        let userId = null;
+        const token = localStorage.getItem('token');
 
-        if (!authToken) {
-            window.location.href = '/signin.html';
+        if (!token) {
+            window.location.href = 'signin.html';
+        }
+
+        // Get user info on load
+        async function checkAuth() {
+            try {
+                const res = await fetch(`${API_URL}/api/auth/profile`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    userId = data.user.id;
+                    loadUserCards();
+                } else {
+                    window.location.href = 'signin.html';
+                }
+            } catch (err) {
+                console.error('Auth check failed:', err);
+                window.location.href = 'signin.html';
+            }
         }
 
         // Load user's cards on page load
-        window.addEventListener('load', () => {
-            loadUserCards();
-        });
-
-        function loadUserCards() {
-            fetch(`/api/cards/${currentUserId}`, {
-                headers: {
-                    'Authorization': 'Bearer ' + authToken
-                }
-            })
-            .then(r => r.json())
-            .then(data => {
+        async function loadUserCards() {
+            if (!userId) return;
+            
+            try {
+                const res = await fetch(`${API_URL}/api/cards/${userId}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                const data = await res.json();
                 if (data.success && data.count > 0) {
                     displayCards(data.cards);
                 }
-            })
-            .catch(err => console.log('Cards not loaded yet'));
+            } catch (err) {
+                console.log('Cards not loaded yet');
+            }
         }
 
         function displayCards(userCards) {
@@ -272,8 +291,14 @@ Click 'Manage' in the mobile app or call us at 1-800-HERITAGE
             }
         }
 
-        function requestCard(e) {
+        async function requestCard(e) {
             e.preventDefault();
+
+            if (!userId) {
+                alert('Please sign in to request a card.');
+                window.location.href = 'signin.html';
+                return;
+            }
 
             const cardType = document.getElementById('cardType').value;
             const address = document.getElementById('deliveryAddress').value;
@@ -290,21 +315,26 @@ Click 'Manage' in the mobile app or call us at 1-800-HERITAGE
                 return;
             }
 
-            const payload = {
-                userId: currentUserId,
-                cardType: cardType
-            };
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
 
-            fetch('/api/cards/request', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': 'Bearer ' + authToken
-                },
-                body: JSON.stringify(payload)
-            })
-            .then(r => r.json())
-            .then(data => {
+            try {
+                const res = await fetch(`${API_URL}/api/cards/request`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        userId: userId,
+                        cardType: cardType
+                    })
+                });
+
+                const data = await res.json();
+
                 if (data.success) {
                     const confirmMsg = `
 Card Request Confirmation
@@ -321,14 +351,21 @@ Card will be delivered within 7-10 business days.
                     alert(confirmMsg);
                     showNotification('✓ Card approved and activated!', 'success');
                     setTimeout(() => {
-                        window.location.href = '/dashboard.html';
+                        window.location.href = 'dashboard.html';
                     }, 2000);
                 } else {
                     showNotification('Error: ' + data.message, 'error');
                 }
-            })
-            .catch(err => showNotification('Error: ' + err.message, 'error'));
+            } catch (err) {
+                showNotification('Error: ' + err.message, 'error');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalText;
+            }
         }
+
+        // Initialize
+        checkAuth();
     </script>
 </body>
 </html>

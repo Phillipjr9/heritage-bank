@@ -28,7 +28,8 @@
         .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
         @media (max-width: 768px) { .form-row { grid-template-columns: 1fr; } }
         .submit-btn { width: 100%; padding: 16px; background: linear-gradient(135deg, #1a5f7a, #2c3e50); color: white; border: none; border-radius: 10px; font-size: 1.1rem; font-weight: 600; cursor: pointer; transition: all 0.3s; }
-        .submit-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(26,95,122,0.3); }
+        .submit-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(26,95,122,0.3); }
+        .submit-btn:disabled { opacity: 0.6; cursor: not-allowed; }
         .requirements { background: #e8f4f8; padding: 30px; border-radius: 15px; margin-top: 40px; }
         .requirements h3 { color: #1a5f7a; margin-bottom: 20px; }
         .requirements ul { list-style: none; }
@@ -44,6 +45,26 @@
         .step.active { opacity: 1; }
         .step .num { width: 35px; height: 35px; background: #1a5f7a; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; }
         .step.active .num { background: #1a5f7a; }
+        .auth-notice { background: #fff3cd; padding: 20px; border-radius: 10px; margin-bottom: 30px; display: flex; align-items: center; gap: 15px; }
+        .auth-notice i { color: #856404; font-size: 1.5rem; }
+        .auth-notice a { color: #1a5f7a; font-weight: 600; }
+        .success-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+        .success-modal.active { display: flex; }
+        .success-content { background: white; padding: 40px; border-radius: 20px; text-align: center; max-width: 450px; animation: slideIn 0.3s ease; }
+        .success-icon { width: 80px; height: 80px; background: linear-gradient(135deg, #27ae60, #2ecc71); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; }
+        .success-icon i { font-size: 2.5rem; color: white; }
+        .success-content h2 { color: #333; margin-bottom: 10px; }
+        .success-content p { color: #666; margin-bottom: 20px; }
+        .success-content .app-id { background: #f0f4f8; padding: 15px; border-radius: 10px; margin: 20px 0; font-family: monospace; font-size: 1.1rem; color: #1a5f7a; }
+        @keyframes slideIn { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .my-applications { background: white; padding: 30px; border-radius: 15px; margin-bottom: 30px; box-shadow: 0 5px 20px rgba(0,0,0,0.08); }
+        .my-applications h3 { color: #1a5f7a; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+        .application-item { display: flex; justify-content: space-between; align-items: center; padding: 15px; background: #f8f9fa; border-radius: 10px; margin-bottom: 10px; }
+        .app-status { padding: 5px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: 600; }
+        .app-status.pending { background: #fff3cd; color: #856404; }
+        .app-status.approved { background: #d4edda; color: #155724; }
+        .app-status.rejected { background: #f8d7da; color: #721c24; }
+        .app-status.under_review { background: #cce5ff; color: #004085; }
     </style>
 </head>
 <body>
@@ -163,6 +184,18 @@
             </div>
 
             <div class="form-container">
+                <!-- Auth Notice -->
+                <div id="authNotice" class="auth-notice" style="display: none;">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <div>
+                        <strong>Sign in required</strong>
+                        <p style="margin: 5px 0 0; color: #856404;">Please <a href="signin.html">sign in</a> to submit a loan application.</p>
+                    </div>
+                </div>
+
+                <!-- My Applications -->
+                <div id="myApplications" class="my-applications" style="display: none;"></div>
+
                 <h2 style="text-align: center; margin-bottom: 30px; color: #1a5f7a;"><i class="fas fa-file-alt"></i> Loan Application</h2>
                 <form id="loanForm">
                     <input type="hidden" id="loanType" name="loanType" value="">
@@ -342,10 +375,102 @@
 
     <script src="script.js"></script>
     <script>
+        const API_URL = 'http://localhost:3000';
+        let userId = null;
+        let token = localStorage.getItem('token');
+
+        // Check authentication on page load
+        async function checkAuth() {
+            if (!token) {
+                showAuthNotice();
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_URL}/api/auth/profile`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    userId = data.user.id;
+                    hideAuthNotice();
+                    loadMyApplications();
+                } else {
+                    showAuthNotice();
+                }
+            } catch (err) {
+                console.error('Auth check failed:', err);
+                showAuthNotice();
+            }
+        }
+
+        function showAuthNotice() {
+            const notice = document.getElementById('authNotice');
+            if (notice) notice.style.display = 'flex';
+            document.getElementById('loanForm').querySelector('.submit-btn').disabled = true;
+        }
+
+        function hideAuthNotice() {
+            const notice = document.getElementById('authNotice');
+            if (notice) notice.style.display = 'none';
+            document.getElementById('loanForm').querySelector('.submit-btn').disabled = false;
+        }
+
+        // Load user's existing loan applications
+        async function loadMyApplications() {
+            if (!userId || !token) return;
+            
+            try {
+                const res = await fetch(`${API_URL}/api/loans/my-applications?userId=${userId}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.applications && data.applications.length > 0) {
+                        displayApplications(data.applications);
+                    }
+                }
+            } catch (err) {
+                console.error('Error loading applications:', err);
+            }
+        }
+
+        function displayApplications(applications) {
+            const container = document.getElementById('myApplications');
+            if (!container) return;
+
+            let html = `<h3><i class="fas fa-history"></i> My Loan Applications</h3>`;
+            
+            applications.slice(0, 5).forEach(app => {
+                const statusClass = app.status.replace('_', '-');
+                html += `
+                    <div class="application-item">
+                        <div>
+                            <strong>${app.loan_type.charAt(0).toUpperCase() + app.loan_type.slice(1)} Loan</strong>
+                            <p style="color: #666; font-size: 0.9rem; margin: 5px 0 0;">
+                                $${parseFloat(app.loan_amount).toLocaleString()} • ${app.loan_duration_months} months
+                            </p>
+                        </div>
+                        <span class="app-status ${statusClass}">${app.status.replace('_', ' ')}</span>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+            container.style.display = 'block';
+        }
+
         function selectLoan(card, type) {
             document.querySelectorAll('.loan-card').forEach(c => c.classList.remove('selected'));
             card.classList.add('selected');
             document.getElementById('loanType').value = type;
+            
+            // Update rate in calculator based on loan type
+            const rates = { personal: 7.5, home: 4.5, auto: 5.5, business: 8.5 };
+            document.getElementById('calcRate').value = rates[type] || 7.5;
+            calculateLoan();
         }
 
         function calculateLoan() {
@@ -362,13 +487,101 @@
             }
         }
 
-        document.getElementById('loanForm').addEventListener('submit', function(e) {
+        // Submit loan application
+        document.getElementById('loanForm').addEventListener('submit', async function(e) {
             e.preventDefault();
-            alert('Thank you for your loan application! We will review your information and contact you within 1-2 business days.');
+            
+            if (!userId || !token) {
+                alert('Please sign in to submit a loan application.');
+                window.location.href = 'signin.html';
+                return;
+            }
+
+            const submitBtn = this.querySelector('.submit-btn');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
+
+            // Get form values
+            const loanType = document.getElementById('loanType').value;
+            const loanAmount = parseFloat(document.querySelector('[name="amount"]').value);
+            const loanDurationMonths = parseInt(document.querySelector('[name="term"]').value);
+            const monthlyIncome = parseFloat(document.querySelector('[name="income"]').value);
+            const employmentStatus = document.querySelector('[name="employment"]').value;
+            const purpose = document.querySelector('[name="purpose"]').value;
+
+            // Validate
+            if (!loanType) {
+                alert('Please select a loan type from the options above.');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalText;
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_URL}/api/loans/apply`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        userId: userId,
+                        loanType: loanType,
+                        loanAmount: loanAmount,
+                        loanDurationMonths: loanDurationMonths,
+                        monthlyIncome: monthlyIncome / 12, // Convert annual to monthly
+                        employmentStatus: employmentStatus,
+                        purpose: purpose
+                    })
+                });
+
+                const data = await res.json();
+
+                if (res.ok && data.success) {
+                    // Show success modal
+                    document.getElementById('applicationId').textContent = '#LA-' + data.applicationId.toString().padStart(6, '0');
+                    document.getElementById('successModal').classList.add('active');
+                    
+                    // Reset form
+                    this.reset();
+                    document.querySelectorAll('.loan-card').forEach(c => c.classList.remove('selected'));
+                    
+                    // Reload applications list
+                    loadMyApplications();
+                } else {
+                    alert(data.message || 'Error submitting application. Please try again.');
+                }
+            } catch (err) {
+                console.error('Submit error:', err);
+                alert('Connection error. Please check your internet and try again.');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalText;
+            }
         });
 
-        // Initial calculation
+        function closeSuccessModal() {
+            document.getElementById('successModal').classList.remove('active');
+        }
+
+        // Initialize
+        checkAuth();
         calculateLoan();
     </script>
+
+    <!-- Success Modal -->
+    <div id="successModal" class="success-modal">
+        <div class="success-content">
+            <div class="success-icon"><i class="fas fa-check"></i></div>
+            <h2>Application Submitted!</h2>
+            <p>Your loan application has been received and is now under review.</p>
+            <div class="app-id" id="applicationId">#LA-000001</div>
+            <p style="font-size: 0.9rem; color: #888;">You'll receive an email update within 1-2 business days.</p>
+            <button onclick="closeSuccessModal()" class="submit-btn" style="margin-top: 20px;">
+                <i class="fas fa-check"></i> Done
+            </button>
+        </div>
+    </div>
 </body>
 </html>

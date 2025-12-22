@@ -8,74 +8,498 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { background: #f5f5f5; font-family: 'Segoe UI', sans-serif; min-height: 100vh; }
-        .container { max-width: 600px; margin: 50px auto; padding: 20px; }
-        .card { background: white; border-radius: 16px; padding: 40px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-        .card h1 { color: #1a472a; margin-bottom: 30px; text-align: center; }
-        .form-group { margin-bottom: 25px; }
-        .form-group label { display: block; margin-bottom: 10px; color: #1a472a; font-weight: 600; }
-        .form-group input, .form-group select { width: 100%; padding: 15px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 1rem; }
-        .form-group input:focus, .form-group select:focus { outline: none; border-color: #d4af37; }
-        .btn-primary { width: 100%; padding: 16px; background: #1a472a; color: white; border: none; border-radius: 8px; font-size: 1.1rem; cursor: pointer; }
+        
+        .container { max-width: 700px; margin: 30px auto; padding: 20px; }
+        
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+        .back-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: white;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .back-btn i { color: #1a472a; }
+        .header h1 { color: #1a472a; }
+        
+        .balance-card {
+            background: linear-gradient(135deg, #1a472a 0%, #2d5f3f 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 12px;
+            margin-bottom: 25px;
+        }
+        .balance-card p { opacity: 0.9; font-size: 0.9rem; }
+        .balance-card h2 { font-size: 2rem; margin-top: 10px; }
+        
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            margin-bottom: 25px;
+        }
+        .card h2 {
+            color: #1a472a;
+            margin-bottom: 25px;
+            font-size: 1.3rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .biller-categories {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 25px;
+        }
+        .category-btn {
+            padding: 10px 20px;
+            border: 2px solid #e0e0e0;
+            background: white;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.3s;
+        }
+        .category-btn.active {
+            border-color: #1a472a;
+            background: #f0f7f2;
+            color: #1a472a;
+            font-weight: 600;
+        }
+        .category-btn:hover {
+            border-color: #1a472a;
+        }
+        
+        .billers-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+        .biller-card {
+            padding: 20px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .biller-card:hover, .biller-card.selected {
+            border-color: #1a472a;
+            background: #f0f7f2;
+        }
+        .biller-card i {
+            font-size: 2rem;
+            color: #d4af37;
+            margin-bottom: 10px;
+        }
+        .biller-card h4 { color: #333; font-size: 0.9rem; }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+        }
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 14px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.3s;
+        }
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: #1a472a;
+        }
+        .form-group small {
+            color: #666;
+            font-size: 0.85rem;
+            margin-top: 5px;
+            display: block;
+        }
+        
+        .amount-input {
+            position: relative;
+        }
+        .amount-input span {
+            position: absolute;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #666;
+            font-size: 1.2rem;
+        }
+        .amount-input input {
+            padding-left: 35px;
+            font-size: 1.3rem;
+            font-weight: 600;
+        }
+        
+        .btn-primary {
+            width: 100%;
+            padding: 16px;
+            background: #1a472a;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: background 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
         .btn-primary:hover { background: #2d5f3f; }
-        .back-link { text-align: center; margin-top: 20px; }
-        .back-link a { color: #1a472a; text-decoration: none; }
-        .alert { padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+        .btn-primary:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
         .alert-success { background: #d4edda; color: #155724; }
         .alert-danger { background: #f8d7da; color: #721c24; }
+        
+        .payment-summary {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .summary-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .summary-row:last-child { border-bottom: none; }
+        .summary-row.total {
+            font-weight: 600;
+            font-size: 1.1rem;
+            color: #1a472a;
+        }
+        
+        .recent-bills {
+            margin-top: 20px;
+        }
+        .recent-bills h3 {
+            color: #1a472a;
+            margin-bottom: 15px;
+            font-size: 1rem;
+        }
+        .bill-item {
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+        }
+        .bill-item:last-child { border-bottom: none; }
+        .bill-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #f0f7f2;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 12px;
+        }
+        .bill-icon i { color: #1a472a; }
+        .bill-details { flex: 1; }
+        .bill-details h4 { font-size: 0.95rem; color: #333; }
+        .bill-details span { font-size: 0.85rem; color: #666; }
+        .bill-amount { font-weight: 600; color: #dc3545; }
+        
+        @media (max-width: 600px) {
+            .container { padding: 15px; margin: 15px auto; }
+            .card { padding: 20px; }
+            .billers-grid { grid-template-columns: repeat(2, 1fr); }
+        }
     </style>
 </head>
 <body>
     <div class="container">
+        <div class="header">
+            <button class="back-btn" onclick="location.href='dashboard.html'"><i class="fas fa-arrow-left"></i></button>
+            <h1>Pay Bills</h1>
+        </div>
+        
+        <div class="balance-card">
+            <p>Available Balance</p>
+            <h2 id="currentBalance">$0.00</h2>
+        </div>
+        
         <div class="card">
-            <h1><i class="fas fa-file-invoice-dollar"></i> Pay Bills</h1>
+            <h2><i class="fas fa-file-invoice-dollar"></i> Select Biller</h2>
+            
             <div id="alertBox"></div>
-            <form id="billForm">
-                <div class="form-group">
-                    <label>Select Biller</label>
-                    <select id="billerId" required>
-                        <option value="">Choose a biller...</option>
-                        <option value="1">Electric Company</option>
-                        <option value="2">Water Services</option>
-                        <option value="3">Gas Company</option>
-                        <option value="4">Internet Provider</option>
-                        <option value="5">Mobile Phone</option>
-                        <option value="6">Cable TV</option>
-                        <option value="7">Insurance Premium</option>
-                        <option value="8">Credit Card</option>
-                    </select>
+            
+            <div class="biller-categories">
+                <button class="category-btn active" onclick="filterBillers('all')">All</button>
+                <button class="category-btn" onclick="filterBillers('Utilities')">Utilities</button>
+                <button class="category-btn" onclick="filterBillers('Insurance')">Insurance</button>
+                <button class="category-btn" onclick="filterBillers('Credit')">Credit</button>
+                <button class="category-btn" onclick="filterBillers('Housing')">Housing</button>
+            </div>
+            
+            <div class="billers-grid" id="billersGrid">
+                <!-- Billers will be loaded here -->
+            </div>
+            
+            <form id="billForm" style="display: none;">
+                <div id="selectedBillerInfo" style="background: #f0f7f2; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                    <h4 id="selectedBillerName" style="color: #1a472a;">-</h4>
                 </div>
-                <div class="form-group"><label>Account Number</label><input type="text" id="accountNumber" required></div>
-                <div class="form-group"><label>Amount ($)</label><input type="number" id="amount" min="1" step="0.01" required></div>
-                <button type="submit" class="btn-primary"><i class="fas fa-paper-plane"></i> Pay Bill</button>
+                
+                <div class="form-group">
+                    <label>Account Number / Reference</label>
+                    <input type="text" id="accountNumber" placeholder="Enter your account number" required>
+                    <small>Enter your account number with the biller</small>
+                </div>
+                
+                <div class="form-group">
+                    <label>Amount</label>
+                    <div class="amount-input">
+                        <span>$</span>
+                        <input type="number" id="amount" min="1" step="0.01" placeholder="0.00" required oninput="updateSummary()">
+                    </div>
+                </div>
+                
+                <div class="payment-summary" id="paymentSummary" style="display: none;">
+                    <div class="summary-row">
+                        <span>Bill Amount</span>
+                        <span id="summaryAmount">$0.00</span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Service Fee</span>
+                        <span>$0.00</span>
+                    </div>
+                    <div class="summary-row total">
+                        <span>Total</span>
+                        <span id="summaryTotal">$0.00</span>
+                    </div>
+                </div>
+                
+                <button type="submit" class="btn-primary" id="submitBtn">
+                    <i class="fas fa-paper-plane"></i> Pay Bill
+                </button>
             </form>
-            <div class="back-link"><a href="dashboard.html"><i class="fas fa-arrow-left"></i> Back to Dashboard</a></div>
+        </div>
+        
+        <div class="card recent-bills" id="recentBillsSection" style="display: none;">
+            <h3><i class="fas fa-history"></i> Recent Payments</h3>
+            <div id="recentBills"></div>
         </div>
     </div>
+    
     <script>
         const API_URL = '';
+        let userId = null;
+        let currentBalance = 0;
+        let selectedBiller = null;
+        let billers = [];
+        
+        const billerIcons = {
+            'Utilities': 'fa-bolt',
+            'Insurance': 'fa-shield-alt',
+            'Credit': 'fa-credit-card',
+            'Housing': 'fa-home',
+            'Loans': 'fa-hand-holding-usd'
+        };
+        
+        // Check authentication and load user data
+        async function init() {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                window.location.href = 'signin.html';
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_URL}/api/auth/profile`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                
+                if (data.success && data.user) {
+                    userId = data.user.id;
+                    currentBalance = data.user.balance || 0;
+                    document.getElementById('currentBalance').textContent = '$' + currentBalance.toLocaleString(undefined, {minimumFractionDigits: 2});
+                    loadBillers();
+                } else {
+                    window.location.href = 'signin.html';
+                }
+            } catch (e) {
+                console.error('Auth error:', e);
+            }
+        }
+        
+        async function loadBillers() {
+            try {
+                const res = await fetch(`${API_URL}/api/bills/billers`);
+                const data = await res.json();
+                
+                if (data.success) {
+                    billers = data.billers;
+                    displayBillers(billers);
+                }
+            } catch (e) {
+                console.error('Error loading billers:', e);
+                // Fallback billers
+                billers = [
+                    { id: 1, name: 'Electric Company', category: 'Utilities' },
+                    { id: 2, name: 'Water Department', category: 'Utilities' },
+                    { id: 3, name: 'Internet Provider', category: 'Utilities' },
+                    { id: 4, name: 'Phone Company', category: 'Utilities' },
+                    { id: 5, name: 'Insurance Co', category: 'Insurance' },
+                    { id: 6, name: 'Credit Card Payment', category: 'Credit' },
+                    { id: 7, name: 'Rent Payment', category: 'Housing' }
+                ];
+                displayBillers(billers);
+            }
+        }
+        
+        function displayBillers(list) {
+            const grid = document.getElementById('billersGrid');
+            grid.innerHTML = list.map(b => `
+                <div class="biller-card" onclick="selectBiller(${b.id}, '${b.name}', '${b.category}')" id="biller-${b.id}">
+                    <i class="fas ${billerIcons[b.category] || 'fa-building'}"></i>
+                    <h4>${b.name}</h4>
+                </div>
+            `).join('');
+        }
+        
+        function filterBillers(category) {
+            document.querySelectorAll('.category-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            if (category === 'all') {
+                displayBillers(billers);
+            } else {
+                displayBillers(billers.filter(b => b.category === category));
+            }
+        }
+        
+        function selectBiller(id, name, category) {
+            document.querySelectorAll('.biller-card').forEach(c => c.classList.remove('selected'));
+            document.getElementById('biller-' + id).classList.add('selected');
+            
+            selectedBiller = { id, name, category };
+            document.getElementById('selectedBillerName').textContent = name;
+            document.getElementById('billForm').style.display = 'block';
+            document.getElementById('accountNumber').focus();
+        }
+        
+        function updateSummary() {
+            const amount = parseFloat(document.getElementById('amount').value) || 0;
+            if (amount > 0) {
+                document.getElementById('paymentSummary').style.display = 'block';
+                document.getElementById('summaryAmount').textContent = '$' + amount.toLocaleString(undefined, {minimumFractionDigits: 2});
+                document.getElementById('summaryTotal').textContent = '$' + amount.toLocaleString(undefined, {minimumFractionDigits: 2});
+            } else {
+                document.getElementById('paymentSummary').style.display = 'none';
+            }
+        }
+        
+        function showAlert(message, type) {
+            document.getElementById('alertBox').innerHTML = `
+                <div class="alert alert-${type}">
+                    <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
+                    ${message}
+                </div>
+            `;
+        }
+        
+        // Form submission
         document.getElementById('billForm').addEventListener('submit', async (e) => {
             e.preventDefault();
+            
             const token = localStorage.getItem('token');
-            if (!token) { window.location.href = 'signin.html'; return; }
+            if (!token || !userId || !selectedBiller) {
+                showAlert('Please select a biller and try again', 'danger');
+                return;
+            }
+            
+            const amount = parseFloat(document.getElementById('amount').value);
+            
+            if (amount > currentBalance) {
+                showAlert('Insufficient balance for this payment', 'danger');
+                return;
+            }
+            
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+            
             try {
                 const res = await fetch(`${API_URL}/api/bills/pay`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
                     body: JSON.stringify({
-                        billerId: document.getElementById('billerId').value,
-                        accountNumber: document.getElementById('accountNumber').value,
-                        amount: parseFloat(document.getElementById('amount').value)
+                        userId: userId,
+                        billerId: selectedBiller.id,
+                        amount: amount,
+                        accountNumber: document.getElementById('accountNumber').value
                     })
                 });
+                
                 const data = await res.json();
-                document.getElementById('alertBox').innerHTML = data.success
-                    ? `<div class="alert alert-success">${data.message}</div>`
-                    : `<div class="alert alert-danger">${data.message}</div>`;
-                if (data.success) e.target.reset();
-            } catch (e) {
-                document.getElementById('alertBox').innerHTML = `<div class="alert alert-danger">Connection error</div>`;
+                
+                if (data.success) {
+                    showAlert(`Payment successful! Paid $${amount.toLocaleString(undefined, {minimumFractionDigits: 2})} to ${selectedBiller.name}`, 'success');
+                    
+                    // Update balance display
+                    currentBalance -= amount;
+                    document.getElementById('currentBalance').textContent = '$' + currentBalance.toLocaleString(undefined, {minimumFractionDigits: 2});
+                    
+                    // Reset form
+                    e.target.reset();
+                    document.getElementById('paymentSummary').style.display = 'none';
+                    document.getElementById('billForm').style.display = 'none';
+                    document.querySelectorAll('.biller-card').forEach(c => c.classList.remove('selected'));
+                    selectedBiller = null;
+                } else {
+                    showAlert(data.message || 'Payment failed', 'danger');
+                }
+            } catch (err) {
+                showAlert('Connection error. Please try again.', 'danger');
+                console.error('Payment error:', err);
             }
+            
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Pay Bill';
         });
+        
+        // Initialize
+        init();
     </script>
 </body>
 </html>

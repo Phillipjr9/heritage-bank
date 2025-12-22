@@ -8,61 +8,562 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { background: #f5f5f5; font-family: 'Segoe UI', sans-serif; min-height: 100vh; }
-        .container { max-width: 600px; margin: 50px auto; padding: 20px; }
-        .card { background: white; border-radius: 16px; padding: 40px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-        .card h1 { color: #1a472a; margin-bottom: 30px; text-align: center; }
-        .form-group { margin-bottom: 25px; }
-        .form-group label { display: block; margin-bottom: 10px; color: #1a472a; font-weight: 600; }
-        .form-group input, .form-group select { width: 100%; padding: 15px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 1rem; }
-        .form-group input:focus { outline: none; border-color: #d4af37; }
-        .btn-primary { width: 100%; padding: 16px; background: #1a472a; color: white; border: none; border-radius: 8px; font-size: 1.1rem; cursor: pointer; }
+        
+        .container { max-width: 700px; margin: 30px auto; padding: 20px; }
+        
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+        .back-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: white;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .back-btn i { color: #1a472a; }
+        .header h1 { color: #1a472a; }
+        
+        .balance-card {
+            background: linear-gradient(135deg, #1a472a 0%, #2d5f3f 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 12px;
+            margin-bottom: 25px;
+        }
+        .balance-card p { opacity: 0.9; font-size: 0.9rem; }
+        .balance-card h2 { font-size: 2rem; margin-top: 10px; }
+        
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            margin-bottom: 25px;
+        }
+        .card h2 {
+            color: #1a472a;
+            margin-bottom: 25px;
+            font-size: 1.3rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .transfer-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 25px;
+        }
+        .tab-btn {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            background: white;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.95rem;
+            transition: all 0.3s;
+        }
+        .tab-btn.active {
+            border-color: #1a472a;
+            background: #f0f7f2;
+            color: #1a472a;
+            font-weight: 600;
+        }
+        .tab-btn i { margin-right: 8px; }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+        }
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 14px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.3s;
+        }
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+            outline: none;
+            border-color: #1a472a;
+        }
+        .form-group small {
+            color: #666;
+            font-size: 0.85rem;
+            margin-top: 5px;
+            display: block;
+        }
+        
+        .amount-input {
+            position: relative;
+        }
+        .amount-input span {
+            position: absolute;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #666;
+            font-size: 1.2rem;
+        }
+        .amount-input input {
+            padding-left: 35px;
+            font-size: 1.3rem;
+            font-weight: 600;
+        }
+        
+        .quick-amounts {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .quick-amount {
+            padding: 8px 16px;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            background: white;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        .quick-amount:hover {
+            border-color: #1a472a;
+            background: #f0f7f2;
+        }
+        
+        .btn-primary {
+            width: 100%;
+            padding: 16px;
+            background: #1a472a;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: background 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
         .btn-primary:hover { background: #2d5f3f; }
-        .back-link { text-align: center; margin-top: 20px; }
-        .back-link a { color: #1a472a; text-decoration: none; }
-        .alert { padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+        .btn-primary:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
         .alert-success { background: #d4edda; color: #155724; }
         .alert-danger { background: #f8d7da; color: #721c24; }
+        .alert-info { background: #d1ecf1; color: #0c5460; }
+        
+        .recipient-preview {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        .recipient-preview.show { display: block; }
+        .recipient-preview h4 { color: #1a472a; margin-bottom: 5px; }
+        .recipient-preview p { color: #666; font-size: 0.9rem; }
+        
+        .transfer-summary {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .summary-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .summary-row:last-child { border-bottom: none; }
+        .summary-row.total {
+            font-weight: 600;
+            font-size: 1.1rem;
+            color: #1a472a;
+        }
+        
+        .recent-transfers {
+            margin-top: 20px;
+        }
+        .recent-transfers h3 {
+            color: #1a472a;
+            margin-bottom: 15px;
+            font-size: 1rem;
+        }
+        .transfer-item {
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+        }
+        .transfer-item:hover { background: #f8f9fa; }
+        .transfer-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #f0f7f2;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 12px;
+        }
+        .transfer-icon i { color: #1a472a; }
+        .transfer-details { flex: 1; }
+        .transfer-details h4 { font-size: 0.95rem; color: #333; }
+        .transfer-details span { font-size: 0.85rem; color: #666; }
+        
+        @media (max-width: 600px) {
+            .container { padding: 15px; margin: 15px auto; }
+            .card { padding: 20px; }
+            .transfer-tabs { flex-direction: column; }
+            .quick-amounts { flex-wrap: wrap; }
+        }
     </style>
 </head>
 <body>
     <div class="container">
+        <div class="header">
+            <button class="back-btn" onclick="location.href='dashboard.html'"><i class="fas fa-arrow-left"></i></button>
+            <h1>Send Money</h1>
+        </div>
+        
+        <div class="balance-card">
+            <p>Available Balance</p>
+            <h2 id="currentBalance">$0.00</h2>
+        </div>
+        
         <div class="card">
-            <h1><i class="fas fa-paper-plane"></i> Send Money</h1>
+            <h2><i class="fas fa-paper-plane"></i> Transfer Details</h2>
+            
             <div id="alertBox"></div>
+            
+            <div class="transfer-tabs">
+                <button class="tab-btn active" onclick="setTransferType('email')">
+                    <i class="fas fa-envelope"></i> By Email
+                </button>
+                <button class="tab-btn" onclick="setTransferType('account')">
+                    <i class="fas fa-university"></i> By Account #
+                </button>
+            </div>
+            
             <form id="transferForm">
-                <div class="form-group"><label>Recipient Email</label><input type="email" id="toEmail" required></div>
-                <div class="form-group"><label>Amount ($)</label><input type="number" id="amount" min="1" step="0.01" required></div>
-                <div class="form-group"><label>Description</label><input type="text" id="description" placeholder="Optional note"></div>
-                <button type="submit" class="btn-primary"><i class="fas fa-paper-plane"></i> Send Transfer</button>
+                <div class="form-group" id="emailGroup">
+                    <label>Recipient Email</label>
+                    <input type="email" id="toEmail" placeholder="recipient@email.com" oninput="lookupRecipient()">
+                    <small>Enter the email address of the Heritage Bank user</small>
+                </div>
+                
+                <div class="form-group" id="accountGroup" style="display: none;">
+                    <label>Recipient Account Number</label>
+                    <input type="text" id="toAccountNumber" placeholder="10-digit account number" maxlength="10" oninput="lookupRecipient()">
+                    <small>Enter the 10-digit Heritage Bank account number</small>
+                </div>
+                
+                <div class="recipient-preview" id="recipientPreview">
+                    <h4 id="recipientName">-</h4>
+                    <p id="recipientInfo">-</p>
+                </div>
+                
+                <div class="form-group">
+                    <label>Amount</label>
+                    <div class="amount-input">
+                        <span>$</span>
+                        <input type="number" id="amount" min="1" step="0.01" placeholder="0.00" required oninput="updateSummary()">
+                    </div>
+                    <div class="quick-amounts">
+                        <button type="button" class="quick-amount" onclick="setAmount(50)">$50</button>
+                        <button type="button" class="quick-amount" onclick="setAmount(100)">$100</button>
+                        <button type="button" class="quick-amount" onclick="setAmount(250)">$250</button>
+                        <button type="button" class="quick-amount" onclick="setAmount(500)">$500</button>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>Note (Optional)</label>
+                    <textarea id="description" rows="2" placeholder="What's this for?"></textarea>
+                </div>
+                
+                <div class="transfer-summary" id="transferSummary" style="display: none;">
+                    <div class="summary-row">
+                        <span>Transfer Amount</span>
+                        <span id="summaryAmount">$0.00</span>
+                    </div>
+                    <div class="summary-row">
+                        <span>Transfer Fee</span>
+                        <span>$0.00</span>
+                    </div>
+                    <div class="summary-row total">
+                        <span>Total</span>
+                        <span id="summaryTotal">$0.00</span>
+                    </div>
+                </div>
+                
+                <button type="submit" class="btn-primary" id="submitBtn">
+                    <i class="fas fa-paper-plane"></i> Send Money
+                </button>
             </form>
-            <div class="back-link"><a href="dashboard.html"><i class="fas fa-arrow-left"></i> Back to Dashboard</a></div>
+        </div>
+        
+        <div class="card recent-transfers" id="recentTransfersSection" style="display: none;">
+            <h3><i class="fas fa-history"></i> Recent Recipients</h3>
+            <div id="recentRecipients"></div>
         </div>
     </div>
+    
     <script>
         const API_URL = '';
-        document.getElementById('transferForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
+        let userId = null;
+        let currentBalance = 0;
+        let transferType = 'email';
+        let recentRecipients = [];
+        
+        // Check authentication and load user data
+        async function init() {
             const token = localStorage.getItem('token');
-            if (!token) { window.location.href = 'signin.html'; return; }
+            if (!token) {
+                window.location.href = 'signin.html';
+                return;
+            }
+            
             try {
-                const res = await fetch(`${API_URL}/api/user/transfer`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({
-                        toEmail: document.getElementById('toEmail').value,
-                        amount: parseFloat(document.getElementById('amount').value),
-                        description: document.getElementById('description').value
-                    })
+                const res = await fetch(`${API_URL}/api/auth/profile`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
                 });
                 const data = await res.json();
-                document.getElementById('alertBox').innerHTML = data.success
-                    ? `<div class="alert alert-success">${data.message}</div>`
-                    : `<div class="alert alert-danger">${data.message}</div>`;
-                if (data.success) e.target.reset();
+                
+                if (data.success && data.user) {
+                    userId = data.user.id;
+                    currentBalance = data.user.balance || 0;
+                    document.getElementById('currentBalance').textContent = '$' + currentBalance.toLocaleString(undefined, {minimumFractionDigits: 2});
+                    loadRecentRecipients();
+                } else {
+                    window.location.href = 'signin.html';
+                }
             } catch (e) {
-                document.getElementById('alertBox').innerHTML = `<div class="alert alert-danger">Connection error</div>`;
+                console.error('Auth error:', e);
             }
+        }
+        
+        function setTransferType(type) {
+            transferType = type;
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            if (type === 'email') {
+                document.getElementById('emailGroup').style.display = 'block';
+                document.getElementById('accountGroup').style.display = 'none';
+                document.getElementById('toEmail').required = true;
+                document.getElementById('toAccountNumber').required = false;
+            } else {
+                document.getElementById('emailGroup').style.display = 'none';
+                document.getElementById('accountGroup').style.display = 'block';
+                document.getElementById('toEmail').required = false;
+                document.getElementById('toAccountNumber').required = true;
+            }
+            
+            document.getElementById('recipientPreview').classList.remove('show');
+        }
+        
+        function setAmount(amount) {
+            document.getElementById('amount').value = amount;
+            updateSummary();
+        }
+        
+        function updateSummary() {
+            const amount = parseFloat(document.getElementById('amount').value) || 0;
+            if (amount > 0) {
+                document.getElementById('transferSummary').style.display = 'block';
+                document.getElementById('summaryAmount').textContent = '$' + amount.toLocaleString(undefined, {minimumFractionDigits: 2});
+                document.getElementById('summaryTotal').textContent = '$' + amount.toLocaleString(undefined, {minimumFractionDigits: 2});
+            } else {
+                document.getElementById('transferSummary').style.display = 'none';
+            }
+        }
+        
+        async function lookupRecipient() {
+            // This could be enhanced to preview recipient details
+            // For now, just show a basic preview
+            const preview = document.getElementById('recipientPreview');
+            if (transferType === 'email') {
+                const email = document.getElementById('toEmail').value;
+                if (email && email.includes('@')) {
+                    preview.classList.add('show');
+                    document.getElementById('recipientName').textContent = 'Heritage Bank User';
+                    document.getElementById('recipientInfo').textContent = email;
+                } else {
+                    preview.classList.remove('show');
+                }
+            } else {
+                const account = document.getElementById('toAccountNumber').value;
+                if (account && account.length >= 8) {
+                    preview.classList.add('show');
+                    document.getElementById('recipientName').textContent = 'Heritage Bank Account';
+                    document.getElementById('recipientInfo').textContent = 'Account: ****' + account.slice(-4);
+                } else {
+                    preview.classList.remove('show');
+                }
+            }
+        }
+        
+        async function loadRecentRecipients() {
+            // Load from localStorage or API
+            const saved = localStorage.getItem('recentRecipients');
+            if (saved) {
+                recentRecipients = JSON.parse(saved);
+                displayRecentRecipients();
+            }
+        }
+        
+        function displayRecentRecipients() {
+            if (recentRecipients.length === 0) return;
+            
+            document.getElementById('recentTransfersSection').style.display = 'block';
+            const container = document.getElementById('recentRecipients');
+            
+            container.innerHTML = recentRecipients.slice(0, 5).map(r => `
+                <div class="transfer-item" onclick="selectRecipient('${r.email || ''}', '${r.accountNumber || ''}')">
+                    <div class="transfer-icon">
+                        <i class="fas fa-user"></i>
+                    </div>
+                    <div class="transfer-details">
+                        <h4>${r.name}</h4>
+                        <span>${r.email || ('Account: ****' + r.accountNumber.slice(-4))}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function selectRecipient(email, accountNumber) {
+            if (email) {
+                setTransferType('email');
+                document.getElementById('toEmail').value = email;
+            } else {
+                setTransferType('account');
+                document.getElementById('toAccountNumber').value = accountNumber;
+            }
+            lookupRecipient();
+            document.getElementById('amount').focus();
+        }
+        
+        function showAlert(message, type) {
+            document.getElementById('alertBox').innerHTML = `
+                <div class="alert alert-${type}">
+                    <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'danger' ? 'exclamation-circle' : 'info-circle'}"></i>
+                    ${message}
+                </div>
+            `;
+        }
+        
+        // Form submission
+        document.getElementById('transferForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const token = localStorage.getItem('token');
+            if (!token || !userId) {
+                window.location.href = 'signin.html';
+                return;
+            }
+            
+            const amount = parseFloat(document.getElementById('amount').value);
+            
+            // Validate amount
+            if (amount > currentBalance) {
+                showAlert('Insufficient balance for this transfer', 'danger');
+                return;
+            }
+            
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+            
+            try {
+                const body = {
+                    fromUserId: userId,
+                    amount: amount,
+                    description: document.getElementById('description').value || 'Money transfer'
+                };
+                
+                if (transferType === 'email') {
+                    body.toEmail = document.getElementById('toEmail').value;
+                } else {
+                    body.toAccountNumber = document.getElementById('toAccountNumber').value;
+                }
+                
+                const res = await fetch(`${API_URL}/api/user/transfer`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(body)
+                });
+                
+                const data = await res.json();
+                
+                if (data.success) {
+                    showAlert(`Transfer successful! Sent $${amount.toLocaleString(undefined, {minimumFractionDigits: 2})} to ${data.transaction?.to || 'recipient'}`, 'success');
+                    
+                    // Update balance display
+                    currentBalance -= amount;
+                    document.getElementById('currentBalance').textContent = '$' + currentBalance.toLocaleString(undefined, {minimumFractionDigits: 2});
+                    
+                    // Save to recent recipients
+                    const recipient = {
+                        name: data.transaction?.to || 'Heritage Bank User',
+                        email: body.toEmail || null,
+                        accountNumber: body.toAccountNumber || null,
+                        timestamp: new Date().toISOString()
+                    };
+                    recentRecipients = [recipient, ...recentRecipients.filter(r => 
+                        r.email !== recipient.email && r.accountNumber !== recipient.accountNumber
+                    )].slice(0, 10);
+                    localStorage.setItem('recentRecipients', JSON.stringify(recentRecipients));
+                    displayRecentRecipients();
+                    
+                    // Reset form
+                    e.target.reset();
+                    document.getElementById('recipientPreview').classList.remove('show');
+                    document.getElementById('transferSummary').style.display = 'none';
+                } else {
+                    showAlert(data.message || 'Transfer failed', 'danger');
+                }
+            } catch (err) {
+                showAlert('Connection error. Please try again.', 'danger');
+                console.error('Transfer error:', err);
+            }
+            
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Money';
         });
+        
+        // Initialize
+        init();
     </script>
 </body>
 </html>
