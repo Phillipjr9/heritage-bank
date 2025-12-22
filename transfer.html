@@ -334,6 +334,16 @@
             <h3><i class="fas fa-history"></i> Recent Recipients</h3>
             <div id="recentRecipients"></div>
         </div>
+
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h3><i class="fas fa-address-book"></i> Saved Beneficiaries</h3>
+                <button class="btn-action" onclick="showAddBeneficiaryModal()">
+                    <i class="fas fa-plus"></i> Add Beneficiary
+                </button>
+            </div>
+            <div id="beneficiariesList"></div>
+        </div>
     </div>
     
     <script>
@@ -564,6 +574,286 @@
         
         // Initialize
         init();
+        loadBeneficiaries();
+
+        // ==================== BENEFICIARY MANAGEMENT ====================
+        async function loadBeneficiaries() {
+            const token = localStorage.getItem('token');
+            try {
+                const res = await fetch(`${API_URL}/api/beneficiaries`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    displayBeneficiaries(data.beneficiaries);
+                }
+            } catch (err) {
+                console.error('Error loading beneficiaries:', err);
+            }
+        }
+
+        function displayBeneficiaries(beneficiaries) {
+            const container = document.getElementById('beneficiariesList');
+            
+            if (beneficiaries.length === 0) {
+                container.innerHTML = '<p style="color: #999; text-align: center; padding: 20px;">No saved beneficiaries. Add one to make transfers easier!</p>';
+                return;
+            }
+            
+            container.innerHTML = beneficiaries.map(b => `
+                <div class="beneficiary-item">
+                    <div>
+                        <h4>${b.nickname || b.name}</h4>
+                        <p>${b.accountNumber} ${b.bankName !== 'Heritage Bank' ? ' • ' + b.bankName : ''}</p>
+                        ${b.email ? `<p style="font-size: 12px; color: #999;">${b.email}</p>` : ''}
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        <button class="btn-small" onclick="transferToBeneficiary('${b.accountNumber}', '${b.email || ''}', '${b.name}')">
+                            <i class="fas fa-paper-plane"></i> Transfer
+                        </button>
+                        <button class="btn-small btn-secondary" onclick="editBeneficiary(${b.id}, '${b.name}', '${b.accountNumber}', '${b.bankName}', '${b.email || ''}', '${b.nickname || ''}')">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn-small btn-danger" onclick="deleteBeneficiary(${b.id})">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function transferToBeneficiary(accountNumber, email, name) {
+            if (accountNumber) {
+                transferType = 'account';
+                document.getElementById('accountTab').click();
+                document.getElementById('recipientAccount').value = accountNumber;
+            } else if (email) {
+                transferType = 'email';
+                document.getElementById('emailTab').click();
+                document.getElementById('recipientEmail').value = email;
+            }
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function showAddBeneficiaryModal() {
+            const modal = document.createElement('div');
+            modal.className = 'modal';
+            modal.innerHTML = `
+                <div class="modal-content">
+                    <h2><i class="fas fa-user-plus"></i> Add Beneficiary</h2>
+                    <form onsubmit="saveBeneficiary(event)">
+                        <div class="form-group">
+                            <label>Full Name *</label>
+                            <input type="text" id="benName" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Nickname (Optional)</label>
+                            <input type="text" id="benNickname" placeholder="e.g., Mom, John's Account">
+                        </div>
+                        <div class="form-group">
+                            <label>Account Number *</label>
+                            <input type="text" id="benAccount" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Bank Name</label>
+                            <input type="text" id="benBank" value="Heritage Bank">
+                        </div>
+                        <div class="form-group">
+                            <label>Email (Optional)</label>
+                            <input type="email" id="benEmail">
+                        </div>
+                        <div style="display: flex; gap: 10px; margin-top: 20px;">
+                            <button type="submit" class="btn" style="flex: 1;">
+                                <i class="fas fa-save"></i> Save Beneficiary
+                            </button>
+                            <button type="button" class="btn btn-secondary" onclick="this.closest('.modal').remove()" style="flex: 1;">
+                                Cancel
+                            </button>
+                        </div>
+                    </form>
+                </div>
+                <style>
+                    .modal {
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        width: 100%;
+                        height: 100%;
+                        background: rgba(0,0,0,0.6);
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        z-index: 1000;
+                    }
+                    .modal-content {
+                        background: white;
+                        border-radius: 12px;
+                        padding: 30px;
+                        max-width: 500px;
+                        width: 90%;
+                        max-height: 90vh;
+                        overflow-y: auto;
+                    }
+                    .modal-content h2 {
+                        color: #1a472a;
+                        margin-top: 0;
+                    }
+                    .beneficiary-item {
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        padding: 15px;
+                        background: #f8f9fa;
+                        border-radius: 8px;
+                        margin-bottom: 10px;
+                    }
+                    .beneficiary-item h4 {
+                        margin: 0 0 5px 0;
+                        color: #1a472a;
+                    }
+                    .beneficiary-item p {
+                        margin: 0;
+                        color: #666;
+                        font-size: 14px;
+                    }
+                    .btn-small {
+                        padding: 8px 12px;
+                        font-size: 13px;
+                        background: #d4af37;
+                        color: #1a472a;
+                        border: none;
+                        border-radius: 6px;
+                        cursor: pointer;
+                        font-weight: 600;
+                    }
+                    .btn-small:hover {
+                        background: #c19b2e;
+                    }
+                    .btn-small.btn-secondary {
+                        background: #6c757d;
+                        color: white;
+                    }
+                    .btn-small.btn-danger {
+                        background: #dc3545;
+                        color: white;
+                    }
+                    .btn-action {
+                        padding: 10px 15px;
+                        background: #1a472a;
+                        color: white;
+                        border: none;
+                        border-radius: 6px;
+                        cursor: pointer;
+                        font-weight: 600;
+                    }
+                </style>
+            `;
+            document.body.appendChild(modal);
+        }
+
+        async function saveBeneficiary(e, beneficiaryId = null) {
+            e.preventDefault();
+            const token = localStorage.getItem('token');
+            
+            const data = {
+                name: document.getElementById('benName').value,
+                accountNumber: document.getElementById('benAccount').value,
+                bankName: document.getElementById('benBank').value,
+                email: document.getElementById('benEmail').value || null,
+                nickname: document.getElementById('benNickname').value || null
+            };
+            
+            try {
+                const url = beneficiaryId 
+                    ? `${API_URL}/api/beneficiaries/${beneficiaryId}`
+                    : `${API_URL}/api/beneficiaries`;
+                    
+                const res = await fetch(url, {
+                    method: beneficiaryId ? 'PUT' : 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await res.json();
+                
+                if (result.success) {
+                    showAlert(beneficiaryId ? 'Beneficiary updated!' : 'Beneficiary added!', 'success');
+                    document.querySelector('.modal').remove();
+                    loadBeneficiaries();
+                } else {
+                    showAlert(result.message, 'danger');
+                }
+            } catch (err) {
+                showAlert('Error saving beneficiary', 'danger');
+            }
+        }
+
+        function editBeneficiary(id, name, account, bank, email, nickname) {
+            const modal = document.createElement('div');
+            modal.className = 'modal';
+            modal.innerHTML = `
+                <div class="modal-content">
+                    <h2><i class="fas fa-edit"></i> Edit Beneficiary</h2>
+                    <form onsubmit="saveBeneficiary(event, ${id})">
+                        <div class="form-group">
+                            <label>Full Name *</label>
+                            <input type="text" id="benName" value="${name}" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Nickname (Optional)</label>
+                            <input type="text" id="benNickname" value="${nickname}" placeholder="e.g., Mom, John's Account">
+                        </div>
+                        <div class="form-group">
+                            <label>Account Number *</label>
+                            <input type="text" id="benAccount" value="${account}" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Bank Name</label>
+                            <input type="text" id="benBank" value="${bank}">
+                        </div>
+                        <div class="form-group">
+                            <label>Email (Optional)</label>
+                            <input type="email" id="benEmail" value="${email}">
+                        </div>
+                        <div style="display: flex; gap: 10px; margin-top: 20px;">
+                            <button type="submit" class="btn" style="flex: 1;">
+                                <i class="fas fa-save"></i> Update
+                            </button>
+                            <button type="button" class="btn btn-secondary" onclick="this.closest('.modal').remove()" style="flex: 1;">
+                                Cancel
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+
+        async function deleteBeneficiary(id) {
+            if (!confirm('Delete this beneficiary?')) return;
+            
+            const token = localStorage.getItem('token');
+            try {
+                const res = await fetch(`${API_URL}/api/beneficiaries/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                const data = await res.json();
+                if (data.success) {
+                    showAlert('Beneficiary deleted', 'success');
+                    loadBeneficiaries();
+                } else {
+                    showAlert(data.message, 'danger');
+                }
+            } catch (err) {
+                showAlert('Error deleting beneficiary', 'danger');
+            }
+        }
     </script>
 </body>
 </html>

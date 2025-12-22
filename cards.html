@@ -86,6 +86,12 @@
         .status-active {
             color: #27ae60;
         }
+        .status-frozen {
+            color: #3498db;
+        }
+        .status-blocked {
+            color: #e74c3c;
+        }
         .status-inactive {
             color: #e74c3c;
         }
@@ -132,6 +138,50 @@
             border-color: #d4af37;
             box-shadow: 0 0 5px rgba(212, 175, 55, 0.3);
         }
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background: white;
+            border-radius: 12px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .modal-header {
+            padding: 20px 25px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .modal-header h2 {
+            margin: 0;
+            color: #1a472a;
+        }
+        .modal-body {
+            padding: 25px;
+        }
+        .close-modal {
+            background: none;
+            border: none;
+            font-size: 28px;
+            color: #999;
+            cursor: pointer;
+        }
+        .close-modal:hover {
+            color: #333;
+        }
     </style>
 </head>
 <body>
@@ -143,36 +193,9 @@
         <div class="card">
             <h2 style="color: #1a472a; margin-top: 0;">Your Cards</h2>
             
-            <div class="card-item">
-                <div class="card-name">
-                    <h3><i class="fas fa-credit-card"></i> Visa Debit Card</h3>
-                    <p>Primary debit card</p>
-                </div>
-                <div style="text-align: right;">
-                    <p style="margin: 0; color: #1a472a; font-weight: 600;">****5678</p>
-                    <p style="margin: 0; color: #999; font-size: 12px;">Expires: 12/26</p>
-                    <p style="margin: 5px 0 0 0; color: #27ae60; font-size: 12px;"><i class="fas fa-check-circle"></i> Active</p>
-                </div>
-                <div>
-                    <button class="btn" onclick="manageCard('Visa Debit')">Manage</button>
-                    <button class="btn btn-secondary" onclick="deactivateCard('Visa Debit')">Deactivate</button>
-                </div>
-            </div>
-
-            <div class="card-item">
-                <div class="card-name">
-                    <h3><i class="fas fa-credit-card"></i> Mastercard Credit</h3>
-                    <p>Premium credit card</p>
-                </div>
-                <div style="text-align: right;">
-                    <p style="margin: 0; color: #1a472a; font-weight: 600;">****3456</p>
-                    <p style="margin: 0; color: #999; font-size: 12px;">Expires: 08/27</p>
-                    <p style="margin: 5px 0 0 0; color: #27ae60; font-size: 12px;"><i class="fas fa-check-circle"></i> Active</p>
-                </div>
-                <div>
-                    <button class="btn" onclick="manageCard('Mastercard Credit')">Manage</button>
-                    <button class="btn btn-secondary" onclick="deactivateCard('Mastercard Credit')">Deactivate</button>
-                </div>
+            <div id="activeCards">
+                <!-- Cards will be loaded dynamically -->
+                <p style="color: #999; text-align: center; padding: 20px;">Loading cards...</p>
             </div>
         </div>
 
@@ -262,13 +285,270 @@
         }
 
         function displayCards(userCards) {
-            const container = document.getElementById('activeCards') || document.querySelector('.card');
-            if (userCards.length > 0) {
-                // Cards already loaded, display them
-                userCards.forEach(card => {
-                    console.log('Card loaded:', card.lastFour);
+            const container = document.getElementById('activeCards');
+            if (!container) return;
+            
+            container.innerHTML = '';
+            userCards.forEach(card => {
+                const statusClass = card.status === 'active' ? 'status-active' : card.status === 'frozen' ? 'status-frozen' : 'status-blocked';
+                const statusIcon = card.status === 'active' ? 'fa-check-circle' : card.status === 'frozen' ? 'fa-snowflake' : 'fa-ban';
+                
+                const cardEl = document.createElement('div');
+                cardEl.className = 'card-item';
+                cardEl.innerHTML = `
+                    <div class="card-name">
+                        <h3><i class="fas fa-credit-card"></i> ${card.cardType.toUpperCase()} Card</h3>
+                        <p>****  ****  ****  ${card.lastFour}</p>
+                        <p style="font-size: 11px; color: #666;">Expires: ${card.expiryDate}</p>
+                    </div>
+                    <div class="card-status ${statusClass}">
+                        <i class="fas ${statusIcon}"></i> ${card.status.toUpperCase()}
+                    </div>
+                    <div>
+                        <button class="btn btn-small" onclick="showCardMenu(${card.id}, '${card.cardType}', '${card.status}')">
+                            <i class="fas fa-cog"></i> Manage
+                        </button>
+                    </div>
+                `;
+                container.appendChild(cardEl);
+            });
+        }
+
+        function showCardMenu(cardId, cardType, status) {
+            const menuHTML = `
+                <div class="modal" id="cardMenuModal">
+                    <div class="modal-content" style="max-width: 500px;">
+                        <div class="modal-header">
+                            <h2><i class="fas fa-credit-card"></i> Manage ${cardType.toUpperCase()} Card</h2>
+                            <button class="close-modal" onclick="closeModal('cardMenuModal')">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="card-actions">
+                                ${status === 'active' ? `
+                                    <button class="action-btn freeze-btn" onclick="freezeCard(${cardId})">
+                                        <i class="fas fa-snowflake"></i> Freeze Card
+                                    </button>
+                                ` : ''}
+                                ${status === 'frozen' ? `
+                                    <button class="action-btn unfreeze-btn" onclick="unfreezeCard(${cardId})">
+                                        <i class="fas fa-fire"></i> Unfreeze Card
+                                    </button>
+                                ` : ''}
+                                ${status !== 'blocked' ? `
+                                    <button class="action-btn block-btn" onclick="blockCard(${cardId})">
+                                        <i class="fas fa-ban"></i> Block Card (Permanent)
+                                    </button>
+                                    <button class="action-btn pin-btn" onclick="showChangePinModal(${cardId})">
+                                        <i class="fas fa-lock"></i> Change PIN
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <style>
+                    .card-actions {
+                        display: grid;
+                        gap: 15px;
+                    }
+                    .action-btn {
+                        padding: 15px;
+                        border: none;
+                        border-radius: 8px;
+                        font-size: 16px;
+                        font-weight: 600;
+                        cursor: pointer;
+                        transition: all 0.3s;
+                        text-align: left;
+                    }
+                    .action-btn i {
+                        margin-right: 10px;
+                        width: 20px;
+                    }
+                    .freeze-btn {
+                        background: #3498db;
+                        color: white;
+                    }
+                    .freeze-btn:hover {
+                        background: #2980b9;
+                    }
+                    .unfreeze-btn {
+                        background: #e67e22;
+                        color: white;
+                    }
+                    .unfreeze-btn:hover {
+                        background: #d35400;
+                    }
+                    .block-btn {
+                        background: #e74c3c;
+                        color: white;
+                    }
+                    .block-btn:hover {
+                        background: #c0392b;
+                    }
+                    .pin-btn {
+                        background: #9b59b6;
+                        color: white;
+                    }
+                    .pin-btn:hover {
+                        background: #8e44ad;
+                    }
+                </style>
+            `;
+            
+            document.body.insertAdjacentHTML('beforeend', menuHTML);
+        }
+
+        async function freezeCard(cardId) {
+            if (!confirm('Freeze this card? You can unfreeze it later.')) return;
+            
+            try {
+                const res = await fetch(`${API_URL}/api/cards/${cardId}/freeze`, {
+                    method: 'PUT',
+                    headers: { 'Authorization': `Bearer ${token}` }
                 });
+                
+                const data = await res.json();
+                if (data.success) {
+                    showNotification('Card frozen successfully', 'success');
+                    closeModal('cardMenuModal');
+                    loadUserCards();
+                } else {
+                    showNotification('Error: ' + data.message, 'error');
+                }
+            } catch (err) {
+                showNotification('Error freezing card', 'error');
             }
+        }
+
+        async function unfreezeCard(cardId) {
+            if (!confirm('Unfreeze this card?')) return;
+            
+            try {
+                const res = await fetch(`${API_URL}/api/cards/${cardId}/unfreeze`, {
+                    method: 'PUT',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                const data = await res.json();
+                if (data.success) {
+                    showNotification('Card unfrozen successfully', 'success');
+                    closeModal('cardMenuModal');
+                    loadUserCards();
+                } else {
+                    showNotification('Error: ' + data.message, 'error');
+                }
+            } catch (err) {
+                showNotification('Error unfreezing card', 'error');
+            }
+        }
+
+        async function blockCard(cardId) {
+            const reason = prompt('Why are you blocking this card? (Lost, Stolen, Suspicious Activity, Other)');
+            if (!reason) return;
+            
+            if (!confirm('Block this card PERMANENTLY? This action cannot be undone.')) return;
+            
+            try {
+                const res = await fetch(`${API_URL}/api/cards/${cardId}/block`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ reason })
+                });
+                
+                const data = await res.json();
+                if (data.success) {
+                    showNotification('Card blocked successfully', 'success');
+                    closeModal('cardMenuModal');
+                    loadUserCards();
+                } else {
+                    showNotification('Error: ' + data.message, 'error');
+                }
+            } catch (err) {
+                showNotification('Error blocking card', 'error');
+            }
+        }
+
+        function showChangePinModal(cardId) {
+            const modalHTML = `
+                <div class="modal" id="changePinModal">
+                    <div class="modal-content" style="max-width: 450px;">
+                        <div class="modal-header">
+                            <h2><i class="fas fa-lock"></i> Change Card PIN</h2>
+                            <button class="close-modal" onclick="closeModal('changePinModal')">&times;</button>
+                        </div>
+                        <div class="modal-body">
+                            <form onsubmit="changePin(event, ${cardId})">
+                                <div class="form-group">
+                                    <label>Current PIN</label>
+                                    <input type="password" id="currentPin" maxlength="4" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>New PIN (4 digits)</label>
+                                    <input type="password" id="newPin" maxlength="4" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Confirm New PIN</label>
+                                    <input type="password" id="confirmPin" maxlength="4" required>
+                                </div>
+                                <button type="submit" class="btn" style="width: 100%;">
+                                    <i class="fas fa-check"></i> Change PIN
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.insertAdjacentHTML('beforeend', modalHTML);
+        }
+
+        async function changePin(e, cardId) {
+            e.preventDefault();
+            
+            const currentPin = document.getElementById('currentPin').value;
+            const newPin = document.getElementById('newPin').value;
+            const confirmPin = document.getElementById('confirmPin').value;
+            
+            if (newPin !== confirmPin) {
+                showNotification('New PINs do not match', 'error');
+                return;
+            }
+            
+            if (newPin.length !== 4 || isNaN(newPin)) {
+                showNotification('PIN must be 4 digits', 'error');
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_URL}/api/cards/${cardId}/change-pin`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ currentPin, newPin })
+                });
+                
+                const data = await res.json();
+                if (data.success) {
+                    showNotification('PIN changed successfully', 'success');
+                    closeModal('changePinModal');
+                    closeModal('cardMenuModal');
+                } else {
+                    showNotification('Error: ' + data.message, 'error');
+                }
+            } catch (err) {
+                showNotification('Error changing PIN', 'error');
+            }
+        }
+
+        function closeModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (modal) modal.remove();
         }
 
         function manageCard(cardName) {

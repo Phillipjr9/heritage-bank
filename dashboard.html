@@ -151,6 +151,7 @@
             align-items: center;
             padding: 15px 0;
             border-bottom: 1px solid #eee;
+            position: relative;
         }
         .transaction-item:last-child { border-bottom: none; }
         .transaction-icon {
@@ -167,7 +168,21 @@
         .transaction-details { flex: 1; }
         .transaction-details h4 { color: #333; font-size: 0.95rem; margin-bottom: 3px; }
         .transaction-details span { color: #666; font-size: 0.85rem; }
-        .transaction-amount { font-weight: 600; }
+        .transaction-amount { font-weight: 600; margin-right: 10px; }
+        .btn-receipt {
+            padding: 8px 12px;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            cursor: pointer;
+            color: #666;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        .btn-receipt:hover {
+            background: #e9ecef;
+            color: #333;
+        }
         .transaction-amount.credit { color: #28a745; }
         .transaction-amount.debit { color: #dc3545; }
         
@@ -344,6 +359,10 @@
                     <i class="fas fa-credit-card"></i>
                     <h4>My Cards</h4>
                 </div>
+                <div class="action-card" onclick="location.href='statements.html'">
+                    <i class="fas fa-file-invoice"></i>
+                    <h4>Statements</h4>
+                </div>
                 <div class="action-card" onclick="location.href='settings.html'">
                     <i class="fas fa-cog"></i>
                     <h4>Settings</h4>
@@ -479,9 +498,38 @@
                         <div class="transaction-amount ${amountClass}">
                             ${amountPrefix}$${Math.abs(tx.amount).toLocaleString(undefined, {minimumFractionDigits: 2})}
                         </div>
+                        <button class="btn-receipt" onclick="downloadReceipt(${tx.id})" title="Download Receipt">
+                            <i class="fas fa-download"></i>
+                        </button>
                     </div>
                 `;
             }).join('');
+        }
+        
+        async function downloadReceipt(transactionId) {
+            const token = localStorage.getItem('token');
+            try {
+                const response = await fetch(`${API_URL}/api/transactions/${transactionId}/receipt`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `receipt_${transactionId}.pdf`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                } else {
+                    alert('Error downloading receipt');
+                }
+            } catch (err) {
+                console.error('Receipt download error:', err);
+                alert('Error downloading receipt');
+            }
         }
         
         async function loadActivity() {

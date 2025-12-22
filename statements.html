@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account Statements - Heritage Bank</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .container {
+            max-width: 900px;
+            margin: 50px auto;
+            padding: 30px;
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #1a472a;
+        }
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+        }
+        .btn {
+            padding: 12px 24px;
+            background: #d4af37;
+            color: #1a472a;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+        .btn:hover {
+            background: #c19b2e;
+        }
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+        .statement-options {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        @media (max-width: 768px) {
+            .statement-options {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="dashboard.html" style="color: #d4af37; text-decoration: none; display: inline-block; margin-bottom: 20px;">
+            <i class="fas fa-arrow-left"></i> Back to Dashboard
+        </a>
+
+        <div class="card">
+            <h1 style="color: #1a472a; margin-top: 0;">
+                <i class="fas fa-file-invoice"></i> Account Statements
+            </h1>
+            <p style="color: #666;">Download your account statement for any period</p>
+
+            <form id="statementForm" style="margin-top: 30px;">
+                <div class="form-group">
+                    <label>Statement Period</label>
+                    <select id="period" onchange="toggleCustomDates()">
+                        <option value="month">Last Month</option>
+                        <option value="quarter">Last Quarter (3 months)</option>
+                        <option value="year">Last Year</option>
+                        <option value="custom">Custom Date Range</option>
+                    </select>
+                </div>
+
+                <div id="customDates" style="display: none;">
+                    <div class="form-group">
+                        <label>Start Date</label>
+                        <input type="date" id="startDate">
+                    </div>
+                    <div class="form-group">
+                        <label>End Date</label>
+                        <input type="date" id="endDate">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Format</label>
+                    <select id="format">
+                        <option value="pdf">PDF (Recommended)</option>
+                        <option value="csv">CSV (Spreadsheet)</option>
+                    </select>
+                </div>
+
+                <div class="statement-options">
+                    <button type="submit" class="btn">
+                        <i class="fas fa-download"></i> Download Statement
+                    </button>
+                    <button type="button" class="btn btn-secondary" onclick="viewPreview()">
+                        <i class="fas fa-eye"></i> Preview Online
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <div class="card">
+            <h2 style="color: #1a472a;">Previous Statements</h2>
+            <p style="color: #666;">Quick access to recent statements</p>
+            <div id="previousStatements" style="margin-top: 20px;">
+                <!-- Will be populated dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = '';
+        const token = localStorage.getItem('token');
+
+        if (!token) {
+            window.location.href = 'signin.html';
+        }
+
+        function toggleCustomDates() {
+            const period = document.getElementById('period').value;
+            document.getElementById('customDates').style.display = period === 'custom' ? 'block' : 'none';
+        }
+
+        document.getElementById('statementForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const period = document.getElementById('period').value;
+            const format = document.getElementById('format').value;
+            let startDate, endDate;
+
+            const today = new Date();
+            
+            if (period === 'custom') {
+                startDate = document.getElementById('startDate').value;
+                endDate = document.getElementById('endDate').value;
+                if (!startDate || !endDate) {
+                    alert('Please select both start and end dates');
+                    return;
+                }
+            } else if (period === 'month') {
+                const lastMonth = new Date(today);
+                lastMonth.setMonth(lastMonth.getMonth() - 1);
+                startDate = lastMonth.toISOString().split('T')[0];
+                endDate = today.toISOString().split('T')[0];
+            } else if (period === 'quarter') {
+                const threeMonthsAgo = new Date(today);
+                threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+                startDate = threeMonthsAgo.toISOString().split('T')[0];
+                endDate = today.toISOString().split('T')[0];
+            } else if (period === 'year') {
+                const lastYear = new Date(today);
+                lastYear.setFullYear(lastYear.getFullYear() - 1);
+                startDate = lastYear.toISOString().split('T')[0];
+                endDate = today.toISOString().split('T')[0];
+            }
+
+            const btn = this.querySelector('button[type="submit"]');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
+
+            try {
+                const response = await fetch(`${API_URL}/api/statements/download?format=${format}&startDate=${startDate}&endDate=${endDate}`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `statement_${startDate}_${endDate}.${format}`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                    
+                    alert('Statement downloaded successfully!');
+                } else {
+                    alert('Error generating statement');
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-download"></i> Download Statement';
+            }
+        });
+
+        function viewPreview() {
+            alert('Preview feature coming soon! For now, please download the PDF statement.');
+        }
+
+        // Load previous statements
+        async function loadPreviousStatements() {
+            const container = document.getElementById('previousStatements');
+            const periods = [
+                { label: 'Current Month', days: 30 },
+                { label: 'Last Month', days: 60 },
+                { label: 'Last Quarter', days: 90 }
+            ];
+
+            container.innerHTML = periods.map(p => `
+                <div style="padding: 15px; background: #f8f9fa; border-radius: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <strong>${p.label}</strong>
+                        <p style="margin: 5px 0 0 0; color: #666; font-size: 14px;">Last ${p.days} days</p>
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        <button class="btn" style="padding: 8px 16px; font-size: 14px;" onclick="quickDownload('${p.days}', 'pdf')">
+                            <i class="fas fa-file-pdf"></i> PDF
+                        </button>
+                        <button class="btn btn-secondary" style="padding: 8px 16px; font-size: 14px;" onclick="quickDownload('${p.days}', 'csv')">
+                            <i class="fas fa-file-csv"></i> CSV
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function quickDownload(days, format) {
+            const today = new Date();
+            const startDate = new Date(today);
+            startDate.setDate(startDate.getDate() - days);
+
+            const response = await fetch(`${API_URL}/api/statements/download?format=${format}&startDate=${startDate.toISOString().split('T')[0]}&endDate=${today.toISOString().split('T')[0]}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.ok) {
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `statement_${days}days.${format}`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+            }
+        }
+
+        loadPreviousStatements();
+    </script>
+</body>
+</html>
