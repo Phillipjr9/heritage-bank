@@ -1303,17 +1303,61 @@ app.post('/api/transfer', async (req, res) => {
 });
 
 // ============================================
-// GET ALL TRANSACTIONS
+// GET ALL TRANSACTIONS FROM DATABASE (ADMIN)
 // ============================================
-app.get('/api/transactions', (req, res) => {
+app.get('/api/transactions', async (req, res) => {
     try {
-        res.status(200).json({
-            success: true,
-            message: 'Transactions retrieved',
-            total: transactions.length,
-            transactions: transactions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-        });
+        const connection = await pool.getConnection();
+        try {
+            // Get all transactions with user details
+            const [transactions] = await connection.execute(
+                `SELECT 
+                    t.*,
+                    u1.firstName as fromFirstName,
+                    u1.lastName as fromLastName,
+                    u1.accountNumber as fromAccountNumber,
+                    u1.email as fromEmail,
+                    u2.firstName as toFirstName,
+                    u2.lastName as toLastName,
+                    u2.accountNumber as toAccountNumber,
+                    u2.email as toEmail
+                FROM transactions t
+                LEFT JOIN users u1 ON t.fromUserId = u1.id
+                LEFT JOIN users u2 ON t.toUserId = u2.id
+                ORDER BY t.createdAt DESC
+                LIMIT 200`
+            );
+
+            // Format transactions for frontend
+            const formattedTransactions = transactions.map(tx => ({
+                id: tx.id,
+                amount: parseFloat(tx.amount),
+                type: tx.type || 'transfer',
+                description: tx.description,
+                status: tx.status || 'completed',
+                created_at: tx.createdAt,
+                timestamp: tx.createdAt,
+                fromAccount: tx.fromAccountNumber,
+                toAccount: tx.toAccountNumber,
+                fromEmail: tx.fromEmail,
+                toEmail: tx.toEmail,
+                fromUserId: tx.fromUserId,
+                toUserId: tx.toUserId,
+                from: tx.fromAccountNumber || `${tx.fromFirstName} ${tx.fromLastName}`,
+                to: tx.toAccountNumber || `${tx.toFirstName} ${tx.toLastName}`
+            }));
+
+            res.status(200).json({
+                success: true,
+                message: 'Transactions retrieved',
+                total: formattedTransactions.length,
+                transactions: formattedTransactions
+            });
+        } finally {
+            connection.release();
+        }
     } catch (error) {
+        console.error('Error retrieving transactions:', error);
         res.status(500).json({ success: false, message: 'Error retrieving transactions' });
     }
 });
@@ -1363,29 +1407,64 @@ app.get('/api/user/balance/:userId', async (req, res) => {
 });
 
 // ============================================
-// USER TRANSACTIONS - GET USER'S TRANSACTIONS
+// USER TRANSACTIONS - GET USER'S TRANSACTIONS FROM DATABASE
 // ============================================
-app.get('/api/user/:userId/transactions', (req, res) => {
+app.get('/api/user/:userId/transactions', async (req, res) => {
     try {
         const { userId } = req.params;
-        const user = users.get(parseInt(userId));
+        
+        const connection = await pool.getConnection();
+        try {
+            // Get user's transactions from database
+            const [transactions] = await connection.execute(
+                `SELECT 
+                    t.*,
+                    u1.firstName as fromFirstName,
+                    u1.lastName as fromLastName,
+                    u1.accountNumber as fromAccountNumber,
+                    u2.firstName as toFirstName,
+                    u2.lastName as toLastName,
+                    u2.accountNumber as toAccountNumber
+                FROM transactions t
+                LEFT JOIN users u1 ON t.fromUserId = u1.id
+                LEFT JOIN users u2 ON t.toUserId = u2.id
+                WHERE t.fromUserId = ? OR t.toUserId = ?
+                ORDER BY t.createdAt DESC
+                LIMIT 100`,
+                [parseInt(userId), parseInt(userId)]
+            );
 
-        if (!user) {
-            return res.status(404).json({ success: false, message: 'User not found' });
+            // Format transactions for frontend
+            const formattedTransactions = transactions.map(tx => {
+                const isCredit = tx.toUserId === parseInt(userId);
+                return {
+                    id: tx.id,
+                    amount: parseFloat(tx.amount),
+                    type: isCredit ? 'credit' : 'debit',
+                    description: tx.description || (isCredit ? 
+                        `Transfer from ${tx.fromFirstName} ${tx.fromLastName}` : 
+                        `Transfer to ${tx.toFirstName} ${tx.toLastName}`),
+                    status: tx.status || 'completed',
+                    date: tx.createdAt,
+                    createdAt: tx.createdAt,
+                    fromAccount: tx.fromAccountNumber,
+                    toAccount: tx.toAccountNumber,
+                    fromUserId: tx.fromUserId,
+                    toUserId: tx.toUserId
+                };
+            });
+
+            res.status(200).json({
+                success: true,
+                userId: parseInt(userId),
+                total: formattedTransactions.length,
+                transactions: formattedTransactions
+            });
+        } finally {
+            connection.release();
         }
-
-        // Get transactions where user is sender or receiver
-        const userTransactions = transactions.filter(t => 
-            t.fromUserId === parseInt(userId) || t.toUserId === parseInt(userId)
-        );
-
-        res.status(200).json({
-            success: true,
-            userId: parseInt(userId),
-            total: userTransactions.length,
-            transactions: userTransactions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-        });
     } catch (error) {
+        console.error('Error retrieving transactions:', error);
         res.status(500).json({ success: false, message: 'Error retrieving transactions' });
     }
 });
