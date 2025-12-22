@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pay Bills - Heritage Bank</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #f5f5f5; font-family: 'Segoe UI', sans-serif; min-height: 100vh; }
+        .container { max-width: 600px; margin: 50px auto; padding: 20px; }
+        .card { background: white; border-radius: 16px; padding: 40px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        .card h1 { color: #1a472a; margin-bottom: 30px; text-align: center; }
+        .form-group { margin-bottom: 25px; }
+        .form-group label { display: block; margin-bottom: 10px; color: #1a472a; font-weight: 600; }
+        .form-group input, .form-group select { width: 100%; padding: 15px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 1rem; }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: #d4af37; }
+        .btn-primary { width: 100%; padding: 16px; background: #1a472a; color: white; border: none; border-radius: 8px; font-size: 1.1rem; cursor: pointer; }
+        .btn-primary:hover { background: #2d5f3f; }
+        .back-link { text-align: center; margin-top: 20px; }
+        .back-link a { color: #1a472a; text-decoration: none; }
+        .alert { padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+        .alert-success { background: #d4edda; color: #155724; }
+        .alert-danger { background: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h1><i class="fas fa-file-invoice-dollar"></i> Pay Bills</h1>
+            <div id="alertBox"></div>
+            <form id="billForm">
+                <div class="form-group">
+                    <label>Select Biller</label>
+                    <select id="billerId" required>
+                        <option value="">Choose a biller...</option>
+                        <option value="1">Electric Company</option>
+                        <option value="2">Water Services</option>
+                        <option value="3">Gas Company</option>
+                        <option value="4">Internet Provider</option>
+                        <option value="5">Mobile Phone</option>
+                        <option value="6">Cable TV</option>
+                        <option value="7">Insurance Premium</option>
+                        <option value="8">Credit Card</option>
+                    </select>
+                </div>
+                <div class="form-group"><label>Account Number</label><input type="text" id="accountNumber" required></div>
+                <div class="form-group"><label>Amount ($)</label><input type="number" id="amount" min="1" step="0.01" required></div>
+                <button type="submit" class="btn-primary"><i class="fas fa-paper-plane"></i> Pay Bill</button>
+            </form>
+            <div class="back-link"><a href="dashboard.html"><i class="fas fa-arrow-left"></i> Back to Dashboard</a></div>
+        </div>
+    </div>
+    <script>
+        const API_URL = 'http://localhost:3001';
+        document.getElementById('billForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const token = localStorage.getItem('token');
+            if (!token) { window.location.href = 'signin.html'; return; }
+            try {
+                const res = await fetch(`${API_URL}/api/bills/pay`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({
+                        billerId: document.getElementById('billerId').value,
+                        accountNumber: document.getElementById('accountNumber').value,
+                        amount: parseFloat(document.getElementById('amount').value)
+                    })
+                });
+                const data = await res.json();
+                document.getElementById('alertBox').innerHTML = data.success
+                    ? `<div class="alert alert-success">${data.message}</div>`
+                    : `<div class="alert alert-danger">${data.message}</div>`;
+                if (data.success) e.target.reset();
+            } catch (e) {
+                document.getElementById('alertBox').innerHTML = `<div class="alert alert-danger">Connection error</div>`;
+            }
+        });
+    </script>
+</body>
+</html>
