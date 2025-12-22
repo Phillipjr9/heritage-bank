@@ -4,6 +4,7 @@ const bodyParser = require('body-parser');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const mysql = require('mysql2/promise');
+const path = require('path');
 require('dotenv').config();
 
 const app = express();
@@ -12,6 +13,9 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+
+// Serve static frontend files from parent directory (for unified deployment)
+app.use(express.static(path.join(__dirname, '..')));
 
 // Database Connection Pool - Uses Environment Variables
 const pool = mysql.createPool({
@@ -338,7 +342,16 @@ app.post('/api/bills/pay', async (req, res) => {
     }
 });
 
+// Serve index.html for root and any unmatched routes (SPA support)
+app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api')) {
+        res.sendFile(path.join(__dirname, '..', 'index.html'));
+    }
+});
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-    console.log(`🏦 Heritage Bank Backend running on port ${PORT}`);
+    console.log(`🏦 Heritage Bank running on port ${PORT}`);
+    console.log(`📱 Frontend: http://localhost:${PORT}`);
+    console.log(`🔌 API: http://localhost:${PORT}/api`);
 });
