@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - Heritage Bank</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #f5f5f5; font-family: 'Segoe UI', sans-serif; }
+        
+        .dashboard { display: grid; grid-template-columns: 250px 1fr; min-height: 100vh; }
+        
+        .sidebar { background: #1a472a; color: white; padding: 30px 0; }
+        .sidebar-logo { padding: 0 20px 30px; font-size: 1.3rem; font-weight: bold; }
+        .sidebar-menu { list-style: none; }
+        .sidebar-menu li { padding: 15px 20px; cursor: pointer; transition: background 0.3s; }
+        .sidebar-menu li:hover, .sidebar-menu li.active { background: rgba(212,175,55,0.2); }
+        .sidebar-menu li i { margin-right: 10px; width: 20px; }
+        
+        .main-content { padding: 30px; max-width: 900px; }
+        
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+        .header h1 { color: #1a472a; }
+        
+        .back-link { color: #d4af37; text-decoration: none; cursor: pointer; font-size: 14px; }
+        .back-link:hover { text-decoration: underline; }
+        
+        .settings-card {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .settings-card h2 {
+            color: #1a472a;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+        }
+        
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 1rem;
+        }
+        
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: #1a472a;
+        }
+        
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: #1a472a;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #2d5f3f;
+        }
+        
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #c82333;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .toggle-switch {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 15px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .toggle-switch:last-child {
+            border-bottom: none;
+        }
+        
+        .toggle-switch label {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .toggle-switch label span {
+            color: #666;
+            font-size: 0.85rem;
+            margin-top: 4px;
+        }
+        
+        .switch {
+            position: relative;
+            width: 50px;
+            height: 26px;
+        }
+        
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: 0.4s;
+            border-radius: 26px;
+        }
+        
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 20px;
+            width: 20px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: 0.4s;
+            border-radius: 50%;
+        }
+        
+        input:checked + .slider {
+            background-color: #1a472a;
+        }
+        
+        input:checked + .slider:before {
+            transform: translateX(24px);
+        }
+        
+        .security-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 15px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .security-item:last-child {
+            border-bottom: none;
+        }
+        
+        .security-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .security-info i {
+            font-size: 1.5rem;
+            color: #1a472a;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f0f7f2;
+            border-radius: 8px;
+        }
+        
+        .logout-btn {
+            background: #d4af37;
+            color: #1a472a;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        
+        @media (max-width: 768px) {
+            .dashboard { grid-template-columns: 1fr; }
+            .sidebar { display: none; }
+            .form-row { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <nav class="sidebar">
+            <div class="sidebar-logo"><i class="fas fa-landmark"></i> Heritage Bank</div>
+            <ul class="sidebar-menu">
+                <li onclick="location.href='dashboard.html'"><i class="fas fa-home"></i> Dashboard</li>
+                <li onclick="location.href='transfer.html'"><i class="fas fa-exchange-alt"></i> Transfer</li>
+                <li onclick="location.href='pay-bills.html'"><i class="fas fa-file-invoice-dollar"></i> Pay Bills</li>
+                <li onclick="location.href='cards.html'"><i class="fas fa-credit-card"></i> Cards</li>
+                <li onclick="location.href='investment.html'"><i class="fas fa-chart-line"></i> Investments</li>
+                <li onclick="location.href='request-loan.html'"><i class="fas fa-hand-holding-usd"></i> Loans</li>
+                <li class="active"><i class="fas fa-cog"></i> Settings</li>
+            </ul>
+        </nav>
+        
+        <main class="main-content">
+            <div class="header">
+                <div>
+                    <a href="dashboard.html" class="back-link"><i class="fas fa-arrow-left"></i> Back to Dashboard</a>
+                    <h1>Settings</h1>
+                </div>
+                <button class="logout-btn" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Logout</button>
+            </div>
+            
+            <div id="alertBox" class="alert"></div>
+            
+            <!-- Profile Settings -->
+            <div class="settings-card">
+                <h2><i class="fas fa-user"></i> Profile Information</h2>
+                <form id="profileForm">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>First Name</label>
+                            <input type="text" id="firstName" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Last Name</label>
+                            <input type="text" id="lastName" required>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Email Address</label>
+                        <input type="email" id="email" readonly style="background: #f5f5f5; cursor: not-allowed;">
+                    </div>
+                    <div class="form-group">
+                        <label>Phone Number</label>
+                        <input type="tel" id="phone">
+                    </div>
+                    <div class="form-group">
+                        <label>Address</label>
+                        <input type="text" id="address">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>City</label>
+                            <input type="text" id="city">
+                        </div>
+                        <div class="form-group">
+                            <label>Country</label>
+                            <input type="text" id="country">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save Changes</button>
+                </form>
+            </div>
+            
+            <!-- Security Settings -->
+            <div class="settings-card">
+                <h2><i class="fas fa-shield-alt"></i> Security</h2>
+                
+                <div class="security-item">
+                    <div class="security-info">
+                        <i class="fas fa-lock"></i>
+                        <div>
+                            <strong>Change Password</strong>
+                            <p style="color: #666; font-size: 0.9rem;">Update your account password</p>
+                        </div>
+                    </div>
+                    <button class="btn btn-secondary" onclick="togglePasswordForm()">Change</button>
+                </div>
+                
+                <div id="passwordForm" style="display: none; margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee;">
+                    <form onsubmit="changePassword(event)">
+                        <div class="form-group">
+                            <label>Current Password</label>
+                            <input type="password" id="currentPassword" required>
+                        </div>
+                        <div class="form-group">
+                            <label>New Password</label>
+                            <input type="password" id="newPassword" required minlength="8">
+                        </div>
+                        <div class="form-group">
+                            <label>Confirm New Password</label>
+                            <input type="password" id="confirmPassword" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Update Password</button>
+                        <button type="button" class="btn btn-secondary" onclick="togglePasswordForm()">Cancel</button>
+                    </form>
+                </div>
+                
+                <div class="security-item">
+                    <div class="security-info">
+                        <i class="fas fa-mobile-alt"></i>
+                        <div>
+                            <strong>Two-Factor Authentication</strong>
+                            <p style="color: #666; font-size: 0.9rem;">Add extra security to your account</p>
+                        </div>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="twoFactorToggle" onchange="toggle2FA()">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+            
+            <!-- Notification Settings -->
+            <div class="settings-card">
+                <h2><i class="fas fa-bell"></i> Notifications</h2>
+                
+                <div class="toggle-switch">
+                    <label>
+                        <strong>Email Notifications</strong>
+                        <span>Receive emails about transactions and account updates</span>
+                    </label>
+                    <label class="switch">
+                        <input type="checkbox" checked id="emailNotif">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                
+                <div class="toggle-switch">
+                    <label>
+                        <strong>Transaction Alerts</strong>
+                        <span>Get notified for every transaction</span>
+                    </label>
+                    <label class="switch">
+                        <input type="checkbox" checked id="transactionAlerts">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                
+                <div class="toggle-switch">
+                    <label>
+                        <strong>Security Alerts</strong>
+                        <span>Receive alerts for suspicious activities</span>
+                    </label>
+                    <label class="switch">
+                        <input type="checkbox" checked id="securityAlerts">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+                
+                <div class="toggle-switch">
+                    <label>
+                        <strong>Marketing Communications</strong>
+                        <span>Receive news and offers from Heritage Bank</span>
+                    </label>
+                    <label class="switch">
+                        <input type="checkbox" id="marketingComms">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+            
+            <!-- Account Actions -->
+            <div class="settings-card">
+                <h2><i class="fas fa-user-cog"></i> Account Actions</h2>
+                
+                <div class="security-item">
+                    <div class="security-info">
+                        <i class="fas fa-download"></i>
+                        <div>
+                            <strong>Download Statement</strong>
+                            <p style="color: #666; font-size: 0.9rem;">Get your account statement as PDF</p>
+                        </div>
+                    </div>
+                    <button class="btn btn-secondary" onclick="downloadStatement()">Download</button>
+                </div>
+                
+                <div class="security-item">
+                    <div class="security-info">
+                        <i class="fas fa-history"></i>
+                        <div>
+                            <strong>Activity Log</strong>
+                            <p style="color: #666; font-size: 0.9rem;">View recent account activity</p>
+                        </div>
+                    </div>
+                    <button class="btn btn-secondary" onclick="location.href='dashboard.html#activity'">View</button>
+                </div>
+                
+                <div class="security-item" style="border-top: 2px solid #f8d7da; padding-top: 20px; margin-top: 10px;">
+                    <div class="security-info">
+                        <i class="fas fa-trash-alt" style="color: #dc3545; background: #ffeaec;"></i>
+                        <div>
+                            <strong style="color: #dc3545;">Close Account</strong>
+                            <p style="color: #666; font-size: 0.9rem;">Permanently close your account</p>
+                        </div>
+                    </div>
+                    <button class="btn btn-danger" onclick="confirmCloseAccount()">Close Account</button>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <script>
+        const API_URL = '';
+        let userId = null;
+        
+        // Check authentication
+        async function checkAuth() {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                window.location.href = 'signin.html';
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_URL}/api/auth/profile`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                
+                if (data.success && data.user) {
+                    userId = data.user.id;
+                    populateForm(data.user);
+                } else {
+                    window.location.href = 'signin.html';
+                }
+            } catch (e) {
+                console.error('Auth error:', e);
+            }
+        }
+        
+        function populateForm(user) {
+            document.getElementById('firstName').value = user.firstName || '';
+            document.getElementById('lastName').value = user.lastName || '';
+            document.getElementById('email').value = user.email || '';
+            document.getElementById('phone').value = user.phone || '';
+            document.getElementById('address').value = user.address || '';
+            document.getElementById('city').value = user.city || '';
+            document.getElementById('country').value = user.country || '';
+        }
+        
+        function showAlert(message, type) {
+            const alert = document.getElementById('alertBox');
+            alert.textContent = message;
+            alert.className = `alert alert-${type}`;
+            alert.style.display = 'block';
+            setTimeout(() => alert.style.display = 'none', 5000);
+        }
+        
+        // Update profile
+        document.getElementById('profileForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const token = localStorage.getItem('token');
+            
+            try {
+                const res = await fetch(`${API_URL}/api/auth/profile`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        firstName: document.getElementById('firstName').value,
+                        lastName: document.getElementById('lastName').value,
+                        phone: document.getElementById('phone').value,
+                        address: document.getElementById('address').value,
+                        city: document.getElementById('city').value,
+                        country: document.getElementById('country').value
+                    })
+                });
+                
+                const data = await res.json();
+                if (data.success) {
+                    showAlert('Profile updated successfully!', 'success');
+                } else {
+                    showAlert(data.message || 'Update failed', 'error');
+                }
+            } catch (e) {
+                showAlert('Error updating profile', 'error');
+            }
+        });
+        
+        function togglePasswordForm() {
+            const form = document.getElementById('passwordForm');
+            form.style.display = form.style.display === 'none' ? 'block' : 'none';
+        }
+        
+        async function changePassword(e) {
+            e.preventDefault();
+            const newPass = document.getElementById('newPassword').value;
+            const confirmPass = document.getElementById('confirmPassword').value;
+            
+            if (newPass !== confirmPass) {
+                showAlert('Passwords do not match!', 'error');
+                return;
+            }
+            
+            const token = localStorage.getItem('token');
+            
+            try {
+                const res = await fetch(`${API_URL}/api/auth/change-password`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        currentPassword: document.getElementById('currentPassword').value,
+                        newPassword: newPass
+                    })
+                });
+                
+                const data = await res.json();
+                if (data.success) {
+                    showAlert('Password changed successfully!', 'success');
+                    togglePasswordForm();
+                    document.getElementById('currentPassword').value = '';
+                    document.getElementById('newPassword').value = '';
+                    document.getElementById('confirmPassword').value = '';
+                } else {
+                    showAlert(data.message || 'Password change failed', 'error');
+                }
+            } catch (e) {
+                showAlert('Error changing password', 'error');
+            }
+        }
+        
+        function toggle2FA() {
+            const enabled = document.getElementById('twoFactorToggle').checked;
+            showAlert(`Two-Factor Authentication ${enabled ? 'enabled' : 'disabled'}`, 'success');
+        }
+        
+        function downloadStatement() {
+            showAlert('Statement download started...', 'success');
+            // In production, this would trigger actual PDF generation
+        }
+        
+        function confirmCloseAccount() {
+            if (confirm('Are you sure you want to close your account? This action cannot be undone.')) {
+                if (confirm('All your funds will be lost. Type "CLOSE" to confirm.')) {
+                    showAlert('Please contact customer support to close your account.', 'error');
+                }
+            }
+        }
+        
+        function logout() {
+            localStorage.clear();
+            window.location.href = 'signin.html';
+        }
+        
+        // Initialize
+        checkAuth();
+    </script>
+</body>
+</html>
