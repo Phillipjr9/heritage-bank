@@ -1,11 +1,10 @@
 # Dependencies
 node_modules/
-backend/node_modules/
 
-# Environment variables
+# Environment variables (NEVER commit these)
 .env
 .env.local
-.env.*.local
+.env.production
 
 # Logs
 logs/
@@ -22,6 +21,6 @@ Thumbs.db
 *.swp
 *.swo
 
-# Build outputs
+# Build
 dist/
 build/

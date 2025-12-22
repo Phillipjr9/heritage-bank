@@ -1,53 +1,71 @@
-# Heritage Bank - Full Stack Banking Application
+# Heritage Bank
 
-A complete banking web application with user authentication, account management, admin panel, and fund transfers.
+A modern digital banking application.
 
-## 🚀 Features
+## Setup
 
-### User Features
-- ✅ User Registration & Login (JWT Authentication)
-- ✅ Dashboard with account overview
-- ✅ Fund Transfers (to other users)
-- ✅ Bill Payments (8+ billers)
-- ✅ Virtual Cards Management
-- ✅ Loan Applications
-- ✅ Investment Products
-- ✅ Transaction History
-- ✅ Account Settings
+### Backend
 
-### Admin Features
-- ✅ Admin Panel (`/admin.html`)
-- ✅ Create new user accounts
-- ✅ Fund user accounts (via Email or Account Number)
-- ✅ Bank Reserve (Unlimited Funds)
-- ✅ View/Adjust user balances
+1. Navigate to backend folder:
+   ```bash
+   cd backend
+   ```
 
-## 🛠️ Tech Stack
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
 
-- **Frontend:** HTML5, CSS3, Vanilla JavaScript
-- **Backend:** Node.js, Express.js
-- **Database:** TiDB Cloud (MySQL-compatible)
-- **Authentication:** JWT (JSON Web Tokens)
+3. Copy environment example and configure:
+   ```bash
+   cp .env.example .env
+   ```
 
-## 📦 Quick Start
+4. Edit `.env` with your database credentials:
+   - `DB_HOST` - Your database host
+   - `DB_USER` - Database username
+   - `DB_PASSWORD` - Database password
+   - `DB_NAME` - Database name
+   - `JWT_SECRET` - Secret key for JWT tokens
+   - `ADMIN_EMAIL` - Admin account email
+   - `ADMIN_PASSWORD` - Admin account password
 
+5. Start the server:
+   ```bash
+   npm start
+   ```
+
+### Frontend
+
+Serve the root directory with any static file server:
 ```bash
-# Clone
-git clone https://github.com/Phillipjr9/heritage-bank.git
-cd heritage-bank
-
-# Backend
-cd backend && npm install && node server.js
-
-# Frontend (new terminal)
 npx http-server -p 8000
 ```
 
-## 🔑 Admin Access
+## Features
 
-- **Email:** admin@heritagebank.com
-- **Password:** AdminPass123456
+- User registration and authentication
+- Account management
+- Fund transfers (via email or account number)
+- Bill payments
+- Admin panel for user management
 
-## 📝 License
+## API Endpoints
 
-MIT License
+- `GET /api/health` - Health check
+- `POST /api/auth/login` - User login
+- `POST /api/auth/register` - User registration
+- `GET /api/user/profile` - Get user profile
+- `POST /api/user/transfer` - Transfer funds
+- `GET /api/bills/billers` - Get available billers
+- `POST /api/bills/pay` - Pay a bill
+- `GET /api/admin/users-with-balances` - Get all users (admin)
+- `POST /api/admin/fund-user` - Fund user account (admin)
+- `POST /api/admin/create-user` - Create user (admin)
+
+## Security
+
+- All sensitive credentials stored in environment variables
+- JWT authentication with 24-hour expiration
+- Password hashing with bcrypt
+- SSL database connections
