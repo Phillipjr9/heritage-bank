@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Heritage Bank</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #f5f5f5; font-family: 'Segoe UI', sans-serif; }
+        .dashboard { display: grid; grid-template-columns: 250px 1fr; min-height: 100vh; }
+        .sidebar { background: #1a472a; color: white; padding: 30px 0; }
+        .sidebar-logo { padding: 0 20px 30px; font-size: 1.3rem; font-weight: bold; }
+        .sidebar-menu { list-style: none; }
+        .sidebar-menu li { padding: 15px 20px; cursor: pointer; }
+        .sidebar-menu li:hover { background: rgba(212,175,55,0.2); }
+        .sidebar-menu li i { margin-right: 10px; width: 20px; }
+        .main-content { padding: 30px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+        .header h1 { color: #1a472a; }
+        .balance-card { background: linear-gradient(135deg, #1a472a 0%, #2d5f3f 100%); color: white; padding: 40px; border-radius: 16px; margin-bottom: 30px; }
+        .balance-card h2 { font-size: 3rem; margin: 20px 0; }
+        .account-info { background: white; padding: 30px; border-radius: 12px; margin-bottom: 30px; }
+        .info-row { display: flex; justify-content: space-between; padding: 15px 0; border-bottom: 1px solid #eee; }
+        .quick-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }
+        .action-card { background: white; padding: 25px; border-radius: 12px; text-align: center; cursor: pointer; transition: transform 0.3s; }
+        .action-card:hover { transform: translateY(-5px); }
+        .action-card i { font-size: 2.5rem; color: #d4af37; margin-bottom: 15px; }
+        .action-card h3 { color: #1a472a; }
+        .logout-btn { background: #d4af37; color: #1a472a; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <nav class="sidebar">
+            <div class="sidebar-logo"><i class="fas fa-landmark"></i> Heritage Bank</div>
+            <ul class="sidebar-menu">
+                <li><i class="fas fa-home"></i> Dashboard</li>
+                <li onclick="location.href='transfer.html'"><i class="fas fa-exchange-alt"></i> Transfer</li>
+                <li onclick="location.href='pay-bills.html'"><i class="fas fa-file-invoice-dollar"></i> Pay Bills</li>
+                <li onclick="location.href='cards.html'"><i class="fas fa-credit-card"></i> Cards</li>
+                <li onclick="location.href='settings.html'"><i class="fas fa-cog"></i> Settings</li>
+            </ul>
+        </nav>
+        <main class="main-content">
+            <div class="header">
+                <h1>Welcome, <span id="userName">User</span></h1>
+                <button class="logout-btn" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Logout</button>
+            </div>
+            <div class="balance-card">
+                <p>Available Balance</p>
+                <h2 id="balance">$0.00</h2>
+                <p id="accountType">Savings Account</p>
+            </div>
+            <div class="account-info">
+                <h3 style="margin-bottom: 20px; color: #1a472a;">Account Information</h3>
+                <div class="info-row"><span>Account Number</span><strong id="accountNumber">-</strong></div>
+                <div class="info-row"><span>Routing Number</span><strong>091238946</strong></div>
+                <div class="info-row"><span>Account Type</span><strong id="accType">Savings</strong></div>
+            </div>
+            <h3 style="margin-bottom: 20px; color: #1a472a;">Quick Actions</h3>
+            <div class="quick-actions">
+                <div class="action-card" onclick="location.href='transfer.html'"><i class="fas fa-paper-plane"></i><h3>Send Money</h3></div>
+                <div class="action-card" onclick="location.href='pay-bills.html'"><i class="fas fa-file-invoice-dollar"></i><h3>Pay Bills</h3></div>
+                <div class="action-card" onclick="location.href='request-loan.html'"><i class="fas fa-hand-holding-usd"></i><h3>Request Loan</h3></div>
+                <div class="action-card" onclick="location.href='investment.html'"><i class="fas fa-chart-line"></i><h3>Investments</h3></div>
+            </div>
+        </main>
+    </div>
+    <script>
+        const API_URL = 'http://localhost:3001';
+        async function loadDashboard() {
+            const token = localStorage.getItem('token');
+            if (!token) { window.location.href = 'signin.html'; return; }
+            try {
+                const res = await fetch(`${API_URL}/api/user/profile`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('userName').textContent = data.user.firstName;
+                    document.getElementById('balance').textContent = '$' + data.user.balance.toLocaleString(undefined, {minimumFractionDigits: 2});
+                    document.getElementById('accountNumber').textContent = data.user.accountNumber;
+                }
+            } catch (e) { console.error(e); }
+        }
+        function logout() { localStorage.clear(); window.location.href = 'signin.html'; }
+        loadDashboard();
+    </script>
+</body>
+</html>
