@@ -13,24 +13,28 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// TiDB Cloud Database Connection Pool
+// Database Connection Pool - Uses Environment Variables
 const pool = mysql.createPool({
-    host: process.env.DB_HOST || 'gateway02.us-east-1.prod.aws.tidbcloud.com',
+    host: process.env.DB_HOST,
     port: process.env.DB_PORT || 4000,
-    user: process.env.DB_USER || 'JFuLJ45NfRfBSN9.root',
-    password: process.env.DB_PASSWORD || 'Nt8gO8tMGu4T8mJ1ui9X',
-    database: process.env.DB_NAME || 'S7YJ2XbutEnzhih9Qut8LJ',
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
     ssl: { rejectUnauthorized: false }
 });
 
-// JWT Secret
-const JWT_SECRET = process.env.JWT_SECRET || 'heritage-bank-secret-2024';
+// JWT Secret - Must be set in environment
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+    console.error('❌ JWT_SECRET environment variable is required');
+    process.exit(1);
+}
 
 // Banking Details
-const ROUTING_NUMBER = '091238946';
+const ROUTING_NUMBER = process.env.ROUTING_NUMBER || '091238946';
 const BANK_NAME = 'Heritage Bank';
 
 // Generate random account number
@@ -62,17 +66,17 @@ async function initializeDatabase() {
         // Check if admin exists
         const [adminCheck] = await connection.execute(
             'SELECT * FROM users WHERE email = ?',
-            ['admin@heritagebank.com']
+            [process.env.ADMIN_EMAIL || 'admin@heritagebank.com']
         );
 
-        if (adminCheck.length === 0) {
-            const hashedPassword = await bcrypt.hash('AdminPass123456', 10);
+        if (adminCheck.length === 0 && process.env.ADMIN_PASSWORD) {
+            const hashedPassword = await bcrypt.hash(process.env.ADMIN_PASSWORD, 10);
             await connection.execute(
                 `INSERT INTO users (firstName, lastName, email, password, phone, accountNumber, routingNumber, balance, isAdmin) 
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                ['Admin', 'User', 'admin@heritagebank.com', hashedPassword, '1-800-BANK', generateAccountNumber(), ROUTING_NUMBER, 100000000, true]
+                ['Admin', 'User', process.env.ADMIN_EMAIL || 'admin@heritagebank.com', hashedPassword, '1-800-BANK', generateAccountNumber(), ROUTING_NUMBER, 100000000, true]
             );
-            console.log('✅ Admin account created: admin@heritagebank.com / AdminPass123456');
+            console.log('✅ Admin account created');
         }
 
         connection.release();
@@ -263,7 +267,6 @@ app.post('/api/user/transfer', async (req, res) => {
         
         const { toEmail, toAccountNumber, amount, description } = req.body;
         
-        // Get sender
         const [senders] = await pool.execute('SELECT * FROM users WHERE id = ?', [decoded.id]);
         const sender = senders[0];
         
@@ -271,7 +274,6 @@ app.post('/api/user/transfer', async (req, res) => {
             return res.status(400).json({ success: false, message: 'Insufficient funds' });
         }
 
-        // Get recipient
         let recipient;
         if (toEmail) {
             const [users] = await pool.execute('SELECT * FROM users WHERE email = ?', [toEmail]);
@@ -283,7 +285,6 @@ app.post('/api/user/transfer', async (req, res) => {
 
         if (!recipient) return res.status(404).json({ success: false, message: 'Recipient not found' });
 
-        // Execute transfer
         await pool.execute('UPDATE users SET balance = balance - ? WHERE id = ?', [amount, sender.id]);
         await pool.execute('UPDATE users SET balance = balance + ? WHERE id = ?', [amount, recipient.id]);
 
