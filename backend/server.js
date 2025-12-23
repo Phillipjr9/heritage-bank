@@ -252,7 +252,7 @@ app.post('/api/auth/login', async (req, res) => {
         if (!validPassword) {
             // Log failed login attempt
             await pool.execute(
-                `INSERT INTO login_history (userId, ipAddress, userAgent, status) 
+                `INSERT INTO login_history (userId, ipAddress, userAgent, loginStatus) 
                  VALUES (?, ?, ?, ?)`,
                 [user.id, req.ip, req.get('user-agent'), 'failed']
             );
@@ -262,7 +262,7 @@ app.post('/api/auth/login', async (req, res) => {
 
         // Log successful login
         await pool.execute(
-            `INSERT INTO login_history (userId, ipAddress, userAgent, status) 
+            `INSERT INTO login_history (userId, ipAddress, userAgent, loginStatus) 
              VALUES (?, ?, ?, ?)`,
             [user.id, req.ip, req.get('user-agent'), 'success']
         );
