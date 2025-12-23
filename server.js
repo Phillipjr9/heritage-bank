@@ -572,15 +572,19 @@ app.post('/api/auth/login', async (req, res) => {
             return res.status(200).json({
                 success: true,
                 message: 'Login successful',
-                userId: user.id,
-                firstName: user.firstName,
-                lastName: user.lastName,
-                email: user.email,
-                accountNumber: user.accountNumber,
-                routingNumber: user.routingNumber,
-                balance: parseFloat(user.balance),
-                accountType: user.accountType,
-                token
+                token,
+                user: {
+                    id: user.id,
+                    firstName: user.firstName,
+                    lastName: user.lastName,
+                    email: user.email,
+                    accountNumber: user.accountNumber,
+                    routingNumber: user.routingNumber,
+                    balance: parseFloat(user.balance),
+                    accountType: user.accountType,
+                    isAdmin: user.isAdmin || false,
+                    lastLogin: user.lastLogin
+                }
             });
         }
 
@@ -608,11 +612,17 @@ app.post('/api/auth/login', async (req, res) => {
         res.status(200).json({
             success: true,
             message: 'Login successful',
-            userId: user.id,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            email: user.email,
-            token
+            token,
+            user: {
+                id: user.id,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                email: user.email,
+                accountNumber: user.accountNumber,
+                balance: user.balance,
+                isAdmin: user.isAdmin || false,
+                lastLogin: user.lastLogin
+            }
         });
 
     } catch (error) {
