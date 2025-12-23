@@ -64,6 +64,7 @@
             <div class="admin-logo"><i class="fas fa-landmark"></i> Heritage Admin</div>
             <ul class="admin-menu">
                 <li class="admin-menu-item active" data-section="dashboard"><i class="fas fa-tachometer-alt"></i> Dashboard</li>
+                <li class="admin-menu-item" data-section="my-account"><i class="fas fa-user-circle"></i> My Account</li>
                 <li class="admin-menu-item" data-section="users"><i class="fas fa-users"></i> Users</li>
                 <li class="admin-menu-item" data-section="search"><i class="fas fa-search"></i> Search</li>
                 <li class="admin-menu-item" data-section="transactions"><i class="fas fa-exchange-alt"></i> Transactions</li>
@@ -80,14 +81,45 @@
 
         <main class="admin-main">
             <div class="admin-header">
-                <h1>Admin Dashboard</h1>
-                <button class="logout-btn" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Logout</button>
+                <div>
+                    <h1>Admin Dashboard</h1>
+                    <p id="adminWelcome" style="color: #666; margin-top: 5px;">Welcome, Admin</p>
+                </div>
+                <div style="display: flex; align-items: center; gap: 20px;">
+                    <div id="adminAccountCard" style="background: linear-gradient(135deg, #d4af37 0%, #b8962e 100%); color: #1a472a; padding: 15px 25px; border-radius: 10px; text-align: right;">
+                        <p style="font-size: 0.85rem; margin-bottom: 5px;">Admin Account Balance</p>
+                        <p id="adminBalance" style="font-size: 1.5rem; font-weight: bold;">$0.00</p>
+                        <p id="adminAccountNum" style="font-size: 0.75rem; opacity: 0.8;">Account: ----</p>
+                    </div>
+                    <button class="logout-btn" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Logout</button>
+                </div>
             </div>
 
             <div class="admin-content">
                 <!-- Dashboard -->
                 <div id="dashboard" class="content-section active">
                     <h2 class="section-title">Dashboard Overview</h2>
+                    
+                    <!-- Admin Account Quick Actions -->
+                    <div style="background: linear-gradient(135deg, #1a472a 0%, #2d5f3f 100%); padding: 25px; border-radius: 12px; margin-bottom: 25px; color: white;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; align-items: center;">
+                            <div>
+                                <h3 style="margin-bottom: 10px;"><i class="fas fa-user-shield"></i> Admin Account</h3>
+                                <p id="adminFullName">Loading...</p>
+                                <p style="font-size: 0.9rem; opacity: 0.8;" id="adminEmail">Loading...</p>
+                            </div>
+                            <div style="text-align: center;">
+                                <p style="font-size: 0.9rem; margin-bottom: 5px;">Your Balance</p>
+                                <p id="adminBalanceLarge" style="font-size: 2.5rem; font-weight: bold; color: #d4af37;">$0.00</p>
+                                <p style="font-size: 0.85rem; opacity: 0.8;" id="adminAcctNum2">Acct: ----</p>
+                            </div>
+                            <div style="text-align: right;">
+                                <button onclick="showSection('fund-user')" style="background: #d4af37; color: #1a472a; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; font-weight: 600; margin-bottom: 10px; display: block; width: 100%;"><i class="fas fa-plus"></i> Fund User</button>
+                                <button onclick="showSection('admin-transfer')" style="background: white; color: #1a472a; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; font-weight: 600; display: block; width: 100%;"><i class="fas fa-paper-plane"></i> Transfer</button>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <div class="stats-grid">
                         <div class="stat-card"><i class="fas fa-users"></i><h3 id="totalUsers">0</h3><p>Total Users</p></div>
                         <div class="stat-card"><i class="fas fa-dollar-sign"></i><h3 id="totalBalance">$0</h3><p>Total Balance</p></div>
@@ -97,6 +129,59 @@
                         <div class="stat-card"><i class="fas fa-user-check"></i><h3 id="activeUsers">0</h3><p>Active Users (30d)</p></div>
                         <div class="stat-card"><i class="fas fa-money-bill-wave"></i><h3 id="monthlyVolume">$0</h3><p>Monthly Volume</p></div>
                         <div class="stat-card" style="background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);"><i class="fas fa-exclamation-triangle"></i><h3 id="failedLogins">0</h3><p>Failed Logins Today</p></div>
+                    </div>
+                </div>
+
+                <!-- My Account Section -->
+                <div id="my-account" class="content-section">
+                    <h2 class="section-title"><i class="fas fa-user-circle"></i> My Admin Account</h2>
+                    
+                    <!-- Account Overview Card -->
+                    <div style="background: linear-gradient(135deg, #1a472a 0%, #2d5f3f 100%); padding: 30px; border-radius: 15px; color: white; margin-bottom: 25px;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
+                            <div>
+                                <h3 style="margin-bottom: 20px;"><i class="fas fa-user-shield"></i> Account Details</h3>
+                                <p style="margin-bottom: 10px;"><strong>Name:</strong> <span id="myName">Loading...</span></p>
+                                <p style="margin-bottom: 10px;"><strong>Email:</strong> <span id="myEmail">Loading...</span></p>
+                                <p style="margin-bottom: 10px;"><strong>Phone:</strong> <span id="myPhone">Loading...</span></p>
+                                <p style="margin-bottom: 10px;"><strong>Account Number:</strong> <span id="myAccountNumber" style="font-family: monospace; background: rgba(255,255,255,0.2); padding: 3px 8px; border-radius: 4px;">Loading...</span></p>
+                                <p style="margin-bottom: 10px;"><strong>Routing Number:</strong> <span id="myRoutingNumber" style="font-family: monospace;">Loading...</span></p>
+                                <p><strong>Account Type:</strong> <span id="myAccountType">Loading...</span></p>
+                            </div>
+                            <div style="text-align: center; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(255,255,255,0.1); border-radius: 12px; padding: 25px;">
+                                <p style="font-size: 0.9rem; margin-bottom: 10px;">Available Balance</p>
+                                <p id="myBalanceLarge" style="font-size: 3rem; font-weight: bold; color: #d4af37;">$0.00</p>
+                                <p style="font-size: 0.85rem; margin-top: 10px; opacity: 0.8;"><i class="fas fa-shield-alt"></i> Admin Account</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Quick Actions -->
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 25px;">
+                        <button onclick="showSection('admin-transfer')" style="background: #1a472a; color: white; border: none; padding: 20px; border-radius: 10px; cursor: pointer;">
+                            <i class="fas fa-paper-plane" style="font-size: 1.5rem; display: block; margin-bottom: 10px;"></i>
+                            Transfer Money
+                        </button>
+                        <button onclick="showSection('fund-user')" style="background: #28a745; color: white; border: none; padding: 20px; border-radius: 10px; cursor: pointer;">
+                            <i class="fas fa-plus-circle" style="font-size: 1.5rem; display: block; margin-bottom: 10px;"></i>
+                            Fund User
+                        </button>
+                        <button onclick="showSection('create-user')" style="background: #007bff; color: white; border: none; padding: 20px; border-radius: 10px; cursor: pointer;">
+                            <i class="fas fa-user-plus" style="font-size: 1.5rem; display: block; margin-bottom: 10px;"></i>
+                            Create User
+                        </button>
+                        <button onclick="showSection('account-operations')" style="background: #d4af37; color: #1a472a; border: none; padding: 20px; border-radius: 10px; cursor: pointer;">
+                            <i class="fas fa-wallet" style="font-size: 1.5rem; display: block; margin-bottom: 10px;"></i>
+                            Account Ops
+                        </button>
+                    </div>
+                    
+                    <!-- Recent Activity -->
+                    <div style="background: #f5f5f5; padding: 20px; border-radius: 10px;">
+                        <h3 style="color: #1a472a; margin-bottom: 15px;"><i class="fas fa-history"></i> My Recent Transactions</h3>
+                        <div id="myTransactions">
+                            <p style="color: #999; text-align: center;">Loading transactions...</p>
+                        </div>
                     </div>
                 </div>
 
@@ -819,21 +904,157 @@
             } catch (e) { document.getElementById('fundAlert').innerHTML = `<div class="alert alert-danger">Error: ${e.message}</div>`; }
         });
 
-        function logout() { window.location.href = 'signin.html'; }
+        function logout() { 
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            window.location.href = 'signin.html'; 
+        }
         
-        // Initialize - load all data
-        loadUsers();
-        loadTransactions();
-        loadLoans();
-        loadActivity();
+        // Show specific section (for quick action buttons)
+        function showSection(sectionId) {
+            document.querySelectorAll('.admin-menu-item').forEach(i => i.classList.remove('active'));
+            document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
+            document.querySelector(`[data-section="${sectionId}"]`).classList.add('active');
+            document.getElementById(sectionId).classList.add('active');
+        }
         
-        // Auto-refresh every 30 seconds
-        setInterval(() => {
+        // Load admin account info from localStorage or API
+        async function loadAdminAccount() {
+            try {
+                // Try to get from localStorage first
+                const storedUser = localStorage.getItem('user');
+                if (storedUser) {
+                    const user = JSON.parse(storedUser);
+                    displayAdminInfo(user);
+                }
+                
+                // Also fetch fresh data from API if we have a token
+                const token = localStorage.getItem('token');
+                if (token) {
+                    const res = await fetch(`${API_URL}/api/user/profile`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        displayAdminInfo(data.user);
+                        localStorage.setItem('user', JSON.stringify(data.user));
+                    }
+                }
+            } catch (e) {
+                console.error('Error loading admin account:', e);
+            }
+        }
+        
+        function displayAdminInfo(user) {
+            const balance = parseFloat(user.balance || 0).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            
+            // Header card
+            document.getElementById('adminBalance').textContent = '$' + balance;
+            document.getElementById('adminAccountNum').textContent = 'Account: ' + (user.accountNumber || '----');
+            document.getElementById('adminWelcome').textContent = `Welcome, ${user.firstName || 'Admin'}`;
+            
+            // Dashboard section
+            document.getElementById('adminFullName').textContent = `${user.firstName || ''} ${user.lastName || ''}`;
+            document.getElementById('adminEmail').textContent = user.email || '';
+            document.getElementById('adminBalanceLarge').textContent = '$' + balance;
+            document.getElementById('adminAcctNum2').textContent = 'Acct: ' + (user.accountNumber || '----');
+            
+            // My Account section
+            document.getElementById('myName').textContent = `${user.firstName || ''} ${user.lastName || ''}`;
+            document.getElementById('myEmail').textContent = user.email || 'N/A';
+            document.getElementById('myPhone').textContent = user.phone || 'N/A';
+            document.getElementById('myAccountNumber').textContent = user.accountNumber || '----';
+            document.getElementById('myRoutingNumber').textContent = user.routingNumber || '091238946';
+            document.getElementById('myAccountType').textContent = (user.accountType || 'checking').charAt(0).toUpperCase() + (user.accountType || 'checking').slice(1);
+            document.getElementById('myBalanceLarge').textContent = '$' + balance;
+            
+            // Load admin's transactions
+            loadAdminTransactions();
+        }
+        
+        // Load admin's own transactions
+        async function loadAdminTransactions() {
+            try {
+                const token = localStorage.getItem('token');
+                if (!token) return;
+                
+                const res = await fetch(`${API_URL}/api/user/transactions`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                
+                if (data.success && data.transactions.length > 0) {
+                    document.getElementById('myTransactions').innerHTML = `
+                        <table style="width: 100%; background: white; border-radius: 8px;">
+                            <thead>
+                                <tr style="background: #1a472a; color: white;">
+                                    <th style="padding: 12px; text-align: left;">Date</th>
+                                    <th style="padding: 12px; text-align: left;">Type</th>
+                                    <th style="padding: 12px; text-align: left;">Description</th>
+                                    <th style="padding: 12px; text-align: right;">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${data.transactions.slice(0, 10).map(t => `
+                                    <tr style="border-bottom: 1px solid #eee;">
+                                        <td style="padding: 10px;">${new Date(t.created_at).toLocaleDateString()}</td>
+                                        <td style="padding: 10px;">${t.type || 'Transfer'}</td>
+                                        <td style="padding: 10px;">${t.description || '-'}</td>
+                                        <td style="padding: 10px; text-align: right; font-weight: bold; color: ${t.type === 'credit' || t.type === 'deposit' ? '#28a745' : '#dc3545'};">
+                                            ${t.type === 'credit' || t.type === 'deposit' ? '+' : '-'}$${parseFloat(t.amount).toLocaleString()}
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    `;
+                } else {
+                    document.getElementById('myTransactions').innerHTML = '<p style="color: #999; text-align: center;">No transactions found</p>';
+                }
+            } catch (e) {
+                document.getElementById('myTransactions').innerHTML = '<p style="color: #999; text-align: center;">Error loading transactions</p>';
+            }
+        }
+        
+        // Check if user is logged in and is admin
+        function checkAdminAuth() {
+            const token = localStorage.getItem('token');
+            const storedUser = localStorage.getItem('user');
+            
+            if (!token) {
+                window.location.href = 'signin.html';
+                return false;
+            }
+            
+            if (storedUser) {
+                const user = JSON.parse(storedUser);
+                if (!user.isAdmin) {
+                    alert('Access denied. Admin privileges required.');
+                    window.location.href = 'dashboard.html';
+                    return false;
+                }
+            }
+            
+            return true;
+        }
+        
+        // Initialize - check auth and load all data
+        if (checkAdminAuth()) {
+            loadAdminAccount();
             loadUsers();
             loadTransactions();
             loadLoans();
             loadActivity();
-        }, 30000);
+            
+            // Auto-refresh every 30 seconds
+            setInterval(() => {
+                loadAdminAccount();
+                loadUsers();
+                loadTransactions();
+                loadLoans();
+                loadActivity();
+            }, 30000);
+        }
     </script>
 </body>
 </html>
