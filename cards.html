@@ -182,6 +182,28 @@
         .close-modal:hover {
             color: #333;
         }
+
+        /* Simple toast notifications (this page uses showNotification()) */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 2000;
+            display: grid;
+            gap: 10px;
+        }
+        .toast {
+            padding: 12px 14px;
+            border-radius: 10px;
+            color: #fff;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.18);
+            max-width: 360px;
+            font-size: 14px;
+            line-height: 1.3;
+        }
+        .toast-success { background: #1a472a; }
+        .toast-error { background: #c0392b; }
+        .toast-info { background: #2c3e50; }
     </style>
 </head>
 <body>
@@ -254,6 +276,28 @@
 
         if (!token) {
             window.location.href = 'signin.html';
+        }
+
+        function showNotification(message, type = 'info') {
+            try {
+                let container = document.querySelector('.toast-container');
+                if (!container) {
+                    container = document.createElement('div');
+                    container.className = 'toast-container';
+                    document.body.appendChild(container);
+                }
+                const toast = document.createElement('div');
+                const t = String(type || 'info').toLowerCase();
+                toast.className = `toast ${t === 'success' ? 'toast-success' : (t === 'error' ? 'toast-error' : 'toast-info')}`;
+                toast.textContent = String(message || '');
+                container.appendChild(toast);
+                setTimeout(() => {
+                    try { toast.remove(); } catch (e) {}
+                }, 3500);
+            } catch (e) {
+                // last resort
+                console.log(message);
+            }
         }
 
         // Get user info on load
@@ -608,6 +652,13 @@ Click 'Manage' in the mobile app or call us at 1-800-HERITAGE
 
         async function applyVirtualCard() {
             try {
+                const btn = document.querySelector('button[onclick="applyVirtualCard()"]');
+                const prev = btn ? btn.innerHTML : null;
+                if (btn) {
+                    btn.disabled = true;
+                    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Issuing...';
+                }
+
                 const res = await fetch(`${API_URL}/api/cards/apply`, {
                     method: 'POST',
                     headers: {
@@ -616,7 +667,20 @@ Click 'Manage' in the mobile app or call us at 1-800-HERITAGE
                     },
                     body: JSON.stringify({ kind: 'virtual' })
                 });
-                const data = await res.json();
+
+                if (res.status === 401) {
+                    showNotification('Session expired. Please sign in again.', 'error');
+                    window.location.href = 'signin.html';
+                    return;
+                }
+
+                let data = null;
+                try {
+                    data = await res.json();
+                } catch (e) {
+                    showNotification('Unexpected server response. Please try again.', 'error');
+                    return;
+                }
                 if (!data.success) {
                     showNotification('Error: ' + (data.message || 'Could not issue virtual card'), 'error');
                     return;
@@ -667,6 +731,13 @@ Click 'Manage' in the mobile app or call us at 1-800-HERITAGE
                 loadUserCards();
             } catch (err) {
                 showNotification('Error issuing virtual card', 'error');
+                console.error(err);
+            } finally {
+                const btn = document.querySelector('button[onclick="applyVirtualCard()"]');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-plus"></i> Get Virtual Card Now';
+                }
             }
         }
 
