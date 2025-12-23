@@ -597,7 +597,7 @@ app.post('/api/auth/login', async (req, res) => {
         // Try to find user in database first
         const connection = await pool.getConnection();
         const [dbUsers] = await connection.execute(
-            'SELECT id, firstName, lastName, email, password, accountNumber, routingNumber, balance, accountType FROM users WHERE email = ?',
+            'SELECT id, firstName, lastName, email, password, accountNumber, routingNumber, balance, accountType, isAdmin FROM users WHERE email = ?',
             [email]
         );
         connection.release();
@@ -612,9 +612,12 @@ app.post('/api/auth/login', async (req, res) => {
                 return res.status(401).json({ success: false, message: 'Invalid email or password' });
             }
 
-            // Generate token
+            // Determine role based on isAdmin field
+            const role = user.isAdmin ? 'admin' : 'user';
+
+            // Generate token with role
             const token = jwt.sign(
-                { userId: user.id, email: user.email },
+                { userId: user.id, email: user.email, role: role, isAdmin: Boolean(user.isAdmin) },
                 JWT_SECRET,
                 { expiresIn: '24h' }
             );
@@ -652,9 +655,12 @@ app.post('/api/auth/login', async (req, res) => {
             return res.status(401).json({ success: false, message: 'Invalid email or password' });
         }
 
-        // Generate token
+        // Determine role based on isAdmin field
+        const role = user.isAdmin ? 'admin' : 'user';
+
+        // Generate token with role
         const token = jwt.sign(
-            { userId: user.id, email: user.email },
+            { userId: user.id, email: user.email, role: role, isAdmin: Boolean(user.isAdmin) },
             JWT_SECRET,
             { expiresIn: '24h' }
         );
@@ -2752,7 +2758,8 @@ app.get('/api/admin/loans/pending', async (req, res) => {
             return res.status(401).json({ success: false, message: 'Invalid or expired token' });
         }
         
-        if (decoded.role !== 'admin' && decoded.role !== 'manager' && decoded.role !== 'approver') {
+        // Allow admin role or isAdmin flag
+        if (decoded.role !== 'admin' && decoded.role !== 'manager' && decoded.role !== 'approver' && !decoded.isAdmin) {
             return res.status(403).json({ success: false, message: 'Not authorized' });
         }
         
@@ -2799,7 +2806,8 @@ app.put('/api/admin/loans/:id/approve', async (req, res) => {
             return res.status(401).json({ success: false, message: 'Invalid or expired token' });
         }
         
-        if (decoded.role !== 'admin' && decoded.role !== 'manager' && decoded.role !== 'approver') {
+        // Allow admin role or isAdmin flag
+        if (decoded.role !== 'admin' && decoded.role !== 'manager' && decoded.role !== 'approver' && !decoded.isAdmin) {
             return res.status(403).json({ success: false, message: 'Not authorized' });
         }
         
@@ -2872,7 +2880,8 @@ app.put('/api/admin/loans/:id/reject', async (req, res) => {
             return res.status(401).json({ success: false, message: 'Invalid or expired token' });
         }
         
-        if (decoded.role !== 'admin' && decoded.role !== 'manager' && decoded.role !== 'approver') {
+        // Allow admin role or isAdmin flag
+        if (decoded.role !== 'admin' && decoded.role !== 'manager' && decoded.role !== 'approver' && !decoded.isAdmin) {
             return res.status(403).json({ success: false, message: 'Not authorized' });
         }
         
