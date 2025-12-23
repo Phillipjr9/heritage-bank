@@ -1,3 +1,19 @@
+/**
+ * Entrypoint wrapper
+ * ------------------
+ * This repository contains two Express servers:
+ * - `backend/server.js` (full-featured, DB-first banking backend)
+ * - this legacy root `server.js`
+ *
+ * To keep deployments consistent (Render/etc), we default to running the full
+ * backend server when `node server.js` is used.
+ *
+ * If you explicitly want the legacy root server, set:
+ *   USE_BACKEND_SERVER=false
+ */
+if (process.env.USE_BACKEND_SERVER !== 'false') {
+    require('./backend/server');
+} else {
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -4161,3 +4177,4 @@ server.on('error', (err) => {
 });
 
 module.exports = app;
+}
