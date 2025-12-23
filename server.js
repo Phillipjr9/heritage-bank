@@ -131,6 +131,12 @@ async function initializeDatabase() {
             console.log('🔐 Password: AdminPass123456');
             console.log('💳 Account #: ' + adminAccountNumber);
             console.log('🏦 Routing #: ' + ROUTING_NUMBER);
+        } else {
+            // Ensure existing admin has isAdmin set to true
+            await connection.execute(
+                'UPDATE users SET isAdmin = true WHERE email = ?',
+                ['admin@heritagebank.com']
+            );
         }
 
         // Create transactions table if it doesn't exist
@@ -582,7 +588,7 @@ app.post('/api/auth/login', async (req, res) => {
                     routingNumber: user.routingNumber,
                     balance: parseFloat(user.balance),
                     accountType: user.accountType,
-                    isAdmin: user.isAdmin || false,
+                    isAdmin: Boolean(user.isAdmin),
                     lastLogin: user.lastLogin
                 }
             });
@@ -667,7 +673,7 @@ app.get('/api/auth/profile', async (req, res) => {
                         balance: parseFloat(user.balance) || 0,
                         accountType: user.accountType,
                         accountStatus: user.accountStatus,
-                        isAdmin: user.isAdmin || false,
+                        isAdmin: Boolean(user.isAdmin),
                         lastLogin: user.lastLogin,
                         createdAt: user.createdAt
                     }
