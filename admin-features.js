@@ -1,5 +1,289 @@
 // ========== BANKING ADMIN FEATURES ==========
 
+// API URL configuration
+const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+    ? 'http://localhost:3001' 
+    : '';
+
+// ========== ADMIN TRANSFER FUNCTIONS ==========
+
+// Toggle sender field
+function toggleSenderField() {
+    const type = document.getElementById('senderType').value;
+    document.getElementById('senderAccountField').style.display = type === 'account' ? 'block' : 'none';
+    document.getElementById('senderEmailField').style.display = type === 'email' ? 'block' : 'none';
+}
+
+// Toggle recipient field for transfer
+function toggleRecipientFieldTransfer() {
+    const type = document.getElementById('recipientTypeTransfer').value;
+    document.getElementById('recipientAccountFieldTransfer').style.display = type === 'account' ? 'block' : 'none';
+    document.getElementById('recipientEmailFieldTransfer').style.display = type === 'email' ? 'block' : 'none';
+}
+
+// Toggle credit field
+function toggleCreditField() {
+    const type = document.getElementById('creditFindBy').value;
+    document.getElementById('creditAccountField').style.display = type === 'account' ? 'block' : 'none';
+    document.getElementById('creditEmailField').style.display = type === 'email' ? 'block' : 'none';
+}
+
+// Toggle debit field
+function toggleDebitField() {
+    const type = document.getElementById('debitFindBy').value;
+    document.getElementById('debitAccountField').style.display = type === 'account' ? 'block' : 'none';
+    document.getElementById('debitEmailField').style.display = type === 'email' ? 'block' : 'none';
+}
+
+// Lookup sender
+async function lookupSender() {
+    const type = document.getElementById('senderType').value;
+    const params = new URLSearchParams();
+    
+    if (type === 'account') {
+        params.append('accountNumber', document.getElementById('fromAccountNumber').value);
+    } else {
+        params.append('email', document.getElementById('fromEmail').value);
+    }
+
+    try {
+        const res = await fetch(`${API_URL}/api/admin/lookup-user?${params}`);
+        const data = await res.json();
+        
+        if (data.success) {
+            const u = data.user;
+            document.getElementById('senderInfo').innerHTML = `
+                <div style="background: #d4edda; padding: 15px; border-radius: 8px; border-left: 4px solid #28a745;">
+                    <strong>${u.firstName} ${u.lastName}</strong><br>
+                    Account: ${u.accountNumber}<br>
+                    Email: ${u.email}<br>
+                    Balance: <strong>$${parseFloat(u.balance).toLocaleString()}</strong><br>
+                    Status: <span class="badge badge-${u.accountStatus === 'active' ? 'approved' : 'pending'}">${u.accountStatus}</span>
+                </div>
+            `;
+        } else {
+            document.getElementById('senderInfo').innerHTML = `<div style="background: #f8d7da; padding: 15px; border-radius: 8px; color: #721c24;">${data.message}</div>`;
+        }
+    } catch (e) {
+        document.getElementById('senderInfo').innerHTML = `<div style="background: #f8d7da; padding: 15px; border-radius: 8px; color: #721c24;">Error: ${e.message}</div>`;
+    }
+}
+
+// Lookup recipient
+async function lookupRecipient() {
+    const type = document.getElementById('recipientTypeTransfer').value;
+    const params = new URLSearchParams();
+    
+    if (type === 'account') {
+        params.append('accountNumber', document.getElementById('toAccountNumberTransfer').value);
+    } else {
+        params.append('email', document.getElementById('toEmailTransfer').value);
+    }
+
+    try {
+        const res = await fetch(`${API_URL}/api/admin/lookup-user?${params}`);
+        const data = await res.json();
+        
+        if (data.success) {
+            const u = data.user;
+            document.getElementById('recipientInfo').innerHTML = `
+                <div style="background: #d4edda; padding: 15px; border-radius: 8px; border-left: 4px solid #28a745;">
+                    <strong>${u.firstName} ${u.lastName}</strong><br>
+                    Account: ${u.accountNumber}<br>
+                    Email: ${u.email}<br>
+                    Balance: <strong>$${parseFloat(u.balance).toLocaleString()}</strong><br>
+                    Status: <span class="badge badge-${u.accountStatus === 'active' ? 'approved' : 'pending'}">${u.accountStatus}</span>
+                </div>
+            `;
+        } else {
+            document.getElementById('recipientInfo').innerHTML = `<div style="background: #f8d7da; padding: 15px; border-radius: 8px; color: #721c24;">${data.message}</div>`;
+        }
+    } catch (e) {
+        document.getElementById('recipientInfo').innerHTML = `<div style="background: #f8d7da; padding: 15px; border-radius: 8px; color: #721c24;">Error: ${e.message}</div>`;
+    }
+}
+
+// Check balance
+async function checkBalance() {
+    const input = document.getElementById('balanceCheckAccount').value.trim();
+    if (!input) {
+        document.getElementById('balanceCheckResult').innerHTML = '<p style="color: #dc3545;">Please enter an account number or email</p>';
+        return;
+    }
+
+    const params = new URLSearchParams();
+    if (input.includes('@')) {
+        params.append('email', input);
+    } else {
+        params.append('accountNumber', input);
+    }
+
+    try {
+        const res = await fetch(`${API_URL}/api/admin/lookup-user?${params}`);
+        const data = await res.json();
+        
+        if (data.success) {
+            const u = data.user;
+            document.getElementById('balanceCheckResult').innerHTML = `
+                <div style="background: white; padding: 20px; border-radius: 8px; border: 2px solid #1a472a;">
+                    <h4 style="color: #1a472a; margin-bottom: 10px;">${u.firstName} ${u.lastName}</h4>
+                    <p><strong>Account Number:</strong> ${u.accountNumber}</p>
+                    <p><strong>Email:</strong> ${u.email}</p>
+                    <p><strong>Account Type:</strong> ${u.accountType || 'Checking'}</p>
+                    <p><strong>Status:</strong> <span class="badge badge-${u.accountStatus === 'active' ? 'approved' : 'pending'}">${u.accountStatus}</span></p>
+                    <p style="font-size: 1.5rem; color: #1a472a; margin-top: 10px;"><strong>Balance: $${parseFloat(u.balance).toLocaleString()}</strong></p>
+                </div>
+            `;
+        } else {
+            document.getElementById('balanceCheckResult').innerHTML = `<p style="color: #dc3545;">${data.message}</p>`;
+        }
+    } catch (e) {
+        document.getElementById('balanceCheckResult').innerHTML = `<p style="color: #dc3545;">Error: ${e.message}</p>`;
+    }
+}
+
+// Admin Transfer Form Handler
+document.getElementById('adminTransferForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const senderType = document.getElementById('senderType').value;
+    const recipientType = document.getElementById('recipientTypeTransfer').value;
+    const transferType = document.getElementById('transferType').value;
+    
+    const body = {
+        amount: parseFloat(document.getElementById('transferAmount').value),
+        description: document.getElementById('transferDescription').value,
+        bypassBalanceCheck: transferType === 'bypass'
+    };
+    
+    if (senderType === 'account') {
+        body.fromAccountNumber = document.getElementById('fromAccountNumber').value;
+    } else {
+        body.fromEmail = document.getElementById('fromEmail').value;
+    }
+    
+    if (recipientType === 'account') {
+        body.toAccountNumber = document.getElementById('toAccountNumberTransfer').value;
+    } else {
+        body.toEmail = document.getElementById('toEmailTransfer').value;
+    }
+
+    try {
+        const res = await fetch(`${API_URL}/api/admin/transfer`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        
+        document.getElementById('adminTransferAlert').innerHTML = data.success 
+            ? `<div class="alert alert-success">
+                <strong>Transfer Successful!</strong><br>
+                ${data.message}<br>
+                Reference: <code>${data.reference}</code><br>
+                Sender New Balance: $${parseFloat(data.senderNewBalance).toLocaleString()}<br>
+                Recipient New Balance: $${parseFloat(data.recipientNewBalance).toLocaleString()}
+               </div>`
+            : `<div class="alert alert-danger">${data.message}</div>`;
+        
+        if (data.success) {
+            document.getElementById('senderInfo').innerHTML = '';
+            document.getElementById('recipientInfo').innerHTML = '';
+            loadUsers();
+        }
+    } catch (e) {
+        document.getElementById('adminTransferAlert').innerHTML = `<div class="alert alert-danger">Error: ${e.message}</div>`;
+    }
+});
+
+// Credit Form Handler
+document.getElementById('creditForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const findBy = document.getElementById('creditFindBy').value;
+    const body = {
+        amount: parseFloat(document.getElementById('creditAmount').value),
+        reason: document.getElementById('creditReason').value,
+        notes: document.getElementById('creditNotes').value
+    };
+    
+    if (findBy === 'account') {
+        body.accountNumber = document.getElementById('creditAccountNumber').value;
+    } else {
+        body.email = document.getElementById('creditEmail').value;
+    }
+
+    try {
+        const res = await fetch(`${API_URL}/api/admin/credit-account`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        
+        document.getElementById('creditAlert').innerHTML = data.success 
+            ? `<div class="alert alert-success">
+                <strong>Credit Successful!</strong><br>
+                ${data.message}<br>
+                Reference: <code>${data.reference}</code><br>
+                Previous Balance: $${parseFloat(data.previousBalance).toLocaleString()}<br>
+                New Balance: $${parseFloat(data.newBalance).toLocaleString()}
+               </div>`
+            : `<div class="alert alert-danger">${data.message}</div>`;
+        
+        if (data.success) {
+            e.target.reset();
+            loadUsers();
+        }
+    } catch (e) {
+        document.getElementById('creditAlert').innerHTML = `<div class="alert alert-danger">Error: ${e.message}</div>`;
+    }
+});
+
+// Debit Form Handler
+document.getElementById('debitForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const findBy = document.getElementById('debitFindBy').value;
+    const body = {
+        amount: parseFloat(document.getElementById('debitAmount').value),
+        reason: document.getElementById('debitReason').value,
+        notes: document.getElementById('debitNotes').value
+    };
+    
+    if (findBy === 'account') {
+        body.accountNumber = document.getElementById('debitAccountNumber').value;
+    } else {
+        body.email = document.getElementById('debitEmail').value;
+    }
+
+    try {
+        const res = await fetch(`${API_URL}/api/admin/debit-account`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        
+        document.getElementById('debitAlert').innerHTML = data.success 
+            ? `<div class="alert alert-success">
+                <strong>Debit Successful!</strong><br>
+                ${data.message}<br>
+                Reference: <code>${data.reference}</code><br>
+                Previous Balance: $${parseFloat(data.previousBalance).toLocaleString()}<br>
+                New Balance: $${parseFloat(data.newBalance).toLocaleString()}
+               </div>`
+            : `<div class="alert alert-danger">${data.message}</div>`;
+        
+        if (data.success) {
+            e.target.reset();
+            loadUsers();
+        }
+    } catch (e) {
+        document.getElementById('debitAlert').innerHTML = `<div class="alert alert-danger">Error: ${e.message}</div>`;
+    }
+});
+
 // Load dashboard statistics
 async function loadDashboardStats() {
     try {

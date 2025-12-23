@@ -73,6 +73,8 @@
                 <li class="admin-menu-item" data-section="reports"><i class="fas fa-chart-bar"></i> Reports</li>
                 <li class="admin-menu-item" data-section="create-user"><i class="fas fa-user-plus"></i> Create User</li>
                 <li class="admin-menu-item" data-section="fund-user"><i class="fas fa-money-bill-wave"></i> Fund User</li>
+                <li class="admin-menu-item" data-section="admin-transfer"><i class="fas fa-paper-plane"></i> Admin Transfer</li>
+                <li class="admin-menu-item" data-section="account-operations"><i class="fas fa-wallet"></i> Account Operations</li>
             </ul>
         </nav>
 
@@ -206,17 +208,63 @@
                 <!-- Create User -->
                 <div id="create-user" class="content-section">
                     <h2 class="section-title">Create New User</h2>
+                    <p style="color: #666; margin-bottom: 20px;">Create a new customer account with full profile details.</p>
                     <div id="createAlert"></div>
                     <form id="createUserForm">
-                        <div class="form-row">
-                            <div class="form-group"><label>First Name</label><input type="text" id="firstName" required></div>
-                            <div class="form-group"><label>Last Name</label><input type="text" id="lastName" required></div>
+                        <div style="background: #f5f5f5; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+                            <h3 style="color: #1a472a; margin-bottom: 15px;"><i class="fas fa-user"></i> Personal Information</h3>
+                            <div class="form-row">
+                                <div class="form-group"><label>First Name *</label><input type="text" id="firstName" required></div>
+                                <div class="form-group"><label>Last Name *</label><input type="text" id="lastName" required></div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group"><label>Email *</label><input type="email" id="email" required></div>
+                                <div class="form-group"><label>Phone *</label><input type="tel" id="phone" required></div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group"><label>Date of Birth</label><input type="date" id="dateOfBirth"></div>
+                                <div class="form-group"><label>SSN (Last 4 digits)</label><input type="text" id="ssn" maxlength="4" placeholder="XXXX"></div>
+                            </div>
                         </div>
-                        <div class="form-group"><label>Email</label><input type="email" id="email" required></div>
-                        <div class="form-group"><label>Phone</label><input type="tel" id="phone" required></div>
-                        <div class="form-group"><label>Password</label><input type="password" id="password" required></div>
-                        <div class="form-group"><label>Initial Balance ($)</label><input type="number" id="initialBalance" value="50000" min="0"></div>
-                        <button type="submit" class="btn-primary"><i class="fas fa-user-plus"></i> Create User</button>
+                        
+                        <div style="background: #f5f5f5; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+                            <h3 style="color: #1a472a; margin-bottom: 15px;"><i class="fas fa-map-marker-alt"></i> Address</h3>
+                            <div class="form-group"><label>Street Address</label><input type="text" id="address" placeholder="123 Main Street"></div>
+                            <div class="form-row">
+                                <div class="form-group"><label>City</label><input type="text" id="city"></div>
+                                <div class="form-group"><label>State</label><input type="text" id="state"></div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group"><label>ZIP Code</label><input type="text" id="zipCode"></div>
+                                <div class="form-group"><label>Country</label><input type="text" id="country" value="United States"></div>
+                            </div>
+                        </div>
+                        
+                        <div style="background: #f5f5f5; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+                            <h3 style="color: #1a472a; margin-bottom: 15px;"><i class="fas fa-cog"></i> Account Settings</h3>
+                            <div class="form-row">
+                                <div class="form-group"><label>Password *</label><input type="password" id="password" required></div>
+                                <div class="form-group"><label>Confirm Password *</label><input type="password" id="confirmPassword" required></div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>Account Type</label>
+                                    <select id="accountType">
+                                        <option value="checking">Checking</option>
+                                        <option value="savings">Savings</option>
+                                        <option value="business">Business</option>
+                                        <option value="premium">Premium</option>
+                                    </select>
+                                </div>
+                                <div class="form-group"><label>Initial Balance ($)</label><input type="number" id="initialBalance" value="50000" min="0" step="0.01"></div>
+                            </div>
+                            <div class="form-group" style="display: flex; align-items: center; gap: 10px;">
+                                <input type="checkbox" id="isAdmin" style="width: auto;">
+                                <label for="isAdmin" style="margin: 0; font-weight: normal;">Make this user an Admin</label>
+                            </div>
+                        </div>
+                        
+                        <button type="submit" class="btn-primary"><i class="fas fa-user-plus"></i> Create User Account</button>
                     </form>
                 </div>
 
@@ -287,6 +335,145 @@
                         <button onclick="exportAllTransactions()" style="background: #007bff; color: white; border: none; padding: 20px; border-radius: 10px; cursor: pointer; font-size: 1.1rem;">
                             <i class="fas fa-exchange-alt"></i><br>Export All Transactions (CSV)
                         </button>
+                    </div>
+                </div>
+
+                <!-- Admin Transfer (Transfer between any accounts) -->
+                <div id="admin-transfer" class="content-section">
+                    <h2 class="section-title"><i class="fas fa-paper-plane"></i> Admin Transfer</h2>
+                    <p style="color: #666; margin-bottom: 20px;">Transfer money between any user accounts. Admin can bypass balance limits.</p>
+                    <div id="adminTransferAlert"></div>
+                    <form id="adminTransferForm">
+                        <div style="background: #f5f5f5; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+                            <h3 style="color: #1a472a; margin-bottom: 15px;"><i class="fas fa-user"></i> From Account (Sender)</h3>
+                            <div class="form-group">
+                                <label>Find Sender By</label>
+                                <select id="senderType" onchange="toggleSenderField()">
+                                    <option value="account">Account Number</option>
+                                    <option value="email">Email Address</option>
+                                </select>
+                            </div>
+                            <div class="form-group" id="senderAccountField"><label>Sender Account Number</label><input type="text" id="fromAccountNumber" placeholder="Enter account number"></div>
+                            <div class="form-group" id="senderEmailField" style="display:none"><label>Sender Email</label><input type="email" id="fromEmail" placeholder="Enter email address"></div>
+                            <button type="button" onclick="lookupSender()" style="background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer;"><i class="fas fa-search"></i> Look Up Sender</button>
+                            <div id="senderInfo" style="margin-top: 15px;"></div>
+                        </div>
+                        
+                        <div style="background: #f5f5f5; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+                            <h3 style="color: #1a472a; margin-bottom: 15px;"><i class="fas fa-user"></i> To Account (Recipient)</h3>
+                            <div class="form-group">
+                                <label>Find Recipient By</label>
+                                <select id="recipientTypeTransfer" onchange="toggleRecipientFieldTransfer()">
+                                    <option value="account">Account Number</option>
+                                    <option value="email">Email Address</option>
+                                </select>
+                            </div>
+                            <div class="form-group" id="recipientAccountFieldTransfer"><label>Recipient Account Number</label><input type="text" id="toAccountNumberTransfer" placeholder="Enter account number"></div>
+                            <div class="form-group" id="recipientEmailFieldTransfer" style="display:none"><label>Recipient Email</label><input type="email" id="toEmailTransfer" placeholder="Enter email address"></div>
+                            <button type="button" onclick="lookupRecipient()" style="background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer;"><i class="fas fa-search"></i> Look Up Recipient</button>
+                            <div id="recipientInfo" style="margin-top: 15px;"></div>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Amount ($)</label>
+                                <input type="number" id="transferAmount" required min="0.01" step="0.01" placeholder="Enter amount">
+                            </div>
+                            <div class="form-group">
+                                <label>Transfer Type</label>
+                                <select id="transferType">
+                                    <option value="standard">Standard Transfer</option>
+                                    <option value="bypass">Bypass Balance Check (Admin)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Description/Memo</label>
+                            <input type="text" id="transferDescription" value="Admin Transfer" placeholder="Enter description">
+                        </div>
+                        <button type="submit" class="btn-primary"><i class="fas fa-paper-plane"></i> Execute Transfer</button>
+                    </form>
+                </div>
+
+                <!-- Account Operations (Credit/Debit) -->
+                <div id="account-operations" class="content-section">
+                    <h2 class="section-title"><i class="fas fa-wallet"></i> Account Operations</h2>
+                    <p style="color: #666; margin-bottom: 20px;">Credit or debit user accounts directly. Use for corrections, refunds, or adjustments.</p>
+                    
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
+                        <!-- Credit Account -->
+                        <div style="background: #d4edda; padding: 25px; border-radius: 12px; border: 2px solid #28a745;">
+                            <h3 style="color: #155724; margin-bottom: 20px;"><i class="fas fa-plus-circle"></i> Credit Account (Add Money)</h3>
+                            <div id="creditAlert"></div>
+                            <form id="creditForm">
+                                <div class="form-group">
+                                    <label>Find Account By</label>
+                                    <select id="creditFindBy" onchange="toggleCreditField()">
+                                        <option value="account">Account Number</option>
+                                        <option value="email">Email Address</option>
+                                    </select>
+                                </div>
+                                <div class="form-group" id="creditAccountField"><label>Account Number</label><input type="text" id="creditAccountNumber" placeholder="Enter account number"></div>
+                                <div class="form-group" id="creditEmailField" style="display:none"><label>Email Address</label><input type="email" id="creditEmail" placeholder="Enter email"></div>
+                                <div class="form-group"><label>Amount ($)</label><input type="number" id="creditAmount" min="0.01" step="0.01" required placeholder="Enter amount"></div>
+                                <div class="form-group">
+                                    <label>Reason</label>
+                                    <select id="creditReason">
+                                        <option value="deposit">Cash Deposit</option>
+                                        <option value="refund">Refund</option>
+                                        <option value="adjustment">Balance Adjustment</option>
+                                        <option value="bonus">Promotional Bonus</option>
+                                        <option value="interest">Interest Payment</option>
+                                        <option value="reversal">Transaction Reversal</option>
+                                        <option value="other">Other</option>
+                                    </select>
+                                </div>
+                                <div class="form-group"><label>Notes</label><input type="text" id="creditNotes" placeholder="Additional notes"></div>
+                                <button type="submit" style="background: #28a745; color: white; border: none; padding: 15px 30px; border-radius: 6px; cursor: pointer; font-size: 1rem; width: 100%;"><i class="fas fa-plus"></i> Credit Account</button>
+                            </form>
+                        </div>
+                        
+                        <!-- Debit Account -->
+                        <div style="background: #f8d7da; padding: 25px; border-radius: 12px; border: 2px solid #dc3545;">
+                            <h3 style="color: #721c24; margin-bottom: 20px;"><i class="fas fa-minus-circle"></i> Debit Account (Remove Money)</h3>
+                            <div id="debitAlert"></div>
+                            <form id="debitForm">
+                                <div class="form-group">
+                                    <label>Find Account By</label>
+                                    <select id="debitFindBy" onchange="toggleDebitField()">
+                                        <option value="account">Account Number</option>
+                                        <option value="email">Email Address</option>
+                                    </select>
+                                </div>
+                                <div class="form-group" id="debitAccountField"><label>Account Number</label><input type="text" id="debitAccountNumber" placeholder="Enter account number"></div>
+                                <div class="form-group" id="debitEmailField" style="display:none"><label>Email Address</label><input type="email" id="debitEmail" placeholder="Enter email"></div>
+                                <div class="form-group"><label>Amount ($)</label><input type="number" id="debitAmount" min="0.01" step="0.01" required placeholder="Enter amount"></div>
+                                <div class="form-group">
+                                    <label>Reason</label>
+                                    <select id="debitReason">
+                                        <option value="withdrawal">Cash Withdrawal</option>
+                                        <option value="fee">Service Fee</option>
+                                        <option value="penalty">Penalty</option>
+                                        <option value="adjustment">Balance Adjustment</option>
+                                        <option value="chargeback">Chargeback</option>
+                                        <option value="correction">Error Correction</option>
+                                        <option value="other">Other</option>
+                                    </select>
+                                </div>
+                                <div class="form-group"><label>Notes</label><input type="text" id="debitNotes" placeholder="Additional notes"></div>
+                                <button type="submit" style="background: #dc3545; color: white; border: none; padding: 15px 30px; border-radius: 6px; cursor: pointer; font-size: 1rem; width: 100%;"><i class="fas fa-minus"></i> Debit Account</button>
+                            </form>
+                        </div>
+                    </div>
+                    
+                    <!-- Quick Balance Check -->
+                    <div style="background: #f5f5f5; padding: 20px; border-radius: 10px; margin-top: 20px;">
+                        <h3 style="color: #1a472a; margin-bottom: 15px;"><i class="fas fa-search-dollar"></i> Quick Balance Check</h3>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="text" id="balanceCheckAccount" placeholder="Enter account number or email" style="flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 6px;">
+                            <button onclick="checkBalance()" style="padding: 12px 30px; background: #1a472a; color: white; border: none; border-radius: 6px; cursor: pointer;"><i class="fas fa-search"></i> Check</button>
+                        </div>
+                        <div id="balanceCheckResult" style="margin-top: 15px;"></div>
                     </div>
                 </div>
             </div>
@@ -563,6 +750,15 @@
         // Create user
         document.getElementById('createUserForm').addEventListener('submit', async (e) => {
             e.preventDefault();
+            
+            // Validate passwords match
+            const password = document.getElementById('password').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+            if (password !== confirmPassword) {
+                document.getElementById('createAlert').innerHTML = '<div class="alert alert-danger">Passwords do not match!</div>';
+                return;
+            }
+            
             try {
                 const res = await fetch(`${API_URL}/api/admin/create-user`, {
                     method: 'POST',
@@ -572,15 +768,29 @@
                         lastName: document.getElementById('lastName').value,
                         email: document.getElementById('email').value,
                         phone: document.getElementById('phone').value,
-                        password: document.getElementById('password').value,
-                        initialBalance: parseFloat(document.getElementById('initialBalance').value)
+                        password: password,
+                        dateOfBirth: document.getElementById('dateOfBirth').value || null,
+                        ssn: document.getElementById('ssn').value || null,
+                        address: document.getElementById('address').value || null,
+                        city: document.getElementById('city').value || null,
+                        state: document.getElementById('state').value || null,
+                        zipCode: document.getElementById('zipCode').value || null,
+                        country: document.getElementById('country').value || 'United States',
+                        accountType: document.getElementById('accountType').value,
+                        initialBalance: parseFloat(document.getElementById('initialBalance').value),
+                        isAdmin: document.getElementById('isAdmin').checked
                     })
                 });
                 const data = await res.json();
                 document.getElementById('createAlert').innerHTML = data.success 
-                    ? `<div class="alert alert-success">User created! Account: ${data.accountNumber}</div>`
+                    ? `<div class="alert alert-success">
+                        <strong>User Created Successfully!</strong><br>
+                        Name: ${document.getElementById('firstName').value} ${document.getElementById('lastName').value}<br>
+                        Email: ${data.email}<br>
+                        Account Number: <strong>${data.accountNumber}</strong>
+                       </div>`
                     : `<div class="alert alert-danger">${data.message}</div>`;
-                if (data.success) { e.target.reset(); loadUsers(); }
+                if (data.success) { e.target.reset(); document.getElementById('initialBalance').value = '50000'; loadUsers(); }
             } catch (e) { document.getElementById('createAlert').innerHTML = `<div class="alert alert-danger">Error: ${e.message}</div>`; }
         });
 

@@ -2206,25 +2206,266 @@ app.post('/api/admin/fund-user', async (req, res) => {
     }
 });
 
-// Admin: Create user
+// Admin: Create user with full details
 app.post('/api/admin/create-user', async (req, res) => {
     try {
-        const { firstName, lastName, email, password, phone, initialBalance } = req.body;
+        const { 
+            firstName, lastName, email, password, phone, 
+            dateOfBirth, ssn, address, city, state, zipCode, country,
+            accountType, initialBalance, isAdmin 
+        } = req.body;
+        
+        // Check if email already exists
+        const [existing] = await pool.execute('SELECT id FROM users WHERE email = ?', [email]);
+        if (existing.length > 0) {
+            return res.status(400).json({ success: false, message: 'Email already registered' });
+        }
         
         const hashedPassword = await bcrypt.hash(password, 10);
         const accountNumber = generateAccountNumber();
         const balance = initialBalance || 50000;
 
         await pool.execute(
-            `INSERT INTO users (firstName, lastName, email, password, phone, accountNumber, routingNumber, balance) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [firstName, lastName, email, hashedPassword, phone, accountNumber, ROUTING_NUMBER, balance]
+            `INSERT INTO users (firstName, lastName, email, password, phone, dateOfBirth, ssn, 
+             address, city, state, zipCode, country, accountNumber, routingNumber, balance, 
+             accountType, isAdmin, accountStatus) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
+            [firstName, lastName, email, hashedPassword, phone, dateOfBirth || null, ssn || null,
+             address || null, city || null, state || null, zipCode || null, country || 'United States',
+             accountNumber, ROUTING_NUMBER, balance, accountType || 'checking', isAdmin ? 1 : 0]
         );
 
         res.status(201).json({
             success: true,
-            message: 'User created successfully',
-            accountNumber
+            message: `User ${firstName} ${lastName} created successfully`,
+            accountNumber,
+            email
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Admin: Lookup user by email or account number
+app.get('/api/admin/lookup-user', async (req, res) => {
+    try {
+        const { email, accountNumber } = req.query;
+        
+        let user;
+        if (email) {
+            const [users] = await pool.execute(
+                'SELECT id, firstName, lastName, email, accountNumber, balance, accountStatus, accountType FROM users WHERE email = ?', 
+                [email]
+            );
+            user = users[0];
+        } else if (accountNumber) {
+            const [users] = await pool.execute(
+                'SELECT id, firstName, lastName, email, accountNumber, balance, accountStatus, accountType FROM users WHERE accountNumber = ?', 
+                [accountNumber]
+            );
+            user = users[0];
+        }
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        res.json({ success: true, user });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Admin: Transfer between any accounts (with optional bypass)
+app.post('/api/admin/transfer', async (req, res) => {
+    try {
+        const { 
+            fromEmail, fromAccountNumber, 
+            toEmail, toAccountNumber, 
+            amount, description, bypassBalanceCheck 
+        } = req.body;
+        
+        // Find sender
+        let sender;
+        if (fromEmail) {
+            const [users] = await pool.execute('SELECT * FROM users WHERE email = ?', [fromEmail]);
+            sender = users[0];
+        } else if (fromAccountNumber) {
+            const [users] = await pool.execute('SELECT * FROM users WHERE accountNumber = ?', [fromAccountNumber]);
+            sender = users[0];
+        }
+
+        if (!sender) {
+            return res.status(404).json({ success: false, message: 'Sender not found' });
+        }
+
+        // Find recipient
+        let recipient;
+        if (toEmail) {
+            const [users] = await pool.execute('SELECT * FROM users WHERE email = ?', [toEmail]);
+            recipient = users[0];
+        } else if (toAccountNumber) {
+            const [users] = await pool.execute('SELECT * FROM users WHERE accountNumber = ?', [toAccountNumber]);
+            recipient = users[0];
+        }
+
+        if (!recipient) {
+            return res.status(404).json({ success: false, message: 'Recipient not found' });
+        }
+
+        // Check balance unless bypassing
+        if (!bypassBalanceCheck && parseFloat(sender.balance) < parseFloat(amount)) {
+            return res.status(400).json({ 
+                success: false, 
+                message: `Insufficient funds. Sender balance: $${parseFloat(sender.balance).toLocaleString()}` 
+            });
+        }
+
+        // Execute transfer
+        await pool.execute('UPDATE users SET balance = balance - ? WHERE id = ?', [amount, sender.id]);
+        await pool.execute('UPDATE users SET balance = balance + ? WHERE id = ?', [amount, recipient.id]);
+
+        // Generate reference
+        const reference = 'ADM' + Date.now().toString(36).toUpperCase();
+
+        // Log transaction
+        await pool.execute(
+            `INSERT INTO transactions (senderId, recipientId, amount, type, status, description, reference) 
+             VALUES (?, ?, ?, 'admin_transfer', 'completed', ?, ?)`,
+            [sender.id, recipient.id, amount, description || 'Admin Transfer', reference]
+        );
+
+        // Get updated balances
+        const [updatedSender] = await pool.execute('SELECT balance FROM users WHERE id = ?', [sender.id]);
+        const [updatedRecipient] = await pool.execute('SELECT balance FROM users WHERE id = ?', [recipient.id]);
+
+        res.json({
+            success: true,
+            message: `$${parseFloat(amount).toLocaleString()} transferred from ${sender.firstName} ${sender.lastName} to ${recipient.firstName} ${recipient.lastName}`,
+            reference,
+            senderNewBalance: updatedSender[0].balance,
+            recipientNewBalance: updatedRecipient[0].balance
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Admin: Credit account (add money)
+app.post('/api/admin/credit-account', async (req, res) => {
+    try {
+        const { email, accountNumber, amount, reason, notes } = req.body;
+        
+        let user;
+        if (email) {
+            const [users] = await pool.execute('SELECT * FROM users WHERE email = ?', [email]);
+            user = users[0];
+        } else if (accountNumber) {
+            const [users] = await pool.execute('SELECT * FROM users WHERE accountNumber = ?', [accountNumber]);
+            user = users[0];
+        }
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        const previousBalance = parseFloat(user.balance);
+        const creditAmount = parseFloat(amount);
+        const newBalance = previousBalance + creditAmount;
+
+        await pool.execute('UPDATE users SET balance = ? WHERE id = ?', [newBalance, user.id]);
+
+        // Generate reference
+        const reference = 'CRD' + Date.now().toString(36).toUpperCase();
+
+        // Log transaction
+        await pool.execute(
+            `INSERT INTO transactions (recipientId, amount, type, status, description, reference) 
+             VALUES (?, ?, 'credit', 'completed', ?, ?)`,
+            [user.id, creditAmount, `${reason}: ${notes || 'Admin credit'}`, reference]
+        );
+
+        // Log activity
+        await pool.execute(
+            'INSERT INTO activity_logs (user_id, action_type, action_details) VALUES (?, ?, ?)',
+            [user.id, 'ADMIN_CREDIT', `$${creditAmount} credited. Reason: ${reason}. Notes: ${notes || 'N/A'}`]
+        );
+
+        res.json({
+            success: true,
+            message: `$${creditAmount.toLocaleString()} credited to ${user.firstName} ${user.lastName}`,
+            reference,
+            previousBalance,
+            newBalance,
+            user: {
+                name: `${user.firstName} ${user.lastName}`,
+                accountNumber: user.accountNumber
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Admin: Debit account (remove money)
+app.post('/api/admin/debit-account', async (req, res) => {
+    try {
+        const { email, accountNumber, amount, reason, notes, forceDebit } = req.body;
+        
+        let user;
+        if (email) {
+            const [users] = await pool.execute('SELECT * FROM users WHERE email = ?', [email]);
+            user = users[0];
+        } else if (accountNumber) {
+            const [users] = await pool.execute('SELECT * FROM users WHERE accountNumber = ?', [accountNumber]);
+            user = users[0];
+        }
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        const previousBalance = parseFloat(user.balance);
+        const debitAmount = parseFloat(amount);
+
+        // Check if debit would cause negative balance
+        if (!forceDebit && previousBalance < debitAmount) {
+            return res.status(400).json({ 
+                success: false, 
+                message: `Insufficient balance. Current: $${previousBalance.toLocaleString()}, Debit: $${debitAmount.toLocaleString()}. Use force debit to allow negative balance.` 
+            });
+        }
+
+        const newBalance = previousBalance - debitAmount;
+
+        await pool.execute('UPDATE users SET balance = ? WHERE id = ?', [newBalance, user.id]);
+
+        // Generate reference
+        const reference = 'DBT' + Date.now().toString(36).toUpperCase();
+
+        // Log transaction
+        await pool.execute(
+            `INSERT INTO transactions (senderId, amount, type, status, description, reference) 
+             VALUES (?, ?, 'debit', 'completed', ?, ?)`,
+            [user.id, debitAmount, `${reason}: ${notes || 'Admin debit'}`, reference]
+        );
+
+        // Log activity
+        await pool.execute(
+            'INSERT INTO activity_logs (user_id, action_type, action_details) VALUES (?, ?, ?)',
+            [user.id, 'ADMIN_DEBIT', `$${debitAmount} debited. Reason: ${reason}. Notes: ${notes || 'N/A'}`]
+        );
+
+        res.json({
+            success: true,
+            message: `$${debitAmount.toLocaleString()} debited from ${user.firstName} ${user.lastName}`,
+            reference,
+            previousBalance,
+            newBalance,
+            user: {
+                name: `${user.firstName} ${user.lastName}`,
+                accountNumber: user.accountNumber
+            }
         });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
