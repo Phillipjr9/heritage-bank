@@ -2238,8 +2238,13 @@ app.post('/api/admin/create-user', async (req, res) => {
         res.status(201).json({
             success: true,
             message: `User ${firstName} ${lastName} created successfully`,
-            accountNumber,
-            email
+            user: {
+                firstName,
+                lastName,
+                email,
+                accountNumber,
+                balance
+            }
         });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -2247,9 +2252,9 @@ app.post('/api/admin/create-user', async (req, res) => {
 });
 
 // Admin: Lookup user by email or account number
-app.get('/api/admin/lookup-user', async (req, res) => {
+app.post('/api/admin/lookup-user', async (req, res) => {
     try {
-        const { email, accountNumber } = req.query;
+        const { email, accountNumber } = req.body;
         
         let user;
         if (email) {
