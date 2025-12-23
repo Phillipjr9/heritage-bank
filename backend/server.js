@@ -78,6 +78,18 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
+// Prevent stale API JSON responses (e.g., transaction history) from being cached by browsers/CDNs.
+app.use('/api', (req, res, next) => {
+    try {
+        res.setHeader('Cache-Control', 'no-store, max-age=0');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+    } catch (e) {
+        // best-effort
+    }
+    next();
+});
+
 // Avoid stale HTML in production (e.g., admin.html cached by browser/CDN).
 // Static assets like CSS/JS can still be cached normally, but HTML should generally be revalidated.
 app.use((req, res, next) => {

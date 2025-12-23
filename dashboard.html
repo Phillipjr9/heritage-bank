@@ -468,7 +468,9 @@
             if (!userId) return;
             
             try {
-                const res = await fetch(`${API_URL}/api/user/${userId}/transactions`, {
+                // Avoid cached 304 responses hiding new transactions.
+                const res = await fetch(`${API_URL}/api/user/${userId}/transactions?ts=${Date.now()}`, {
+                    cache: 'no-store',
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 const data = await res.json();
