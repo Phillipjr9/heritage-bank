@@ -91,6 +91,37 @@ async function initializeDatabase() {
             )
         `);
 
+        // Transactions table (core ledger for transfers/credits/debits)
+        await connection.execute(`
+            CREATE TABLE IF NOT EXISTS transactions (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                fromUserId INT NULL,
+                toUserId INT NULL,
+                amount DECIMAL(15,2) NOT NULL,
+                type VARCHAR(50) NOT NULL,
+                description VARCHAR(500),
+                status VARCHAR(50) DEFAULT 'completed',
+                reference VARCHAR(50),
+                createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_tx_from (fromUserId),
+                INDEX idx_tx_to (toUserId),
+                INDEX idx_tx_created (createdAt)
+            )
+        `);
+
+        // Best-effort schema alignment for existing databases.
+        // (TiDB/MySQL may not support IF NOT EXISTS on all ALTERs; failures are safe to ignore.)
+        try { await connection.execute(`ALTER TABLE transactions ADD COLUMN fromUserId INT NULL`); } catch (e) {}
+        try { await connection.execute(`ALTER TABLE transactions ADD COLUMN toUserId INT NULL`); } catch (e) {}
+        try { await connection.execute(`ALTER TABLE transactions ADD COLUMN reference VARCHAR(50) NULL`); } catch (e) {}
+        try { await connection.execute(`ALTER TABLE transactions ADD COLUMN description VARCHAR(500) NULL`); } catch (e) {}
+        try { await connection.execute(`ALTER TABLE transactions ADD COLUMN status VARCHAR(50) DEFAULT 'completed'`); } catch (e) {}
+        try { await connection.execute(`ALTER TABLE transactions ADD COLUMN createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP`); } catch (e) {}
+
+        // Best-effort data backfill for legacy schemas.
+        // If an older `created_at` column exists, copy it into `createdAt` so date filters work.
+        try { await connection.execute(`UPDATE transactions SET createdAt = created_at WHERE createdAt IS NULL`); } catch (e) {}
+
         // Beneficiaries table
         await connection.execute(`
             CREATE TABLE IF NOT EXISTS beneficiaries (
@@ -846,8 +877,8 @@ async function postMonthlyInterest() {
         // Create transaction record
         const refId = generateReferenceId('INT');
         await pool.execute(
-            `INSERT INTO transactions (userId, type, amount, description, status, reference)
-             VALUES (?, 'interest', ?, 'Monthly interest credit', 'completed', ?)`,
+            `INSERT INTO transactions (fromUserId, toUserId, type, amount, description, status, reference)
+             VALUES (NULL, ?, 'interest', ?, 'Monthly interest credit', 'completed', ?)`,
             [accrual.accountId, interest, refId]
         );
         
@@ -931,8 +962,8 @@ async function chargePendingFees() {
             // Create transaction
             const refId = generateReferenceId('FEE');
             await pool.execute(
-                `INSERT INTO transactions (userId, type, amount, description, status, reference)
-                 VALUES (?, 'fee', ?, ?, 'completed', ?)`,
+                `INSERT INTO transactions (fromUserId, toUserId, type, amount, description, status, reference)
+                 VALUES (?, NULL, 'fee', ?, ?, 'completed', ?)`,
                 [fee.accountId, feeAmount, fee.description, refId]
             );
             
@@ -999,7 +1030,7 @@ async function runDormantAccountCheck() {
     const [dormantAccounts] = await pool.execute(
         `SELECT u.id, u.email, u.accountNumber, MAX(t.createdAt) as lastActivity
          FROM users u
-         LEFT JOIN transactions t ON u.id = t.userId
+         LEFT JOIN transactions t ON (u.id = t.fromUserId OR u.id = t.toUserId)
          WHERE u.accountStatus = 'active'
          GROUP BY u.id
          HAVING lastActivity < DATE_SUB(NOW(), INTERVAL ? DAY) OR lastActivity IS NULL`,
@@ -1274,8 +1305,8 @@ app.post('/api/admin/signups/:id/approve', async (req, res) => {
         // Create initial deposit transaction
         if (signup.initialDeposit > 0) {
             await pool.execute(
-                `INSERT INTO transactions (userId, type, amount, description, status, reference)
-                 VALUES (?, 'deposit', ?, 'Initial account deposit', 'completed', ?)`,
+                `INSERT INTO transactions (fromUserId, toUserId, type, amount, description, status, reference)
+                 VALUES (NULL, ?, 'deposit', ?, 'Initial account deposit', 'completed', ?)`,
                 [userId, signup.initialDeposit, generateReferenceId('DEP')]
             );
         }
@@ -1423,8 +1454,8 @@ app.post('/api/accounts/open', async (req, res) => {
             
             // Create transfer transaction
             await pool.execute(
-                `INSERT INTO transactions (userId, type, amount, description, status, reference)
-                 VALUES (?, 'transfer_out', ?, ?, 'completed', ?)`,
+                `INSERT INTO transactions (fromUserId, toUserId, type, amount, description, status, reference)
+                 VALUES (?, NULL, 'transfer_out', ?, ?, 'completed', ?)`,
                 [decoded.id, deposit, `Initial deposit to new ${accountType} account`, generateReferenceId('TRF')]
             );
         }
@@ -2159,8 +2190,8 @@ app.post('/api/auth/register', async (req, res) => {
         // Create initial deposit transaction
         if (deposit > 0) {
             await pool.execute(
-                `INSERT INTO transactions (userId, type, amount, description, status, reference) 
-                 VALUES (?, ?, ?, ?, ?, ?)`,
+                `INSERT INTO transactions (fromUserId, toUserId, type, amount, description, status, reference) 
+                 VALUES (NULL, ?, ?, ?, ?, ?, ?)`,
                 [user.id, 'deposit', deposit, 'Initial account deposit', 'completed', `DEP-${Date.now()}`]
             );
         }
@@ -2264,6 +2295,13 @@ app.post('/api/admin/create-user', async (req, res) => {
             dateOfBirth, ssn, address, city, state, zipCode, country,
             accountType, initialBalance, isAdmin 
         } = req.body;
+
+        if (!firstName || !lastName || !email || !password) {
+            return res.status(400).json({
+                success: false,
+                message: 'firstName, lastName, email, and password are required'
+            });
+        }
         
         // Check if email already exists
         const [existing] = await pool.execute('SELECT id FROM users WHERE email = ?', [email]);
@@ -2273,22 +2311,52 @@ app.post('/api/admin/create-user', async (req, res) => {
         
         const hashedPassword = await bcrypt.hash(password, 10);
         const accountNumber = generateAccountNumber();
-        const balance = initialBalance || 50000;
+        const balance = (initialBalance !== undefined && initialBalance !== null && initialBalance !== '')
+            ? parseFloat(initialBalance)
+            : 0;
 
-        await pool.execute(
+        const phoneValue = phone || null;
+        const dobValue = dateOfBirth || null;
+        const ssnValue = ssn || null;
+        const addressValue = address || null;
+        const cityValue = city || null;
+        const stateValue = state || null;
+        const zipValue = zipCode || null;
+        const countryValue = country || 'United States';
+        const accountTypeValue = accountType || 'checking';
+        const isAdminValue = isAdmin ? 1 : 0;
+
+        const [insertResult] = await pool.execute(
             `INSERT INTO users (firstName, lastName, email, password, phone, dateOfBirth, ssn, 
              address, city, state, zipCode, country, accountNumber, routingNumber, balance, 
              accountType, isAdmin, accountStatus) 
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
-            [firstName, lastName, email, hashedPassword, phone, dateOfBirth || null, ssn || null,
-             address || null, city || null, state || null, zipCode || null, country || 'United States',
-             accountNumber, ROUTING_NUMBER, balance, accountType || 'checking', isAdmin ? 1 : 0]
+            [
+                firstName,
+                lastName,
+                email,
+                hashedPassword,
+                phoneValue,
+                dobValue,
+                ssnValue,
+                addressValue,
+                cityValue,
+                stateValue,
+                zipValue,
+                countryValue,
+                accountNumber,
+                ROUTING_NUMBER,
+                balance,
+                accountTypeValue,
+                isAdminValue
+            ]
         );
 
         res.status(201).json({
             success: true,
             message: `User ${firstName} ${lastName} created successfully`,
             user: {
+                id: insertResult.insertId,
                 firstName,
                 lastName,
                 email,
@@ -2385,7 +2453,7 @@ app.post('/api/admin/transfer', async (req, res) => {
 
         // Log transaction
         await pool.execute(
-            `INSERT INTO transactions (senderId, recipientId, amount, type, status, description, reference) 
+            `INSERT INTO transactions (fromUserId, toUserId, amount, type, status, description, reference)
              VALUES (?, ?, ?, 'admin_transfer', 'completed', ?, ?)`,
             [sender.id, recipient.id, amount, description || 'Admin Transfer', reference]
         );
@@ -2435,8 +2503,8 @@ app.post('/api/admin/credit-account', async (req, res) => {
 
         // Log transaction
         await pool.execute(
-            `INSERT INTO transactions (recipientId, amount, type, status, description, reference) 
-             VALUES (?, ?, 'credit', 'completed', ?, ?)`,
+            `INSERT INTO transactions (fromUserId, toUserId, amount, type, status, description, reference)
+             VALUES (NULL, ?, ?, 'credit', 'completed', ?, ?)`,
             [user.id, creditAmount, `${reason}: ${notes || 'Admin credit'}`, reference]
         );
 
@@ -2500,8 +2568,8 @@ app.post('/api/admin/debit-account', async (req, res) => {
 
         // Log transaction
         await pool.execute(
-            `INSERT INTO transactions (senderId, amount, type, status, description, reference) 
-             VALUES (?, ?, 'debit', 'completed', ?, ?)`,
+            `INSERT INTO transactions (fromUserId, toUserId, amount, type, status, description, reference)
+             VALUES (?, NULL, ?, 'debit', 'completed', ?, ?)`,
             [user.id, debitAmount, `${reason}: ${notes || 'Admin debit'}`, reference]
         );
 
@@ -2556,10 +2624,58 @@ app.post('/api/user/transfer', async (req, res) => {
         await pool.execute('UPDATE users SET balance = balance - ? WHERE id = ?', [amount, sender.id]);
         await pool.execute('UPDATE users SET balance = balance + ? WHERE id = ?', [amount, recipient.id]);
 
+        const reference = 'TRF' + Date.now().toString(36).toUpperCase();
+
+        await pool.execute(
+            `INSERT INTO transactions (fromUserId, toUserId, amount, type, status, description, reference)
+             VALUES (?, ?, ?, 'transfer', 'completed', ?, ?)`,
+            [sender.id, recipient.id, amount, description || 'Transfer', reference]
+        );
+
         res.json({
             success: true,
-            message: `$${amount} sent to ${recipient.firstName} ${recipient.lastName}`
+            message: `$${amount} sent to ${recipient.firstName} ${recipient.lastName}`,
+            reference
         });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// User: Transaction history (latest 100)
+// Compatible with the root server route used by the frontend.
+app.get('/api/user/:userId/transactions', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) {
+            return res.status(401).json({ success: false, message: 'Authorization token required' });
+        }
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const requestedUserId = parseInt(req.params.userId, 10);
+
+        const [requesterRows] = await pool.execute('SELECT id, isAdmin FROM users WHERE id = ?', [decoded.id]);
+        const requester = requesterRows[0];
+        const isAdmin = !!requester?.isAdmin;
+
+        if (!isAdmin && decoded.id !== requestedUserId) {
+            return res.status(403).json({ success: false, message: 'Forbidden' });
+        }
+
+        const [transactions] = await pool.execute(
+            `SELECT t.*,
+                    uf.firstName AS fromFirstName, uf.lastName AS fromLastName,
+                    ut.firstName AS toFirstName, ut.lastName AS toLastName
+             FROM transactions t
+             LEFT JOIN users uf ON t.fromUserId = uf.id
+             LEFT JOIN users ut ON t.toUserId = ut.id
+             WHERE t.fromUserId = ? OR t.toUserId = ?
+             ORDER BY t.createdAt DESC
+             LIMIT 100`,
+            [requestedUserId, requestedUserId]
+        );
+
+        res.json({ success: true, transactions, txCount: transactions.length });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -2597,6 +2713,20 @@ app.post('/api/bills/pay', async (req, res) => {
 
         await pool.execute('UPDATE users SET balance = balance - ? WHERE id = ?', [amount, user.id]);
 
+        // Record bill payment transaction
+        const biller = BILLERS.find(b => String(b.id) === String(billerId));
+        const referenceId = generateReferenceId('BILL');
+        await pool.execute(
+            `INSERT INTO transactions (fromUserId, toUserId, type, amount, description, status, reference)
+             VALUES (?, NULL, 'bill_payment', ?, ?, 'completed', ?)`,
+            [
+                user.id,
+                parseFloat(amount),
+                `Bill payment to ${biller?.name || 'Biller'} (${accountNumber})`,
+                referenceId
+            ]
+        );
+
         res.json({
             success: true,
             message: `Bill payment of $${amount} processed successfully`
@@ -2617,12 +2747,15 @@ app.get('/api/statements/download', async (req, res) => {
         const user = users[0];
 
         let query = `
-            SELECT t.*, u.firstName, u.lastName, u.email 
+            SELECT t.*, 
+                   uf.firstName AS fromFirstName, uf.lastName AS fromLastName, uf.email AS fromEmail,
+                   ut.firstName AS toFirstName, ut.lastName AS toLastName, ut.email AS toEmail
             FROM transactions t
-            LEFT JOIN users u ON t.toUserId = u.id
-            WHERE t.userId = ?
+            LEFT JOIN users uf ON t.fromUserId = uf.id
+            LEFT JOIN users ut ON t.toUserId = ut.id
+            WHERE (t.fromUserId = ? OR t.toUserId = ?)
         `;
-        const params = [decoded.id];
+        const params = [decoded.id, decoded.id];
 
         if (startDate) {
             query += ' AND t.createdAt >= ?';
@@ -2724,9 +2857,19 @@ app.get('/api/transactions/:id/receipt', async (req, res) => {
         const decoded = jwt.verify(token, JWT_SECRET);
         const { id } = req.params;
 
+        const [requesterRows] = await pool.execute('SELECT id, isAdmin FROM users WHERE id = ?', [decoded.id]);
+        const requester = requesterRows[0];
+        const isAdmin = !!requester?.isAdmin;
+
         const [transactions] = await pool.execute(
-            'SELECT t.*, u.firstName, u.lastName FROM transactions t LEFT JOIN users u ON t.toUserId = u.id WHERE t.id = ? AND t.userId = ?',
-            [id, decoded.id]
+            `SELECT t.*,
+                    uf.firstName AS fromFirstName, uf.lastName AS fromLastName,
+                    ut.firstName AS toFirstName, ut.lastName AS toLastName
+             FROM transactions t
+             LEFT JOIN users uf ON t.fromUserId = uf.id
+             LEFT JOIN users ut ON t.toUserId = ut.id
+             WHERE t.id = ?`,
+            [id]
         );
 
         if (transactions.length === 0) {
@@ -2734,6 +2877,12 @@ app.get('/api/transactions/:id/receipt', async (req, res) => {
         }
 
         const transaction = transactions[0];
+        const isParticipant = (transaction.fromUserId === decoded.id) || (transaction.toUserId === decoded.id);
+
+        if (!isAdmin && !isParticipant) {
+            return res.status(403).json({ success: false, message: 'Forbidden' });
+        }
+
         const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [decoded.id]);
         const user = users[0];
 
@@ -2876,12 +3025,15 @@ app.get('/api/transactions/search', async (req, res) => {
         const { startDate, endDate, type, minAmount, maxAmount, search } = req.query;
 
         let query = `
-            SELECT t.*, u.firstName, u.lastName, u.email 
+            SELECT t.*,
+                   uf.firstName AS fromFirstName, uf.lastName AS fromLastName, uf.email AS fromEmail,
+                   ut.firstName AS toFirstName, ut.lastName AS toLastName, ut.email AS toEmail
             FROM transactions t
-            LEFT JOIN users u ON t.toUserId = u.id
-            WHERE t.userId = ?
+            LEFT JOIN users uf ON t.fromUserId = uf.id
+            LEFT JOIN users ut ON t.toUserId = ut.id
+            WHERE (t.fromUserId = ? OR t.toUserId = ?)
         `;
-        const params = [decoded.id];
+        const params = [decoded.id, decoded.id];
 
         if (startDate) {
             query += ' AND t.createdAt >= ?';
@@ -2904,9 +3056,9 @@ app.get('/api/transactions/search', async (req, res) => {
             params.push(maxAmount);
         }
         if (search) {
-            query += ' AND (t.description LIKE ? OR u.firstName LIKE ? OR u.lastName LIKE ?)';
+            query += ' AND (t.description LIKE ? OR uf.firstName LIKE ? OR uf.lastName LIKE ? OR ut.firstName LIKE ? OR ut.lastName LIKE ?)';
             const searchTerm = `%${search}%`;
-            params.push(searchTerm, searchTerm, searchTerm);
+            params.push(searchTerm, searchTerm, searchTerm, searchTerm, searchTerm);
         }
 
         query += ' ORDER BY t.createdAt DESC LIMIT 500';
@@ -3260,12 +3412,13 @@ app.get('/api/login-history', async (req, res) => {
 app.get('/api/transactions/all', async (req, res) => {
     try {
         const [transactions] = await pool.execute(`
-            SELECT t.*, u1.firstName as senderFirst, u1.lastName as senderLast,
+            SELECT t.*, 
+                   u1.firstName as senderFirst, u1.lastName as senderLast,
                    u2.firstName as recipientFirst, u2.lastName as recipientLast
             FROM transactions t
-            LEFT JOIN users u1 ON t.fromAccount = u1.accountNumber
-            LEFT JOIN users u2 ON t.toAccount = u2.accountNumber
-            ORDER BY t.created_at DESC
+            LEFT JOIN users u1 ON t.fromUserId = u1.id
+            LEFT JOIN users u2 ON t.toUserId = u2.id
+            ORDER BY t.createdAt DESC
             LIMIT 100
         `);
         
@@ -3457,7 +3610,7 @@ app.get('/api/admin/search-users', async (req, res) => {
 
         const searchPattern = `%${query}%`;
         const [users] = await pool.execute(`
-            SELECT id, firstName, lastName, email, accountNumber, balance, accountStatus, created_at
+            SELECT id, firstName, lastName, email, accountNumber, balance, accountStatus, createdAt
             FROM users 
             WHERE (firstName LIKE ? OR lastName LIKE ? OR email LIKE ? OR accountNumber LIKE ?)
             AND accountStatus != 'deleted'
@@ -3480,8 +3633,8 @@ app.get('/api/admin/search-transactions', async (req, res) => {
                    sender.firstName as senderFirst, sender.lastName as senderLast,
                    recipient.firstName as recipientFirst, recipient.lastName as recipientLast
             FROM transactions t
-            LEFT JOIN users sender ON t.senderId = sender.id
-            LEFT JOIN users recipient ON t.recipientId = recipient.id
+            LEFT JOIN users sender ON t.fromUserId = sender.id
+            LEFT JOIN users recipient ON t.toUserId = recipient.id
             WHERE 1=1
         `;
         const params = [];
@@ -3492,12 +3645,12 @@ app.get('/api/admin/search-transactions', async (req, res) => {
         }
         
         if (startDate) {
-            query += ` AND DATE(t.created_at) >= ?`;
+            query += ` AND DATE(t.createdAt) >= ?`;
             params.push(startDate);
         }
         
         if (endDate) {
-            query += ` AND DATE(t.created_at) <= ?`;
+            query += ` AND DATE(t.createdAt) <= ?`;
             params.push(endDate);
         }
         
@@ -3516,7 +3669,7 @@ app.get('/api/admin/search-transactions', async (req, res) => {
             params.push(type);
         }
 
-        query += ` ORDER BY t.created_at DESC LIMIT 100`;
+        query += ` ORDER BY t.createdAt DESC LIMIT 100`;
 
         const [transactions] = await pool.execute(query, params);
         res.json({ success: true, transactions });
@@ -3553,17 +3706,17 @@ app.post('/api/admin/reverse-transaction/:transactionId', async (req, res) => {
         }
 
         // Reverse the balances
-        if (transaction.senderId) {
+        if (transaction.fromUserId) {
             await connection.execute(
                 'UPDATE users SET balance = balance + ? WHERE id = ?',
-                [transaction.amount, transaction.senderId]
+                [transaction.amount, transaction.fromUserId]
             );
         }
 
-        if (transaction.recipientId) {
+        if (transaction.toUserId) {
             await connection.execute(
                 'UPDATE users SET balance = balance - ? WHERE id = ?',
-                [transaction.amount, transaction.recipientId]
+                [transaction.amount, transaction.toUserId]
             );
         }
 
@@ -3575,11 +3728,11 @@ app.post('/api/admin/reverse-transaction/:transactionId', async (req, res) => {
 
         // Create reversal transaction record
         await connection.execute(`
-            INSERT INTO transactions (senderId, recipientId, amount, type, description, status, reference)
+            INSERT INTO transactions (fromUserId, toUserId, amount, type, description, status, reference)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         `, [
-            transaction.recipientId,
-            transaction.senderId,
+            transaction.toUserId,
+            transaction.fromUserId,
             transaction.amount,
             'reversal',
             `Reversal of transaction ${transaction.reference}: ${reason}`,
@@ -3590,7 +3743,7 @@ app.post('/api/admin/reverse-transaction/:transactionId', async (req, res) => {
         // Log the action
         await connection.execute(
             'INSERT INTO activity_logs (user_id, action_type, action_details, ip_address) VALUES (?, ?, ?, ?)',
-            [transaction.senderId, 'TRANSACTION_REVERSED', `Transaction ${transaction.reference} reversed: ${reason}`, req.ip]
+            [transaction.fromUserId || transaction.toUserId || null, 'TRANSACTION_REVERSED', `Transaction ${transaction.reference} reversed: ${reason}`, req.ip]
         );
 
         await connection.commit();
@@ -3642,16 +3795,16 @@ app.get('/api/admin/export-users', async (req, res) => {
     try {
         const [users] = await pool.execute(`
             SELECT id, firstName, lastName, email, accountNumber, balance, accountStatus, 
-                   phoneNumber, address, city, state, zipCode, created_at
+                   phone, address, city, state, zipCode, createdAt
             FROM users 
             WHERE accountStatus != 'deleted'
-            ORDER BY created_at DESC
+            ORDER BY createdAt DESC
         `);
 
         // Create CSV
         const headers = 'ID,First Name,Last Name,Email,Account Number,Balance,Status,Phone,Address,City,State,ZIP,Created\n';
         const rows = users.map(u => 
-            `${u.id},"${u.firstName}","${u.lastName}","${u.email}",${u.accountNumber},${u.balance},"${u.accountStatus}","${u.phoneNumber || ''}","${u.address || ''}","${u.city || ''}","${u.state || ''}","${u.zipCode || ''}","${u.created_at}"`
+            `${u.id},"${u.firstName}","${u.lastName}","${u.email}",${u.accountNumber},${u.balance},"${u.accountStatus}","${u.phone || ''}","${u.address || ''}","${u.city || ''}","${u.state || ''}","${u.zipCode || ''}","${u.createdAt}"`
         ).join('\n');
 
         res.setHeader('Content-Type', 'text/csv');
@@ -3672,30 +3825,30 @@ app.get('/api/admin/export-transactions', async (req, res) => {
                    sender.accountNumber as senderAccount, sender.firstName as senderFirst, sender.lastName as senderLast,
                    recipient.accountNumber as recipientAccount, recipient.firstName as recipientFirst, recipient.lastName as recipientLast
             FROM transactions t
-            LEFT JOIN users sender ON t.senderId = sender.id
-            LEFT JOIN users recipient ON t.recipientId = recipient.id
+            LEFT JOIN users sender ON t.fromUserId = sender.id
+            LEFT JOIN users recipient ON t.toUserId = recipient.id
             WHERE 1=1
         `;
         const params = [];
 
         if (startDate) {
-            query += ` AND DATE(t.created_at) >= ?`;
+            query += ` AND DATE(t.createdAt) >= ?`;
             params.push(startDate);
         }
         
         if (endDate) {
-            query += ` AND DATE(t.created_at) <= ?`;
+            query += ` AND DATE(t.createdAt) <= ?`;
             params.push(endDate);
         }
 
-        query += ` ORDER BY t.created_at DESC LIMIT 10000`;
+        query += ` ORDER BY t.createdAt DESC LIMIT 10000`;
 
         const [transactions] = await pool.execute(query, params);
 
         // Create CSV
         const headers = 'ID,Reference,Type,Amount,Sender Account,Sender Name,Recipient Account,Recipient Name,Description,Status,Date\n';
         const rows = transactions.map(t => 
-            `${t.id},"${t.reference}","${t.type}",${t.amount},"${t.senderAccount || ''}","${t.senderFirst || ''} ${t.senderLast || ''}","${t.recipientAccount || ''}","${t.recipientFirst || ''} ${t.recipientLast || ''}","${t.description}","${t.status}","${t.created_at}"`
+            `${t.id},"${t.reference}","${t.type}",${t.amount},"${t.senderAccount || ''}","${t.senderFirst || ''} ${t.senderLast || ''}","${t.recipientAccount || ''}","${t.recipientFirst || ''} ${t.recipientLast || ''}","${t.description}","${t.status}","${t.createdAt}"`
         ).join('\n');
 
         res.setHeader('Content-Type', 'text/csv');
@@ -3724,14 +3877,14 @@ app.get('/api/admin/monthly-report', async (req, res) => {
                 SUM(amount) as totalVolume,
                 AVG(amount) as avgTransaction
             FROM transactions
-            WHERE YEAR(created_at) = ? AND MONTH(created_at) = ?
+            WHERE YEAR(createdAt) = ? AND MONTH(createdAt) = ?
         `, [yearVal, monthVal]);
 
         // New users
         const [newUsers] = await pool.execute(`
             SELECT COUNT(*) as count
             FROM users
-            WHERE YEAR(created_at) = ? AND MONTH(created_at) = ?
+            WHERE YEAR(createdAt) = ? AND MONTH(createdAt) = ?
         `, [yearVal, monthVal]);
 
         // Loans summary
@@ -4872,12 +5025,21 @@ app.post('/api/admin/users/:userId/adjust-balance', async (req, res) => {
         await pool.execute('UPDATE users SET balance = ? WHERE id = ?', [newBalance, userId]);
 
         // Create transaction record
-        await pool.execute(
-            `INSERT INTO transactions (userId, type, amount, description, status, reference)
-             VALUES (?, ?, ?, ?, 'completed', ?)`,
-            [userId, adjustmentType === 'debit' ? 'admin_debit' : 'admin_credit', adjustmentAmount, 
-             `Admin adjustment: ${reason}`, `ADJ-${Date.now()}`]
-        );
+        const txType = adjustmentType === 'debit' ? 'admin_debit' : 'admin_credit';
+        const referenceId = `ADJ-${Date.now()}`;
+        if (adjustmentType === 'debit') {
+            await pool.execute(
+                `INSERT INTO transactions (fromUserId, toUserId, type, amount, description, status, reference)
+                 VALUES (?, NULL, ?, ?, ?, 'completed', ?)`,
+                [userId, txType, adjustmentAmount, `Admin adjustment: ${reason}`, referenceId]
+            );
+        } else {
+            await pool.execute(
+                `INSERT INTO transactions (fromUserId, toUserId, type, amount, description, status, reference)
+                 VALUES (NULL, ?, ?, ?, ?, 'completed', ?)`,
+                [userId, txType, adjustmentAmount, `Admin adjustment: ${reason}`, referenceId]
+            );
+        }
 
         await logAdminAction(decoded.id, 'balance_adjust', userId, null, 
             { balance: previousBalance }, { balance: newBalance }, reason, adjustmentAmount, req);
@@ -5243,18 +5405,17 @@ app.post('/api/transfer/internal', async (req, res) => {
         await pool.execute('UPDATE users SET balance = balance - ? WHERE id = ?', [transferAmount, sender.id]);
         await pool.execute('UPDATE users SET balance = balance + ? WHERE id = ?', [transferAmount, recipient.id]);
 
-        // Record sender transaction
+        // Record transaction (single ledger entry)
         await pool.execute(
-            `INSERT INTO transactions (userId, type, amount, description, status, reference)
-             VALUES (?, 'transfer_out', ?, ?, 'completed', ?)`,
-            [sender.id, transferAmount, description || `Transfer to ${recipient.accountNumber}`, referenceId]
-        );
-
-        // Record recipient transaction
-        await pool.execute(
-            `INSERT INTO transactions (userId, type, amount, description, status, reference)
-             VALUES (?, 'transfer_in', ?, ?, 'completed', ?)`,
-            [recipient.id, transferAmount, `Transfer from ${sender.accountNumber}`, `${referenceId}-IN`]
+            `INSERT INTO transactions (fromUserId, toUserId, type, amount, description, status, reference)
+             VALUES (?, ?, 'transfer', ?, ?, 'completed', ?)`,
+            [
+                sender.id,
+                recipient.id,
+                transferAmount,
+                description || `Transfer to ${recipient.accountNumber}`,
+                referenceId
+            ]
         );
 
         // Record transfer log
