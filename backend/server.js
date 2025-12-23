@@ -2373,18 +2373,51 @@ app.post('/api/admin/create-user', async (req, res) => {
 app.post('/api/admin/lookup-user', async (req, res) => {
     try {
         const { email, accountNumber } = req.body;
+        const emailValue = email ? String(email).trim().toLowerCase() : '';
+        const accountNumberValue = accountNumber ? String(accountNumber).trim() : '';
         
         let user;
-        if (email) {
+        if (emailValue) {
             const [users] = await pool.execute(
                 'SELECT id, firstName, lastName, email, accountNumber, balance, accountStatus, accountType FROM users WHERE email = ?', 
-                [email]
+                [emailValue]
             );
             user = users[0];
-        } else if (accountNumber) {
+        } else if (accountNumberValue) {
             const [users] = await pool.execute(
                 'SELECT id, firstName, lastName, email, accountNumber, balance, accountStatus, accountType FROM users WHERE accountNumber = ?', 
-                [accountNumber]
+                [accountNumberValue]
+            );
+            user = users[0];
+        }
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        res.json({ success: true, user });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Admin: Lookup user by email or account number (GET version for frontend compatibility)
+app.get('/api/admin/lookup-user', async (req, res) => {
+    try {
+        const emailValue = req.query.email ? String(req.query.email).trim().toLowerCase() : '';
+        const accountNumberValue = req.query.accountNumber ? String(req.query.accountNumber).trim() : '';
+
+        let user;
+        if (emailValue) {
+            const [users] = await pool.execute(
+                'SELECT id, firstName, lastName, email, accountNumber, balance, accountStatus, accountType FROM users WHERE email = ?',
+                [emailValue]
+            );
+            user = users[0];
+        } else if (accountNumberValue) {
+            const [users] = await pool.execute(
+                'SELECT id, firstName, lastName, email, accountNumber, balance, accountStatus, accountType FROM users WHERE accountNumber = ?',
+                [accountNumberValue]
             );
             user = users[0];
         }
@@ -2402,42 +2435,71 @@ app.post('/api/admin/lookup-user', async (req, res) => {
 // Admin: Transfer between any accounts (with optional bypass)
 app.post('/api/admin/transfer', async (req, res) => {
     try {
-        const { 
-            fromEmail, fromAccountNumber, 
-            toEmail, toAccountNumber, 
-            amount, description, bypassBalanceCheck 
+        const {
+            fromEmail,
+            fromAccountNumber,
+            toEmail,
+            toAccountNumber,
+            amount,
+            description,
+            bypassBalanceCheck,
+            // tolerate alternate field names used in other clients
+            senderEmail,
+            senderAccountNumber,
+            recipientEmail,
+            recipientAccountNumber
         } = req.body;
+
+        const amountValue = parseFloat(amount);
+        if (!Number.isFinite(amountValue) || amountValue <= 0) {
+            return res.status(400).json({ success: false, message: 'Valid amount is required' });
+        }
+
+        const senderEmailValue = (fromEmail || senderEmail) ? String(fromEmail || senderEmail).trim().toLowerCase() : '';
+        const senderAccountValue = (fromAccountNumber || senderAccountNumber) ? String(fromAccountNumber || senderAccountNumber).trim() : '';
+        const recipientEmailValue = (toEmail || recipientEmail) ? String(toEmail || recipientEmail).trim().toLowerCase() : '';
+        const recipientAccountValue = (toAccountNumber || recipientAccountNumber) ? String(toAccountNumber || recipientAccountNumber).trim() : '';
         
         // Find sender
         let sender;
-        if (fromEmail) {
-            const [users] = await pool.execute('SELECT * FROM users WHERE email = ?', [fromEmail]);
+        if (senderEmailValue) {
+            const [users] = await pool.execute('SELECT * FROM users WHERE email = ?', [senderEmailValue]);
             sender = users[0];
-        } else if (fromAccountNumber) {
-            const [users] = await pool.execute('SELECT * FROM users WHERE accountNumber = ?', [fromAccountNumber]);
+        } else if (senderAccountValue) {
+            const [users] = await pool.execute('SELECT * FROM users WHERE accountNumber = ?', [senderAccountValue]);
             sender = users[0];
         }
 
         if (!sender) {
-            return res.status(404).json({ success: false, message: 'Sender not found' });
+            return res.status(404).json({
+                success: false,
+                message: `Sender not found${senderAccountValue ? ` (accountNumber: ${senderAccountValue})` : ''}${senderEmailValue ? ` (email: ${senderEmailValue})` : ''}`
+            });
         }
 
         // Find recipient
         let recipient;
-        if (toEmail) {
-            const [users] = await pool.execute('SELECT * FROM users WHERE email = ?', [toEmail]);
+        if (recipientEmailValue) {
+            const [users] = await pool.execute('SELECT * FROM users WHERE email = ?', [recipientEmailValue]);
             recipient = users[0];
-        } else if (toAccountNumber) {
-            const [users] = await pool.execute('SELECT * FROM users WHERE accountNumber = ?', [toAccountNumber]);
+        } else if (recipientAccountValue) {
+            const [users] = await pool.execute('SELECT * FROM users WHERE accountNumber = ?', [recipientAccountValue]);
             recipient = users[0];
         }
 
         if (!recipient) {
-            return res.status(404).json({ success: false, message: 'Recipient not found' });
+            return res.status(404).json({
+                success: false,
+                message: `Recipient not found${recipientAccountValue ? ` (accountNumber: ${recipientAccountValue})` : ''}${recipientEmailValue ? ` (email: ${recipientEmailValue})` : ''}`
+            });
+        }
+
+        if (sender.id === recipient.id) {
+            return res.status(400).json({ success: false, message: 'Cannot transfer to the same account' });
         }
 
         // Check balance unless bypassing
-        if (!bypassBalanceCheck && parseFloat(sender.balance) < parseFloat(amount)) {
+        if (!bypassBalanceCheck && parseFloat(sender.balance) < amountValue) {
             return res.status(400).json({ 
                 success: false, 
                 message: `Insufficient funds. Sender balance: $${parseFloat(sender.balance).toLocaleString()}` 
@@ -2445,8 +2507,8 @@ app.post('/api/admin/transfer', async (req, res) => {
         }
 
         // Execute transfer
-        await pool.execute('UPDATE users SET balance = balance - ? WHERE id = ?', [amount, sender.id]);
-        await pool.execute('UPDATE users SET balance = balance + ? WHERE id = ?', [amount, recipient.id]);
+        await pool.execute('UPDATE users SET balance = balance - ? WHERE id = ?', [amountValue, sender.id]);
+        await pool.execute('UPDATE users SET balance = balance + ? WHERE id = ?', [amountValue, recipient.id]);
 
         // Generate reference
         const reference = 'ADM' + Date.now().toString(36).toUpperCase();
@@ -2455,7 +2517,7 @@ app.post('/api/admin/transfer', async (req, res) => {
         await pool.execute(
             `INSERT INTO transactions (fromUserId, toUserId, amount, type, status, description, reference)
              VALUES (?, ?, ?, 'admin_transfer', 'completed', ?, ?)`,
-            [sender.id, recipient.id, amount, description || 'Admin Transfer', reference]
+            [sender.id, recipient.id, amountValue, description || 'Admin Transfer', reference]
         );
 
         // Get updated balances
@@ -2464,7 +2526,7 @@ app.post('/api/admin/transfer', async (req, res) => {
 
         res.json({
             success: true,
-            message: `$${parseFloat(amount).toLocaleString()} transferred from ${sender.firstName} ${sender.lastName} to ${recipient.firstName} ${recipient.lastName}`,
+            message: `$${amountValue.toLocaleString()} transferred from ${sender.firstName} ${sender.lastName} to ${recipient.firstName} ${recipient.lastName}`,
             reference,
             senderNewBalance: updatedSender[0].balance,
             recipientNewBalance: updatedRecipient[0].balance
