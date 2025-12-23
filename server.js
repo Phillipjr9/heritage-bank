@@ -2265,6 +2265,89 @@ app.get('/api/user/:userId/transactions', async (req, res) => {
 });
 
 // ============================================
+// TRANSACTION RECEIPT - DOWNLOAD PDF RECEIPT
+// ============================================
+app.get('/api/transactions/:id/receipt', async (req, res) => {
+    let connection;
+    try {
+        const { id } = req.params;
+        const token = req.headers.authorization?.split(' ')[1];
+        
+        if (!token) {
+            return res.status(401).json({ success: false, message: 'Authorization required' });
+        }
+        
+        const decoded = jwt.verify(token, JWT_SECRET);
+        
+        connection = await pool.getConnection();
+        
+        // Get transaction details
+        const [transactions] = await connection.execute(
+            `SELECT t.*, 
+                    u1.firstName as fromFirstName, u1.lastName as fromLastName, u1.accountNumber as fromAccount,
+                    u2.firstName as toFirstName, u2.lastName as toLastName, u2.accountNumber as toAccount
+             FROM transactions t
+             LEFT JOIN users u1 ON t.fromUserId = u1.id
+             LEFT JOIN users u2 ON t.toUserId = u2.id
+             WHERE t.id = ?`,
+            [id]
+        );
+        
+        if (transactions.length === 0) {
+            connection.release();
+            return res.status(404).json({ success: false, message: 'Transaction not found' });
+        }
+        
+        const tx = transactions[0];
+        
+        // Verify user has access to this transaction
+        if (tx.fromUserId !== decoded.userId && tx.toUserId !== decoded.userId && !decoded.isAdmin) {
+            connection.release();
+            return res.status(403).json({ success: false, message: 'Not authorized to view this receipt' });
+        }
+        
+        connection.release();
+        
+        // Generate simple text receipt (in production, use PDFKit or similar)
+        const receiptDate = new Date(tx.createdAt).toLocaleString();
+        const receiptText = `
+========================================
+         HERITAGE BANK
+       TRANSACTION RECEIPT
+========================================
+
+Reference: TXN${tx.id.toString().padStart(8, '0')}
+Date: ${receiptDate}
+Type: ${tx.type.toUpperCase()}
+
+From: ${tx.fromFirstName ? `${tx.fromFirstName} ${tx.fromLastName}` : 'Heritage Bank'}
+Account: ${tx.fromAccount || 'N/A'}
+
+To: ${tx.toFirstName ? `${tx.toFirstName} ${tx.toLastName}` : 'Heritage Bank'}
+Account: ${tx.toAccount || 'N/A'}
+
+Amount: $${parseFloat(tx.amount).toFixed(2)}
+Status: ${tx.status || 'Completed'}
+
+Description: ${tx.description || 'N/A'}
+
+========================================
+Thank you for banking with Heritage Bank
+========================================
+`;
+        
+        res.setHeader('Content-Type', 'text/plain');
+        res.setHeader('Content-Disposition', `attachment; filename=receipt_${tx.id}.txt`);
+        res.send(receiptText);
+        
+    } catch (error) {
+        if (connection) connection.release();
+        console.error('Receipt error:', error);
+        res.status(500).json({ success: false, message: 'Error generating receipt' });
+    }
+});
+
+// ============================================
 // USER BANKING DETAILS
 // ============================================
 app.get('/api/user/:userId/banking-details', (req, res) => {
@@ -3977,30 +4060,43 @@ app.get('/api/transfers/scheduled/:userId', (req, res) => {
 // ============================================
 
 // Generate monthly statement
-app.get('/api/statements/:userId/:month', (req, res) => {
+app.get('/api/statements/:userId/:month', async (req, res) => {
+    let connection;
     try {
         const { userId, month } = req.params;
-        const user = users.get(parseInt(userId));
-
-        if (!user) {
+        
+        connection = await pool.getConnection();
+        
+        // Get user from database
+        const [users] = await connection.execute('SELECT * FROM users WHERE id = ?', [userId]);
+        if (users.length === 0) {
+            connection.release();
             return res.status(404).json({ success: false, message: 'User not found' });
         }
+        const user = users[0];
 
         const [year, monthNum] = month.split('-');
-        const userTransactions = transactions.filter(t => {
-            const date = new Date(t.timestamp);
-            return (t.fromUserId === parseInt(userId) || t.toUserId === parseInt(userId)) &&
-                   date.getFullYear() === parseInt(year) &&
-                   date.getMonth() === parseInt(monthNum) - 1;
-        });
+        const startDate = `${year}-${monthNum}-01`;
+        const endDate = `${year}-${monthNum}-31`;
+        
+        // Get transactions from database for the month
+        const [dbTransactions] = await connection.execute(
+            `SELECT * FROM transactions 
+             WHERE (fromUserId = ? OR toUserId = ?)
+             AND createdAt >= ? AND createdAt <= ?
+             ORDER BY createdAt DESC`,
+            [userId, userId, startDate, endDate]
+        );
+        
+        connection.release();
 
-        const totalIncome = userTransactions
+        const totalIncome = dbTransactions
             .filter(t => t.toUserId === parseInt(userId))
-            .reduce((sum, t) => sum + t.amount, 0);
+            .reduce((sum, t) => sum + parseFloat(t.amount), 0);
 
-        const totalExpense = userTransactions
+        const totalExpense = dbTransactions
             .filter(t => t.fromUserId === parseInt(userId))
-            .reduce((sum, t) => sum + t.amount, 0);
+            .reduce((sum, t) => sum + parseFloat(t.amount), 0);
 
         res.status(200).json({
             success: true,
@@ -4010,13 +4106,15 @@ app.get('/api/statements/:userId/:month', (req, res) => {
                 totalIncome: parseFloat(totalIncome.toFixed(2)),
                 totalExpense: parseFloat(totalExpense.toFixed(2)),
                 netChange: parseFloat((totalIncome - totalExpense).toFixed(2)),
-                balance: user.balance || 0,
-                transactionCount: userTransactions.length
+                balance: parseFloat(user.balance) || 0,
+                transactionCount: dbTransactions.length
             },
-            transactions: userTransactions,
+            transactions: dbTransactions,
             generatedAt: new Date().toISOString()
         });
     } catch (error) {
+        if (connection) connection.release();
+        console.error('Statement error:', error);
         res.status(500).json({ success: false, message: 'Error generating statement' });
     }
 });
