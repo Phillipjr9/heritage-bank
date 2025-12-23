@@ -641,8 +641,44 @@ app.get('/api/auth/profile', async (req, res) => {
         }
 
         const decoded = jwt.verify(token, JWT_SECRET);
+        const userId = decoded.userId || decoded.id;
 
-        const user = users.get(decoded.userId);
+        // Try database first
+        try {
+            const [rows] = await pool.execute('SELECT * FROM users WHERE id = ?', [userId]);
+            if (rows.length > 0) {
+                const user = rows[0];
+                return res.status(200).json({ 
+                    success: true, 
+                    user: {
+                        id: user.id,
+                        firstName: user.firstName,
+                        lastName: user.lastName,
+                        email: user.email,
+                        phone: user.phone,
+                        dateOfBirth: user.dateOfBirth,
+                        address: user.address,
+                        city: user.city,
+                        state: user.state,
+                        zipCode: user.zipCode,
+                        country: user.country,
+                        accountNumber: user.accountNumber,
+                        routingNumber: user.routingNumber,
+                        balance: parseFloat(user.balance) || 0,
+                        accountType: user.accountType,
+                        accountStatus: user.accountStatus,
+                        isAdmin: user.isAdmin || false,
+                        lastLogin: user.lastLogin,
+                        createdAt: user.createdAt
+                    }
+                });
+            }
+        } catch (dbError) {
+            console.log('Database lookup failed, trying in-memory:', dbError.message);
+        }
+
+        // Fallback to in-memory
+        const user = users.get(userId);
 
         if (!user) {
             return res.status(404).json({ success: false, message: 'User not found' });
@@ -658,6 +694,8 @@ app.get('/api/auth/profile', async (req, res) => {
                 phone: user.phone,
                 dob: user.dob,
                 country: user.country,
+                accountNumber: user.accountNumber,
+                balance: user.balance || 0,
                 accountType: user.accountType,
                 created_at: user.created_at
             }
