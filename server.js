@@ -110,8 +110,11 @@ async function initializeDatabase() {
             await connection.execute(`ALTER TABLE users ADD COLUMN IF NOT EXISTS accountStatus ENUM('active', 'frozen', 'suspended', 'closed') DEFAULT 'active'`);
             await connection.execute(`ALTER TABLE users ADD COLUMN IF NOT EXISTS lastLogin TIMESTAMP NULL`);
             await connection.execute(`ALTER TABLE users ADD COLUMN IF NOT EXISTS swiftCode VARCHAR(20) DEFAULT 'HERBANKUS'`);
+            await connection.execute(`ALTER TABLE users ADD COLUMN IF NOT EXISTS createdByAdmin BOOLEAN DEFAULT false`);
+            await connection.execute(`ALTER TABLE users ADD COLUMN IF NOT EXISTS createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
         } catch (e) {
             // Columns may already exist or database doesn't support IF NOT EXISTS
+            console.log('Note: Some column additions skipped (may already exist)');
         }
 
         // Check if admin exists
@@ -990,17 +993,16 @@ app.post('/api/admin/create-user', async (req, res) => {
         // Generate unique account number
         const accountNumber = generateAccountNumber();
 
-        // Insert into database
+        // Insert into database - use simpler insert that works with base columns
         const [result] = await connection.execute(
-            `INSERT INTO users (firstName, lastName, email, password, phone, dob, country, accountType, address, city, state, zip, balance, accountNumber, routingNumber, swiftCode, createdAt, createdByAdmin, isAdmin)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO users (firstName, lastName, email, password, phone, country, accountType, address, city, state, zip, balance, accountNumber, routingNumber, isAdmin)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 firstName.trim(),
                 lastName.trim(),
                 email.trim(),
                 hashedPassword,
                 phone || '',
-                null, // dob
                 country || 'United States',
                 accountType || 'checking',
                 address || '',
@@ -1010,9 +1012,6 @@ app.post('/api/admin/create-user', async (req, res) => {
                 balanceNum,
                 accountNumber,
                 ROUTING_NUMBER,
-                BANK_CODE || 'HERBANKUS',
-                new Date().toISOString(),
-                1, // createdByAdmin = true
                 0  // isAdmin = false
             ]
         );
