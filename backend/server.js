@@ -8,7 +8,10 @@ const path = require('path');
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const createCsvWriter = require('csv-writer').createObjectCsvWriter;
-require('dotenv').config();
+// Load environment variables.
+// - In production (Render/etc), values are typically provided via real environment variables.
+// - For local development, explicitly load `backend/.env` even if the process is started from repo root.
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const app = express();
 

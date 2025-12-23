@@ -16,8 +16,8 @@ A modern digital banking application.
 - **Branch**: `main`
 - **Root Directory**: *(leave empty)*
 - **Runtime**: `Node`
-- **Build Command**: `npm install`
-- **Start Command**: `node server.js`
+- **Build Command**: `cd backend && npm install`
+- **Start Command**: `node backend/server.js`
 
 ### Step 3: Add Environment Variables
 Click **Advanced** → **Add Environment Variable** for each:
