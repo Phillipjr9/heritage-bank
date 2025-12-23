@@ -1015,46 +1015,77 @@
         }
         
         // Check if user is logged in and is admin
-        function checkAdminAuth() {
+        async function checkAdminAuth() {
             const token = localStorage.getItem('token');
-            const storedUser = localStorage.getItem('user');
             
             if (!token) {
                 window.location.href = 'signin.html';
                 return false;
             }
             
-            if (storedUser) {
-                const user = JSON.parse(storedUser);
-                // Check for various truthy values of isAdmin (1, '1', true, 'true')
-                const isAdmin = user.isAdmin === true || user.isAdmin === 1 || user.isAdmin === '1' || user.isAdmin === 'true';
+            // Always verify with server to get fresh admin status
+            try {
+                const res = await fetch(`${API_URL}/api/user/profile`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                
+                if (!data.success) {
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('user');
+                    window.location.href = 'signin.html';
+                    return false;
+                }
+                
+                // Check admin status from server response
+                const isAdmin = data.user.isAdmin === true || data.user.isAdmin === 1 || data.user.isAdmin === '1';
+                
                 if (!isAdmin) {
                     alert('Access denied. Admin privileges required.');
                     window.location.href = 'dashboard.html';
                     return false;
                 }
+                
+                // Update localStorage with fresh data
+                localStorage.setItem('user', JSON.stringify(data.user));
+                return true;
+                
+            } catch (e) {
+                console.error('Auth check error:', e);
+                // If server check fails, try localStorage as fallback
+                const storedUser = localStorage.getItem('user');
+                if (storedUser) {
+                    const user = JSON.parse(storedUser);
+                    const isAdmin = user.isAdmin === true || user.isAdmin === 1 || user.isAdmin === '1' || user.isAdmin === 'true';
+                    if (!isAdmin) {
+                        alert('Access denied. Admin privileges required.');
+                        window.location.href = 'dashboard.html';
+                        return false;
+                    }
+                }
+                return true;
             }
-            
-            return true;
         }
         
         // Initialize - check auth and load all data
-        if (checkAdminAuth()) {
-            loadAdminAccount();
-            loadUsers();
-            loadTransactions();
-            loadLoans();
-            loadActivity();
-            
-            // Auto-refresh every 30 seconds
-            setInterval(() => {
+        checkAdminAuth().then(isAdmin => {
+            if (isAdmin) {
                 loadAdminAccount();
                 loadUsers();
                 loadTransactions();
                 loadLoans();
                 loadActivity();
-            }, 30000);
-        }
+                
+                // Auto-refresh every 30 seconds
+                setInterval(() => {
+                    loadAdminAccount();
+                    loadUsers();
+                    loadTransactions();
+                    loadLoans();
+                    loadActivity();
+                }, 30000);
+            }
+        });
     </script>
     <script src="admin-features.js"></script>
 </body>

@@ -2159,7 +2159,7 @@ app.get('/api/user/profile', async (req, res) => {
                 accountNumber: user.accountNumber,
                 routingNumber: user.routingNumber,
                 balance: parseFloat(user.balance),
-                isAdmin: user.isAdmin
+                isAdmin: Boolean(user.isAdmin) || user.isAdmin === 1 || user.isAdmin === '1'
             }
         });
     } catch (error) {
