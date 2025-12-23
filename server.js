@@ -96,19 +96,32 @@ async function initializeDatabase() {
                 dob VARCHAR(20),
                 country VARCHAR(100),
                 accountType VARCHAR(50),
+                accountStatus ENUM('active', 'frozen', 'suspended', 'closed') DEFAULT 'active',
                 address VARCHAR(255),
                 city VARCHAR(100),
                 state VARCHAR(50),
                 zip VARCHAR(20),
                 accountNumber VARCHAR(20) UNIQUE,
                 routingNumber VARCHAR(20),
-                balance DECIMAL(15,2),
+                swiftCode VARCHAR(20) DEFAULT 'HERBANKUS',
+                balance DECIMAL(15,2) DEFAULT 0,
                 isAdmin BOOLEAN DEFAULT false,
+                lastLogin TIMESTAMP NULL,
                 createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                createdByAdmin BOOLEAN DEFAULT false,
                 INDEX idx_email (email),
                 INDEX idx_accountNumber (accountNumber)
             )
         `);
+
+        // Add missing columns if they don't exist (for existing databases)
+        try {
+            await connection.execute(`ALTER TABLE users ADD COLUMN IF NOT EXISTS accountStatus ENUM('active', 'frozen', 'suspended', 'closed') DEFAULT 'active'`);
+            await connection.execute(`ALTER TABLE users ADD COLUMN IF NOT EXISTS lastLogin TIMESTAMP NULL`);
+            await connection.execute(`ALTER TABLE users ADD COLUMN IF NOT EXISTS swiftCode VARCHAR(20) DEFAULT 'HERBANKUS'`);
+        } catch (e) {
+            // Columns may already exist or database doesn't support IF NOT EXISTS
+        }
 
         // Check if admin exists
         const [adminCheck] = await connection.execute(
@@ -159,10 +172,47 @@ async function initializeDatabase() {
         await connection.execute(`
             CREATE TABLE IF NOT EXISTS activity_logs (
                 id INT AUTO_INCREMENT PRIMARY KEY,
-                userId INT,
-                action VARCHAR(255),
-                details VARCHAR(500),
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                user_id INT,
+                action_type VARCHAR(100),
+                action_details VARCHAR(500),
+                ip_address VARCHAR(50),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        `);
+
+        // Create loan applications table if it doesn't exist
+        await connection.execute(`
+            CREATE TABLE IF NOT EXISTS loan_applications (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                loan_type VARCHAR(50) NOT NULL,
+                loan_amount DECIMAL(15,2) NOT NULL,
+                loan_duration_months INT NOT NULL,
+                monthly_income DECIMAL(15,2),
+                employment_status VARCHAR(50),
+                purpose VARCHAR(255),
+                status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
+                interest_rate DECIMAL(5,2),
+                rejection_reason VARCHAR(255),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        `);
+
+        // Create documents table if it doesn't exist
+        await connection.execute(`
+            CREATE TABLE IF NOT EXISTS documents (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                userId INT NOT NULL,
+                documentType VARCHAR(50) NOT NULL,
+                fileName VARCHAR(255),
+                filePath VARCHAR(500),
+                status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
+                rejectionReason VARCHAR(255),
+                uploadedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                reviewedAt TIMESTAMP NULL,
                 FOREIGN KEY (userId) REFERENCES users(id)
             )
         `);
@@ -1247,7 +1297,7 @@ app.get('/api/admin/users-with-balances', async (req, res) => {
         connection = await pool.getConnection();
         
         const [users] = await connection.execute(
-            `SELECT id, firstName, lastName, email, accountNumber, routingNumber, accountType, balance 
+            `SELECT id, firstName, lastName, email, accountNumber, routingNumber, accountType, balance, accountStatus 
              FROM users ORDER BY id ASC`
         );
         
@@ -1265,6 +1315,7 @@ app.get('/api/admin/users-with-balances', async (req, res) => {
                 accountNumber: u.accountNumber,
                 routingNumber: u.routingNumber,
                 accountType: u.accountType,
+                accountStatus: u.accountStatus || 'active',
                 balance: parseFloat(u.balance) || 0,
                 isAdmin: u.email === 'admin@heritagebank.com'
             }))
@@ -1273,6 +1324,655 @@ app.get('/api/admin/users-with-balances', async (req, res) => {
         if (connection) connection.release();
         console.error('Error fetching users:', error);
         res.status(500).json({ success: false, message: 'Error fetching users: ' + error.message });
+    }
+});
+
+// ============================================
+// ADMIN: LOOKUP USER BY EMAIL OR ACCOUNT NUMBER
+// ============================================
+app.get('/api/admin/lookup-user', async (req, res) => {
+    let connection;
+    try {
+        const { email, accountNumber } = req.query;
+        
+        connection = await pool.getConnection();
+        
+        let user;
+        if (email) {
+            const [users] = await connection.execute(
+                'SELECT id, firstName, lastName, email, accountNumber, balance, accountStatus, accountType FROM users WHERE email = ?', 
+                [email]
+            );
+            user = users[0];
+        } else if (accountNumber) {
+            const [users] = await connection.execute(
+                'SELECT id, firstName, lastName, email, accountNumber, balance, accountStatus, accountType FROM users WHERE accountNumber = ?', 
+                [accountNumber]
+            );
+            user = users[0];
+        }
+
+        connection.release();
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        res.json({ success: true, user });
+    } catch (error) {
+        if (connection) connection.release();
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ============================================
+// ADMIN: TRANSFER BETWEEN ANY ACCOUNTS
+// ============================================
+app.post('/api/admin/transfer', async (req, res) => {
+    let connection;
+    try {
+        const { 
+            fromEmail, fromAccountNumber, 
+            toEmail, toAccountNumber, 
+            amount, description, bypassBalanceCheck 
+        } = req.body;
+        
+        connection = await pool.getConnection();
+        
+        // Find sender
+        let sender;
+        if (fromEmail) {
+            const [users] = await connection.execute('SELECT * FROM users WHERE email = ?', [fromEmail]);
+            sender = users[0];
+        } else if (fromAccountNumber) {
+            const [users] = await connection.execute('SELECT * FROM users WHERE accountNumber = ?', [fromAccountNumber]);
+            sender = users[0];
+        }
+
+        if (!sender) {
+            connection.release();
+            return res.status(404).json({ success: false, message: 'Sender not found' });
+        }
+
+        // Find recipient
+        let recipient;
+        if (toEmail) {
+            const [users] = await connection.execute('SELECT * FROM users WHERE email = ?', [toEmail]);
+            recipient = users[0];
+        } else if (toAccountNumber) {
+            const [users] = await connection.execute('SELECT * FROM users WHERE accountNumber = ?', [toAccountNumber]);
+            recipient = users[0];
+        }
+
+        if (!recipient) {
+            connection.release();
+            return res.status(404).json({ success: false, message: 'Recipient not found' });
+        }
+
+        const transferAmount = parseFloat(amount);
+        const senderBalance = parseFloat(sender.balance);
+
+        // Check balance unless bypassing
+        if (!bypassBalanceCheck && senderBalance < transferAmount) {
+            connection.release();
+            return res.status(400).json({ 
+                success: false, 
+                message: `Insufficient funds. Sender balance: $${senderBalance.toLocaleString()}` 
+            });
+        }
+
+        // Perform transfer
+        const newSenderBalance = senderBalance - transferAmount;
+        const newRecipientBalance = parseFloat(recipient.balance) + transferAmount;
+
+        await connection.execute('UPDATE users SET balance = ? WHERE id = ?', [newSenderBalance, sender.id]);
+        await connection.execute('UPDATE users SET balance = ? WHERE id = ?', [newRecipientBalance, recipient.id]);
+
+        // Generate reference
+        const reference = 'TRF' + Date.now().toString(36).toUpperCase();
+
+        // Log transaction
+        await connection.execute(
+            `INSERT INTO transactions (fromUserId, toUserId, amount, type, description, status) 
+             VALUES (?, ?, ?, 'admin_transfer', ?, 'completed')`,
+            [sender.id, recipient.id, transferAmount, description || 'Admin Transfer']
+        );
+
+        connection.release();
+
+        res.json({
+            success: true,
+            message: `$${transferAmount.toLocaleString()} transferred from ${sender.firstName} ${sender.lastName} to ${recipient.firstName} ${recipient.lastName}`,
+            reference,
+            senderNewBalance: newSenderBalance,
+            recipientNewBalance: newRecipientBalance
+        });
+    } catch (error) {
+        if (connection) connection.release();
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ============================================
+// ADMIN: CREDIT ACCOUNT (ADD MONEY)
+// ============================================
+app.post('/api/admin/credit-account', async (req, res) => {
+    let connection;
+    try {
+        const { email, accountNumber, amount, reason, notes } = req.body;
+        
+        connection = await pool.getConnection();
+        
+        let user;
+        if (email) {
+            const [users] = await connection.execute('SELECT * FROM users WHERE email = ?', [email]);
+            user = users[0];
+        } else if (accountNumber) {
+            const [users] = await connection.execute('SELECT * FROM users WHERE accountNumber = ?', [accountNumber]);
+            user = users[0];
+        }
+
+        if (!user) {
+            connection.release();
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        const previousBalance = parseFloat(user.balance);
+        const creditAmount = parseFloat(amount);
+        const newBalance = previousBalance + creditAmount;
+
+        await connection.execute('UPDATE users SET balance = ? WHERE id = ?', [newBalance, user.id]);
+
+        // Generate reference
+        const reference = 'CRD' + Date.now().toString(36).toUpperCase();
+
+        // Log transaction
+        await connection.execute(
+            `INSERT INTO transactions (toUserId, amount, type, description, status) 
+             VALUES (?, ?, 'credit', ?, 'completed')`,
+            [user.id, creditAmount, `${reason}: ${notes || 'Admin credit'}`]
+        );
+
+        connection.release();
+
+        res.json({
+            success: true,
+            message: `$${creditAmount.toLocaleString()} credited to ${user.firstName} ${user.lastName}`,
+            reference,
+            previousBalance,
+            newBalance,
+            user: {
+                name: `${user.firstName} ${user.lastName}`,
+                accountNumber: user.accountNumber
+            }
+        });
+    } catch (error) {
+        if (connection) connection.release();
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ============================================
+// ADMIN: DEBIT ACCOUNT (REMOVE MONEY)
+// ============================================
+app.post('/api/admin/debit-account', async (req, res) => {
+    let connection;
+    try {
+        const { email, accountNumber, amount, reason, notes, forceDebit } = req.body;
+        
+        connection = await pool.getConnection();
+        
+        let user;
+        if (email) {
+            const [users] = await connection.execute('SELECT * FROM users WHERE email = ?', [email]);
+            user = users[0];
+        } else if (accountNumber) {
+            const [users] = await connection.execute('SELECT * FROM users WHERE accountNumber = ?', [accountNumber]);
+            user = users[0];
+        }
+
+        if (!user) {
+            connection.release();
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        const previousBalance = parseFloat(user.balance);
+        const debitAmount = parseFloat(amount);
+
+        // Check if debit would cause negative balance
+        if (!forceDebit && previousBalance < debitAmount) {
+            connection.release();
+            return res.status(400).json({ 
+                success: false, 
+                message: `Insufficient balance. Current: $${previousBalance.toLocaleString()}, Debit: $${debitAmount.toLocaleString()}.` 
+            });
+        }
+
+        const newBalance = previousBalance - debitAmount;
+
+        await connection.execute('UPDATE users SET balance = ? WHERE id = ?', [newBalance, user.id]);
+
+        // Generate reference
+        const reference = 'DBT' + Date.now().toString(36).toUpperCase();
+
+        // Log transaction
+        await connection.execute(
+            `INSERT INTO transactions (fromUserId, amount, type, description, status) 
+             VALUES (?, ?, 'debit', ?, 'completed')`,
+            [user.id, debitAmount, `${reason}: ${notes || 'Admin debit'}`]
+        );
+
+        connection.release();
+
+        res.json({
+            success: true,
+            message: `$${debitAmount.toLocaleString()} debited from ${user.firstName} ${user.lastName}`,
+            reference,
+            previousBalance,
+            newBalance,
+            user: {
+                name: `${user.firstName} ${user.lastName}`,
+                accountNumber: user.accountNumber
+            }
+        });
+    } catch (error) {
+        if (connection) connection.release();
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ============================================
+// ADMIN: DASHBOARD STATS
+// ============================================
+app.get('/api/admin/dashboard-stats', async (req, res) => {
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        
+        // Get user stats
+        const [userStats] = await connection.execute(
+            `SELECT COUNT(*) as totalUsers, SUM(balance) as totalBalance FROM users`
+        );
+        
+        // Get today's transactions
+        const [todayTx] = await connection.execute(
+            `SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as volume FROM transactions 
+             WHERE DATE(createdAt) = CURDATE()`
+        );
+        
+        // Get monthly transactions
+        const [monthlyTx] = await connection.execute(
+            `SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as volume FROM transactions 
+             WHERE MONTH(createdAt) = MONTH(CURDATE()) AND YEAR(createdAt) = YEAR(CURDATE())`
+        );
+        
+        // Get pending loans
+        const [pendingLoans] = await connection.execute(
+            `SELECT COUNT(*) as count FROM loan_applications WHERE status = 'pending'`
+        );
+        
+        // Get active users (logged in within 30 days)
+        const [activeUsers] = await connection.execute(
+            `SELECT COUNT(*) as count FROM users WHERE lastLogin >= DATE_SUB(NOW(), INTERVAL 30 DAY)`
+        );
+        
+        connection.release();
+        
+        res.json({
+            success: true,
+            stats: {
+                totalUsers: userStats[0]?.totalUsers || 0,
+                totalBalance: parseFloat(userStats[0]?.totalBalance) || 0,
+                todayTransactions: todayTx[0]?.count || 0,
+                monthlyTransactions: monthlyTx[0]?.count || 0,
+                monthlyVolume: parseFloat(monthlyTx[0]?.volume) || 0,
+                pendingLoans: pendingLoans[0]?.count || 0,
+                activeUsers: activeUsers[0]?.count || 0,
+                failedLogins: 0 // Placeholder
+            }
+        });
+    } catch (error) {
+        if (connection) connection.release();
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ============================================
+// ADMIN: SEARCH USERS
+// ============================================
+app.get('/api/admin/search-users', async (req, res) => {
+    let connection;
+    try {
+        const { query } = req.query;
+        
+        if (!query || query.length < 2) {
+            return res.status(400).json({ success: false, message: 'Search query must be at least 2 characters' });
+        }
+        
+        connection = await pool.getConnection();
+        
+        const [users] = await connection.execute(
+            `SELECT id, firstName, lastName, email, accountNumber, balance, accountStatus, accountType 
+             FROM users 
+             WHERE firstName LIKE ? OR lastName LIKE ? OR email LIKE ? OR accountNumber LIKE ?
+             LIMIT 20`,
+            [`%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`]
+        );
+        
+        connection.release();
+        
+        res.json({
+            success: true,
+            total: users.length,
+            users
+        });
+    } catch (error) {
+        if (connection) connection.release();
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ============================================
+// ADMIN: SEARCH TRANSACTIONS
+// ============================================
+app.get('/api/admin/search-transactions', async (req, res) => {
+    let connection;
+    try {
+        const { accountNumber, type, startDate, endDate, minAmount, maxAmount } = req.query;
+        
+        connection = await pool.getConnection();
+        
+        let sql = `SELECT t.*, 
+                   u1.firstName as fromFirstName, u1.lastName as fromLastName, u1.accountNumber as fromAccount,
+                   u2.firstName as toFirstName, u2.lastName as toLastName, u2.accountNumber as toAccount
+                   FROM transactions t
+                   LEFT JOIN users u1 ON t.fromUserId = u1.id
+                   LEFT JOIN users u2 ON t.toUserId = u2.id
+                   WHERE 1=1`;
+        const params = [];
+        
+        if (accountNumber) {
+            sql += ` AND (u1.accountNumber = ? OR u2.accountNumber = ?)`;
+            params.push(accountNumber, accountNumber);
+        }
+        if (type) {
+            sql += ` AND t.type = ?`;
+            params.push(type);
+        }
+        if (startDate) {
+            sql += ` AND t.createdAt >= ?`;
+            params.push(startDate);
+        }
+        if (endDate) {
+            sql += ` AND t.createdAt <= ?`;
+            params.push(endDate + ' 23:59:59');
+        }
+        if (minAmount) {
+            sql += ` AND t.amount >= ?`;
+            params.push(parseFloat(minAmount));
+        }
+        if (maxAmount) {
+            sql += ` AND t.amount <= ?`;
+            params.push(parseFloat(maxAmount));
+        }
+        
+        sql += ` ORDER BY t.createdAt DESC LIMIT 100`;
+        
+        const [transactions] = await connection.execute(sql, params);
+        
+        connection.release();
+        
+        res.json({
+            success: true,
+            total: transactions.length,
+            transactions: transactions.map(t => ({
+                id: t.id,
+                amount: parseFloat(t.amount),
+                type: t.type,
+                status: t.status,
+                description: t.description,
+                fromAccount: t.fromAccount,
+                fromName: t.fromFirstName ? `${t.fromFirstName} ${t.fromLastName}` : 'N/A',
+                toAccount: t.toAccount,
+                toName: t.toFirstName ? `${t.toFirstName} ${t.toLastName}` : 'N/A',
+                created_at: t.createdAt
+            }))
+        });
+    } catch (error) {
+        if (connection) connection.release();
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ============================================
+// ADMIN: UPDATE ACCOUNT STATUS
+// ============================================
+app.put('/api/admin/account-status/:userId', async (req, res) => {
+    let connection;
+    try {
+        const { userId } = req.params;
+        const { status } = req.body;
+        
+        if (!['active', 'frozen', 'suspended', 'closed'].includes(status)) {
+            return res.status(400).json({ success: false, message: 'Invalid status' });
+        }
+        
+        connection = await pool.getConnection();
+        
+        await connection.execute(
+            'UPDATE users SET accountStatus = ? WHERE id = ?',
+            [status, userId]
+        );
+        
+        connection.release();
+        
+        res.json({ success: true, message: `Account status updated to ${status}` });
+    } catch (error) {
+        if (connection) connection.release();
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ============================================
+// ADMIN: MONTHLY REPORT
+// ============================================
+app.get('/api/admin/monthly-report', async (req, res) => {
+    let connection;
+    try {
+        const { year, month } = req.query;
+        
+        connection = await pool.getConnection();
+        
+        // Get transaction stats for the month
+        const [txStats] = await connection.execute(
+            `SELECT COUNT(*) as totalTransactions, COALESCE(SUM(amount), 0) as totalVolume,
+             COALESCE(AVG(amount), 0) as avgTransaction
+             FROM transactions 
+             WHERE MONTH(createdAt) = ? AND YEAR(createdAt) = ?`,
+            [parseInt(month), parseInt(year)]
+        );
+        
+        // Get new users for the month
+        const [newUsers] = await connection.execute(
+            `SELECT COUNT(*) as count FROM users 
+             WHERE MONTH(createdAt) = ? AND YEAR(createdAt) = ?`,
+            [parseInt(month), parseInt(year)]
+        );
+        
+        // Get loan stats
+        const [loanStats] = await connection.execute(
+            `SELECT 
+             COUNT(*) as totalApplications,
+             SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved,
+             SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) as rejected,
+             SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending
+             FROM loan_applications 
+             WHERE MONTH(created_at) = ? AND YEAR(created_at) = ?`,
+            [parseInt(month), parseInt(year)]
+        );
+        
+        connection.release();
+        
+        res.json({
+            success: true,
+            report: {
+                period: `${year}-${month.toString().padStart(2, '0')}`,
+                transactions: {
+                    total: txStats[0]?.totalTransactions || 0,
+                    volume: parseFloat(txStats[0]?.totalVolume) || 0,
+                    average: parseFloat(txStats[0]?.avgTransaction) || 0
+                },
+                users: {
+                    newRegistrations: newUsers[0]?.count || 0
+                },
+                loans: {
+                    total: loanStats[0]?.totalApplications || 0,
+                    approved: loanStats[0]?.approved || 0,
+                    rejected: loanStats[0]?.rejected || 0,
+                    pending: loanStats[0]?.pending || 0
+                }
+            }
+        });
+    } catch (error) {
+        if (connection) connection.release();
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ============================================
+// ADMIN: GET ALL TRANSACTIONS
+// ============================================
+app.get('/api/transactions/all', async (req, res) => {
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        
+        const [transactions] = await connection.execute(
+            `SELECT t.*, 
+             u1.firstName as fromFirstName, u1.lastName as fromLastName, u1.accountNumber as fromAccount,
+             u2.firstName as toFirstName, u2.lastName as toLastName, u2.accountNumber as toAccount
+             FROM transactions t
+             LEFT JOIN users u1 ON t.fromUserId = u1.id
+             LEFT JOIN users u2 ON t.toUserId = u2.id
+             ORDER BY t.createdAt DESC
+             LIMIT 200`
+        );
+        
+        connection.release();
+        
+        res.json({
+            success: true,
+            total: transactions.length,
+            transactions: transactions.map(t => ({
+                id: t.id,
+                amount: parseFloat(t.amount),
+                type: t.type,
+                status: t.status,
+                description: t.description,
+                fromAccount: t.fromAccount,
+                fromName: t.fromFirstName ? `${t.fromFirstName} ${t.fromLastName}` : 'Bank',
+                toAccount: t.toAccount,
+                toName: t.toFirstName ? `${t.toFirstName} ${t.toLastName}` : 'N/A',
+                created_at: t.createdAt
+            }))
+        });
+    } catch (error) {
+        if (connection) connection.release();
+        console.error('Error fetching transactions:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ============================================
+// ADMIN: PENDING DOCUMENTS
+// ============================================
+app.get('/api/admin/documents/pending', async (req, res) => {
+    let connection;
+    try {
+        connection = await pool.getConnection();
+        
+        // Try to get documents from database
+        try {
+            const [docs] = await connection.execute(
+                `SELECT d.*, u.firstName, u.lastName, u.email 
+                 FROM documents d 
+                 JOIN users u ON d.userId = u.id 
+                 WHERE d.status = 'pending' 
+                 ORDER BY d.uploadedAt DESC`
+            );
+            
+            connection.release();
+            
+            return res.json({
+                success: true,
+                documents: docs.map(d => ({
+                    id: d.id,
+                    userId: d.userId,
+                    userName: `${d.firstName} ${d.lastName}`,
+                    userEmail: d.email,
+                    documentType: d.documentType,
+                    fileName: d.fileName,
+                    status: d.status,
+                    uploadedAt: d.uploadedAt
+                }))
+            });
+        } catch (dbError) {
+            // Documents table may not exist
+            connection.release();
+            return res.json({ success: true, documents: [] });
+        }
+    } catch (error) {
+        if (connection) connection.release();
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ============================================
+// ADMIN: APPROVE DOCUMENT
+// ============================================
+app.put('/api/admin/documents/:id/approve', async (req, res) => {
+    let connection;
+    try {
+        const { id } = req.params;
+        
+        connection = await pool.getConnection();
+        
+        await connection.execute(
+            'UPDATE documents SET status = ?, reviewedAt = NOW() WHERE id = ?',
+            ['approved', id]
+        );
+        
+        connection.release();
+        
+        res.json({ success: true, message: 'Document approved' });
+    } catch (error) {
+        if (connection) connection.release();
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ============================================
+// ADMIN: REJECT DOCUMENT
+// ============================================
+app.put('/api/admin/documents/:id/reject', async (req, res) => {
+    let connection;
+    try {
+        const { id } = req.params;
+        const { reason } = req.body;
+        
+        connection = await pool.getConnection();
+        
+        await connection.execute(
+            'UPDATE documents SET status = ?, rejectionReason = ?, reviewedAt = NOW() WHERE id = ?',
+            ['rejected', reason || 'Rejected by admin', id]
+        );
+        
+        connection.release();
+        
+        res.json({ success: true, message: 'Document rejected' });
+    } catch (error) {
+        if (connection) connection.release();
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
@@ -2252,14 +2952,49 @@ app.put('/api/admin/loans/:id/reject', async (req, res) => {
 // ============================================
 // ADMIN - GET ALL ACTIVITY LOGS
 // ============================================
-app.get('/api/admin/activity-logs', (req, res) => {
+app.get('/api/admin/activity-logs', async (req, res) => {
+    let connection;
     try {
+        connection = await pool.getConnection();
+        
+        // Try to get from database first
+        try {
+            const [logs] = await connection.execute(
+                `SELECT al.*, u.firstName, u.lastName, u.email 
+                 FROM activity_logs al 
+                 LEFT JOIN users u ON al.user_id = u.id 
+                 ORDER BY al.created_at DESC 
+                 LIMIT 100`
+            );
+            
+            connection.release();
+            
+            return res.status(200).json({
+                success: true,
+                total: logs.length,
+                logs: logs.map(log => ({
+                    id: log.id,
+                    user_id: log.user_id,
+                    userName: log.firstName && log.lastName ? `${log.firstName} ${log.lastName}` : 'System',
+                    action_type: log.action_type,
+                    action_details: log.action_details,
+                    ip_address: log.ip_address,
+                    created_at: log.created_at
+                }))
+            });
+        } catch (dbError) {
+            console.log('Activity logs table may not exist, using in-memory:', dbError.message);
+            connection.release();
+        }
+        
+        // Fallback to in-memory logs
         res.status(200).json({
             success: true,
             total: activityLogs.length,
             logs: activityLogs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0, 100)
         });
     } catch (error) {
+        if (connection) connection.release();
         res.status(500).json({ success: false, message: 'Error retrieving activity logs' });
     }
 });
