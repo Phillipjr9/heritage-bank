@@ -2027,7 +2027,7 @@ app.post('/api/auth/login', async (req, res) => {
                 email: user.email,
                 accountNumber: user.accountNumber,
                 balance: parseFloat(user.balance),
-                isAdmin: user.isAdmin,
+                isAdmin: Boolean(user.isAdmin) || user.isAdmin === 1 || user.isAdmin === '1',
                 lastLogin: user.lastLogin
             }
         });

@@ -1026,7 +1026,9 @@
             
             if (storedUser) {
                 const user = JSON.parse(storedUser);
-                if (!user.isAdmin) {
+                // Check for various truthy values of isAdmin (1, '1', true, 'true')
+                const isAdmin = user.isAdmin === true || user.isAdmin === 1 || user.isAdmin === '1' || user.isAdmin === 'true';
+                if (!isAdmin) {
                     alert('Access denied. Admin privileges required.');
                     window.location.href = 'dashboard.html';
                     return false;
