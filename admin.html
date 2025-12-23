@@ -503,12 +503,12 @@
                     </div>
 
                     <div class="card">
-                        <h2><i class="fas fa-plus-circle"></i> Credit Account (Add Funds)</h2>
+                        <h2><i class="fas fa-paper-plane"></i> Send Funds to User (Deducts Admin Balance)</h2>
                         <div id="creditAlert" class="alert"></div>
                         <form onsubmit="creditAccount(event)">
                             <div class="form-grid">
                                 <div class="form-group">
-                                    <label>Email or Account Number *</label>
+                                    <label>Recipient Email or Account Number *</label>
                                     <input type="text" id="creditRecipient" required>
                                 </div>
                                 <div class="form-group">
@@ -518,9 +518,9 @@
                             </div>
                             <div class="form-group">
                                 <label>Description</label>
-                                <input type="text" id="creditDescription" placeholder="e.g., Bonus, Refund, Initial Deposit">
+                                <input type="text" id="creditDescription" placeholder="e.g., Salary payment, Refund, Bonus">
                             </div>
-                            <button type="submit" class="btn btn-success"><i class="fas fa-plus"></i> Credit Account</button>
+                            <button type="submit" class="btn btn-success"><i class="fas fa-paper-plane"></i> Send Funds</button>
                         </form>
                     </div>
 
@@ -717,6 +717,9 @@
             document.getElementById(modalId).classList.remove('active');
         }
 
+        // Cache admin identity for transfer operations
+        let ADMIN_EMAIL = '';
+
         // Load Admin Account Info
         async function loadAdminAccount() {
             try {
@@ -725,6 +728,7 @@
                 });
                 const data = await res.json();
                 if (data.success && data.user) {
+                    ADMIN_EMAIL = (data.user.email || '').toString().trim().toLowerCase();
                     document.getElementById('headerAdminName').textContent = `${data.user.firstName} ${data.user.lastName}`;
                     document.getElementById('headerAdminBalance').textContent = parseFloat(data.user.balance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 });
                 }
@@ -1127,24 +1131,34 @@
         async function creditAccount(e) {
             e.preventDefault();
             try {
-                const res = await fetch(`${API_BASE}/api/admin/credit-account`, {
+                const recipientRaw = document.getElementById('creditRecipient').value;
+                const amountVal = parseFloat(document.getElementById('creditAmount').value);
+                const descVal = (document.getElementById('creditDescription').value || '').trim();
+
+                // For admin "send funds" we treat this as a transfer FROM the admin account.
+                const isEmail = String(recipientRaw || '').includes('@');
+                const payload = {
+                    fromEmail: ADMIN_EMAIL,
+                    amount: amountVal,
+                    description: descVal || 'Admin Transfer'
+                };
+                if (isEmail) payload.toEmail = String(recipientRaw || '').trim();
+                else payload.toAccountNumber = String(recipientRaw || '').trim();
+
+                const res = await fetch(`${API_BASE}/api/admin/transfer`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${getToken()}`
                     },
-                    body: JSON.stringify({
-                        recipient: document.getElementById('creditRecipient').value,
-                        amount: parseFloat(document.getElementById('creditAmount').value),
-                        description: document.getElementById('creditDescription').value || 'Admin Credit'
-                    })
+                    body: JSON.stringify(payload)
                 });
                 const raw = await res.text();
                 let data = null;
                 try { data = raw ? JSON.parse(raw) : null; } catch (_) { data = null; }
 
                 if (res.ok && data && data.success) {
-                    showAlert('creditAlert', `✓ Credited $${document.getElementById('creditAmount').value} successfully!`, true);
+                    showAlert('creditAlert', `✓ Sent $${document.getElementById('creditAmount').value} successfully!`, true);
                     document.getElementById('creditAmount').value = '';
                     document.getElementById('creditDescription').value = '';
                     // Refresh dashboards/lists so the admin immediately sees updated balances/transactions.
