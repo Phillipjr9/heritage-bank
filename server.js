@@ -947,6 +947,9 @@ app.delete('/api/admin/users/:id', async (req, res) => {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
         
+        // Delete related records first (transactions referencing this user)
+        await connection.execute('DELETE FROM transactions WHERE fromUserId = ? OR toUserId = ?', [userId, userId]);
+        
         // Delete user from database
         await connection.execute('DELETE FROM users WHERE id = ?', [userId]);
         connection.release();
