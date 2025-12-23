@@ -75,16 +75,7 @@ async function initializeDatabase() {
     try {
         const connection = await pool.getConnection();
         
-        // Drop old tables if they exist (migration)
-        try {
-            await connection.execute('DROP TABLE IF EXISTS transactions');
-            await connection.execute('DROP TABLE IF EXISTS activity_logs');
-            await connection.execute('DROP TABLE IF EXISTS users');
-        } catch (e) {
-            // Tables might not exist yet
-        }
-        
-        // Create tables if they don't exist
+        // Create tables if they don't exist (without dropping existing data)
         await connection.execute(`
             CREATE TABLE IF NOT EXISTS users (
                 id INT AUTO_INCREMENT PRIMARY KEY,
