@@ -277,17 +277,28 @@ function getNextAccountNumber() {
 // ============================================
 // ACTIVITY LOGGING
 // ============================================
-function logActivity(userId, action, details = '') {
+async function logActivity(userId, action, details = '', ipAddress = '127.0.0.1') {
+    // Save to in-memory array (for backward compatibility)
     const log = {
         id: activityLogs.length + 1,
         userId,
         action,
         details,
         timestamp: new Date().toISOString(),
-        ip: '127.0.0.1' // In production, get from req.ip
+        ip: ipAddress
     };
     activityLogs.push(log);
     console.log(`📋 Activity: ${action} by User #${userId}`);
+    
+    // Also save to database
+    try {
+        await pool.execute(
+            'INSERT INTO activity_logs (user_id, action_type, action_details, ip_address) VALUES (?, ?, ?, ?)',
+            [userId, action, details, ipAddress]
+        );
+    } catch (error) {
+        console.error('Failed to log activity to DB:', error.message);
+    }
 }
 
 // ============================================
@@ -639,6 +650,9 @@ app.post('/api/auth/login', async (req, res) => {
                     lastLogin: user.lastLogin
                 }
             });
+            
+            // Log activity for successful login
+            logActivity(user.id, 'LOGIN', 'User logged in successfully', req.ip || '127.0.0.1');
         }
 
         // Fallback to in-memory users
@@ -2525,25 +2539,41 @@ app.post('/api/user/:userId/change-password', async (req, res) => {
 // ============================================
 // ACTIVITY LOGS - GET USER'S ACTIVITY
 // ============================================
-app.get('/api/user/:userId/activity', (req, res) => {
+app.get('/api/user/:userId/activity', async (req, res) => {
+    let connection;
     try {
         const { userId } = req.params;
-        const user = users.get(parseInt(userId));
-
-        if (!user) {
+        
+        connection = await pool.getConnection();
+        
+        // Check if user exists in database
+        const [users] = await connection.execute('SELECT id FROM users WHERE id = ?', [userId]);
+        if (users.length === 0) {
+            connection.release();
             return res.status(404).json({ success: false, message: 'User not found' });
         }
 
-        // Get user's activity logs
-        const userActivity = activityLogs.filter(log => log.userId === parseInt(userId));
+        // Get user's activity logs from database
+        const [activities] = await connection.execute(
+            `SELECT id, action_type as action, action_details as description, created_at as timestamp 
+             FROM activity_logs 
+             WHERE user_id = ? 
+             ORDER BY created_at DESC 
+             LIMIT 20`,
+            [userId]
+        );
+        
+        connection.release();
 
         res.status(200).json({
             success: true,
             userId: parseInt(userId),
-            total: userActivity.length,
-            activity: userActivity.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+            total: activities.length,
+            activities: activities
         });
     } catch (error) {
+        if (connection) connection.release();
+        console.error('Activity error:', error);
         res.status(500).json({ success: false, message: 'Error retrieving activity' });
     }
 });
