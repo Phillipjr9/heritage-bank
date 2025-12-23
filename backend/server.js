@@ -2578,30 +2578,73 @@ app.get('/api/admin/users-with-balances', requireAuth, requireAdmin, async (req,
 
 // Admin: Fund user account
 app.post('/api/admin/fund-user', requireAuth, requireAdmin, async (req, res) => {
+    const connection = await pool.getConnection();
     try {
         const { toEmail, toAccountNumber, amount, description } = req.body;
-        
-        let user;
-        if (toEmail) {
-            const [users] = await pool.execute('SELECT * FROM users WHERE email = ?', [toEmail]);
-            user = users[0];
-        } else if (toAccountNumber) {
-            const [users] = await pool.execute('SELECT * FROM users WHERE accountNumber = ?', [toAccountNumber]);
-            user = users[0];
+
+        const amountValue = parseFloat(amount);
+        if (!Number.isFinite(amountValue) || amountValue <= 0) {
+            return res.status(400).json({ success: false, message: 'Valid amount is required' });
         }
 
-        if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+        await connection.beginTransaction();
 
-        const newBalance = parseFloat(user.balance) + parseFloat(amount);
-        await pool.execute('UPDATE users SET balance = ? WHERE id = ?', [newBalance, user.id]);
+        // Lock admin(sender)
+        const [senderRows] = await connection.execute('SELECT * FROM users WHERE id = ? FOR UPDATE', [req.auth.id]);
+        const sender = senderRows[0];
+        if (!sender) {
+            await connection.rollback();
+            return res.status(404).json({ success: false, message: 'Admin account not found' });
+        }
+
+        // Lock recipient
+        let recipient;
+        if (toEmail) {
+            const [users] = await connection.execute('SELECT * FROM users WHERE email = ? FOR UPDATE', [String(toEmail).trim().toLowerCase()]);
+            recipient = users[0];
+        } else if (toAccountNumber) {
+            const [users] = await connection.execute('SELECT * FROM users WHERE accountNumber = ? FOR UPDATE', [String(toAccountNumber).trim()]);
+            recipient = users[0];
+        }
+
+        if (!recipient) {
+            await connection.rollback();
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        if (sender.id === recipient.id) {
+            await connection.rollback();
+            return res.status(400).json({ success: false, message: 'Cannot send funds to the same account' });
+        }
+
+        const senderBalance = parseFloat(sender.balance);
+        if (senderBalance < amountValue) {
+            await connection.rollback();
+            return res.status(400).json({ success: false, message: 'Insufficient funds' });
+        }
+
+        await connection.execute('UPDATE users SET balance = balance - ? WHERE id = ?', [amountValue, sender.id]);
+        await connection.execute('UPDATE users SET balance = balance + ? WHERE id = ?', [amountValue, recipient.id]);
+
+        const reference = 'ADM' + Date.now().toString(36).toUpperCase();
+        await connection.execute(
+            `INSERT INTO transactions (fromUserId, toUserId, amount, type, status, description, reference)
+             VALUES (?, ?, ?, 'admin_transfer', 'completed', ?, ?)`,
+            [sender.id, recipient.id, amountValue, (description || 'Admin Transfer'), reference]
+        );
+
+        await connection.commit();
 
         res.json({
             success: true,
-            message: `$${amount} added to ${user.firstName} ${user.lastName}`,
-            newBalance
+            message: `$${amountValue.toLocaleString()} sent to ${recipient.firstName} ${recipient.lastName}`,
+            reference
         });
     } catch (error) {
+        try { await connection.rollback(); } catch (e) {}
         res.status(500).json({ success: false, message: error.message });
+    } finally {
+        connection.release();
     }
 });
 
