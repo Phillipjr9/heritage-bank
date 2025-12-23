@@ -265,49 +265,156 @@
             
             <div id="alertBox" class="alert"></div>
             
+            <!-- Account Information (Read-Only) -->
+            <div class="settings-card">
+                <h2><i class="fas fa-landmark"></i> Account Information</h2>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; line-height: 1.8;">
+                    <div>
+                        <strong>Account Number</strong>
+                        <p id="accountNumber" style="font-family: monospace; color: #1a472a; font-weight: bold;"></p>
+                    </div>
+                    <div>
+                        <strong>Routing Number</strong>
+                        <p id="routingNumber" style="font-family: monospace; color: #1a472a; font-weight: bold;"></p>
+                    </div>
+                    <div>
+                        <strong>Account Type</strong>
+                        <p id="accountType" style="text-transform: capitalize; color: #1a472a;"></p>
+                    </div>
+                    <div>
+                        <strong>Account Status</strong>
+                        <p id="accountStatus" style="color: #1a472a;"><span id="statusBadge" class="badge"></span></p>
+                    </div>
+                    <div>
+                        <strong>Member Since</strong>
+                        <p id="memberSince" style="color: #1a472a;"></p>
+                    </div>
+                    <div>
+                        <strong>Current Balance</strong>
+                        <p id="currentBalance" style="color: #1a472a; font-weight: bold; font-size: 1.1rem;"></p>
+                    </div>
+                </div>
+            </div>
+
             <!-- Profile Settings -->
             <div class="settings-card">
-                <h2><i class="fas fa-user"></i> Profile Information</h2>
+                <h2><i class="fas fa-user"></i> Personal Information</h2>
                 <form id="profileForm">
                     <div class="form-row">
                         <div class="form-group">
-                            <label>First Name</label>
+                            <label>First Name <span style="color: red;">*</span></label>
                             <input type="text" id="firstName" required>
                         </div>
                         <div class="form-group">
-                            <label>Last Name</label>
+                            <label>Last Name <span style="color: red;">*</span></label>
                             <input type="text" id="lastName" required>
                         </div>
                     </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Date of Birth <span style="color: red;">*</span></label>
+                            <input type="date" id="dateOfBirth" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Social Security Number (SSN)</label>
+                            <input type="text" id="ssn" placeholder="XXX-XX-XXXX" maxlength="11">
+                        </div>
+                    </div>
                     <div class="form-group">
-                        <label>Email Address</label>
+                        <label>Email Address <span style="color: #666; font-size: 0.9rem;">(Read-only)</span></label>
                         <input type="email" id="email" readonly style="background: #f5f5f5; cursor: not-allowed;">
+                        <span id="emailVerification" style="font-size: 0.85rem; margin-top: 5px; display: block;"></span>
                     </div>
                     <div class="form-group">
-                        <label>Phone Number</label>
-                        <input type="tel" id="phone">
+                        <label>Phone Number <span style="color: red;">*</span></label>
+                        <input type="tel" id="phone" required>
+                        <span id="phoneVerification" style="font-size: 0.85rem; margin-top: 5px; display: block;"></span>
                     </div>
                     <div class="form-group">
-                        <label>Address</label>
-                        <input type="text" id="address">
+                        <label>Street Address <span style="color: red;">*</span></label>
+                        <input type="text" id="address" required>
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label>City</label>
-                            <input type="text" id="city">
+                            <label>City <span style="color: red;">*</span></label>
+                            <input type="text" id="city" required>
+                        </div>
+                        <div class="form-group">
+                            <label>State <span style="color: red;">*</span></label>
+                            <input type="text" id="state" required>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>ZIP Code <span style="color: red;">*</span></label>
+                            <input type="text" id="zipCode" maxlength="5" required>
                         </div>
                         <div class="form-group">
                             <label>Country</label>
-                            <input type="text" id="country">
+                            <input type="text" id="country" readonly style="background: #f5f5f5; cursor: not-allowed;">
                         </div>
                     </div>
                     <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save Changes</button>
                 </form>
             </div>
+
+            <!-- Transaction Limits -->
+            <div class="settings-card">
+                <h2><i class="fas fa-chart-bar"></i> Transaction Limits</h2>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; line-height: 2;">
+                    <div>
+                        <strong>Daily Transfer Limit</strong>
+                        <p id="dailyLimit" style="color: #1a472a;"></p>
+                    </div>
+                    <div>
+                        <strong>Daily Spent</strong>
+                        <p id="dailySpent" style="color: #1a472a;"></p>
+                    </div>
+                    <div>
+                        <strong>Weekly Transfer Limit</strong>
+                        <p id="weeklyLimit" style="color: #1a472a;"></p>
+                    </div>
+                    <div>
+                        <strong>Weekly Spent</strong>
+                        <p id="weeklySpent" style="color: #1a472a;"></p>
+                    </div>
+                    <div>
+                        <strong>Monthly Transfer Limit</strong>
+                        <p id="monthlyLimit" style="color: #1a472a;"></p>
+                    </div>
+                    <div>
+                        <strong>Monthly Spent</strong>
+                        <p id="monthlySpent" style="color: #1a472a;"></p>
+                    </div>
+                    <div>
+                        <strong>Single Transaction Limit</strong>
+                        <p id="singleLimit" style="color: #1a472a;"></p>
+                    </div>
+                </div>
+                <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee;">
+                    <button class="btn btn-secondary" onclick="requestLimitIncrease()">Request Limit Increase</button>
+                </div>
+            </div>
             
             <!-- Security Settings -->
             <div class="settings-card">
-                <h2><i class="fas fa-shield-alt"></i> Security</h2>
+                <h2><i class="fas fa-shield-alt"></i> Security & Authentication</h2>
+                
+                <!-- Login History -->
+                <div style="margin-bottom: 30px;">
+                    <h3 style="margin-bottom: 15px; color: #1a472a;"><i class="fas fa-history"></i> Recent Login Activity</h3>
+                    <div id="loginHistory" style="max-height: 300px; overflow-y: auto; background: #f9f9f9; border: 1px solid #eee; border-radius: 8px; padding: 15px;">
+                        <p style="text-align: center; color: #999;">Loading login history...</p>
+                    </div>
+                </div>
+
+                <!-- Active Sessions -->
+                <div style="margin-bottom: 30px; padding-top: 20px; border-top: 1px solid #eee;">
+                    <h3 style="margin-bottom: 15px; color: #1a472a;"><i class="fas fa-laptop"></i> Active Sessions</h3>
+                    <div id="activeSessions" style="display: grid; gap: 10px;">
+                        <p style="text-align: center; color: #999;">Loading active sessions...</p>
+                    </div>
+                </div>
                 
                 <div class="security-item">
                     <div class="security-info">
@@ -329,6 +436,10 @@
                         <div class="form-group">
                             <label>New Password</label>
                             <input type="password" id="newPassword" required minlength="8">
+                            <div id="passwordStrengthBar" style="margin-top: 8px; height: 5px; background: #eee; border-radius: 5px; overflow: hidden;">
+                                <div id="strengthIndicator" style="width: 0%; height: 100%; background: #dc3545; transition: width 0.3s, background 0.3s;"></div>
+                            </div>
+                            <small id="strengthText" style="color: #666;"></small>
                         </div>
                         <div class="form-group">
                             <label>Confirm New Password</label>
@@ -339,7 +450,7 @@
                     </form>
                 </div>
                 
-                <div class="security-item">
+                <div class="security-item" style="padding-top: 20px; border-top: 1px solid #eee; margin-top: 20px;">
                     <div class="security-info">
                         <i class="fas fa-mobile-alt"></i>
                         <div>
@@ -352,52 +463,119 @@
                         <span class="slider"></span>
                     </label>
                 </div>
+
+                <div id="twoFASetup" style="display: none; margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee; background: #f9f9f9; padding: 15px; border-radius: 8px;">
+                    <h4>2FA Setup</h4>
+                    <div class="form-group">
+                        <label>2FA Method</label>
+                        <select id="twoFAMethod" onchange="update2FAMethod()">
+                            <option value="sms">SMS (Text Message)</option>
+                            <option value="email">Email</option>
+                            <option value="authenticator">Authenticator App</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-primary" onclick="setupBackupCodes()"><i class="fas fa-key"></i> Generate Backup Codes</button>
+                </div>
+            </div>
+                        <input type="checkbox" id="twoFactorToggle" onchange="toggle2FA()">
+                        <span class="slider"></span>
+                    </label>
+                </div>
             </div>
             
-            <!-- Notification Settings -->
+            <!-- Documents -->
             <div class="settings-card">
-                <h2><i class="fas fa-bell"></i> Notifications</h2>
+                <h2><i class="fas fa-file-upload"></i> Documents & Verification</h2>
                 
-                <div class="toggle-switch">
-                    <label>
-                        <strong>Email Notifications</strong>
-                        <span>Receive emails about transactions and account updates</span>
-                    </label>
+                <div style="margin-bottom: 20px; padding: 15px; background: #e7f3ff; border-left: 4px solid #2196F3; border-radius: 4px;">
+                    <p style="margin: 0; color: #0d47a1;"><strong>📄 Upload Documents</strong></p>
+                    <small>Required for KYC verification: ID, Passport, or Driver's License + Proof of Address</small>
+                </div>
+
+                <div id="documentsList" style="display: grid; gap: 15px; margin-bottom: 20px;">
+                    <!-- Documents will be loaded here -->
+                </div>
+
+                <div style="padding: 20px; background: #f9f9f9; border: 2px dashed #ddd; border-radius: 8px; text-align: center;">
+                    <input type="file" id="documentFile" accept=".pdf,.jpg,.jpeg,.png" style="display: none;">
+                    <button class="btn btn-primary" onclick="document.getElementById('documentFile').click()">
+                        <i class="fas fa-upload"></i> Upload Document
+                    </button>
+                    <p style="margin-top: 10px; font-size: 0.85rem; color: #666;">Supported: PDF, JPG, PNG (Max 10MB)</p>
+                </div>
+            </div>
+
+            <!-- Beneficiaries -->
+            <div class="settings-card">
+                <h2><i class="fas fa-users"></i> Beneficiaries</h2>
+                
+                <div id="beneficiariesList" style="display: grid; gap: 15px; margin-bottom: 20px;">
+                    <p style="text-align: center; color: #999;">Loading beneficiaries...</p>
+                </div>
+
+                <button class="btn btn-primary" onclick="showAddBeneficiaryForm()">
+                    <i class="fas fa-plus"></i> Add Beneficiary
+                </button>
+
+                <div id="addBeneficiaryForm" style="display: none; margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee; background: #f9f9f9; padding: 15px; border-radius: 8px;">
+                    <h4>Add New Beneficiary</h4>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Full Name</label>
+                            <input type="text" id="beneficiaryName" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Nickname (Optional)</label>
+                            <input type="text" id="beneficiaryNickname">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Account Number</label>
+                            <input type="text" id="beneficiaryAccount" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Routing Number</label>
+                            <input type="text" id="beneficiaryRouting" required>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Bank Name</label>
+                        <input type="text" id="beneficiaryBank">
+                    </div>
+                    <button class="btn btn-primary" onclick="addBeneficiary()">Add Beneficiary</button>
+                    <button class="btn btn-secondary" onclick="hideAddBeneficiaryForm()" style="margin-left: 10px;">Cancel</button>
+                </div>
+            </div>
+
+            <!-- Account Controls -->
+            <div class="settings-card">
+                <h2><i class="fas fa-lock-open"></i> Account Controls</h2>
+                
+                <div class="security-item">
+                    <div class="security-info">
+                        <i class="fas fa-ban" style="color: #ff9800;"></i>
+                        <div>
+                            <strong>Freeze Account</strong>
+                            <p style="color: #666; font-size: 0.9rem;">Block all outgoing transactions temporarily</p>
+                        </div>
+                    </div>
                     <label class="switch">
-                        <input type="checkbox" checked id="emailNotif">
+                        <input type="checkbox" id="freezeAccountToggle" onchange="toggleAccountFreeze()">
                         <span class="slider"></span>
                     </label>
                 </div>
-                
-                <div class="toggle-switch">
-                    <label>
-                        <strong>Transaction Alerts</strong>
-                        <span>Get notified for every transaction</span>
-                    </label>
+
+                <div class="security-item">
+                    <div class="security-info">
+                        <i class="fas fa-globe" style="color: #2196F3;"></i>
+                        <div>
+                            <strong>International Transactions</strong>
+                            <p style="color: #666; font-size: 0.9rem;">Allow transfers outside the United States</p>
+                        </div>
+                    </div>
                     <label class="switch">
-                        <input type="checkbox" checked id="transactionAlerts">
-                        <span class="slider"></span>
-                    </label>
-                </div>
-                
-                <div class="toggle-switch">
-                    <label>
-                        <strong>Security Alerts</strong>
-                        <span>Receive alerts for suspicious activities</span>
-                    </label>
-                    <label class="switch">
-                        <input type="checkbox" checked id="securityAlerts">
-                        <span class="slider"></span>
-                    </label>
-                </div>
-                
-                <div class="toggle-switch">
-                    <label>
-                        <strong>Marketing Communications</strong>
-                        <span>Receive news and offers from Heritage Bank</span>
-                    </label>
-                    <label class="switch">
-                        <input type="checkbox" id="marketingComms">
+                        <input type="checkbox" id="internationalToggle" onchange="toggleInternational()" checked>
                         <span class="slider"></span>
                     </label>
                 </div>
@@ -443,156 +621,6 @@
         </main>
     </div>
     
-    <script>
-        const API_URL = '';
-        let userId = null;
-        
-        // Check authentication
-        async function checkAuth() {
-            const token = localStorage.getItem('token');
-            if (!token) {
-                window.location.href = 'signin.html';
-                return;
-            }
-            
-            try {
-                const res = await fetch(`${API_URL}/api/auth/profile`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                const data = await res.json();
-                
-                if (data.success && data.user) {
-                    userId = data.user.id;
-                    populateForm(data.user);
-                } else {
-                    window.location.href = 'signin.html';
-                }
-            } catch (e) {
-                console.error('Auth error:', e);
-            }
-        }
-        
-        function populateForm(user) {
-            document.getElementById('firstName').value = user.firstName || '';
-            document.getElementById('lastName').value = user.lastName || '';
-            document.getElementById('email').value = user.email || '';
-            document.getElementById('phone').value = user.phone || '';
-            document.getElementById('address').value = user.address || '';
-            document.getElementById('city').value = user.city || '';
-            document.getElementById('country').value = user.country || '';
-        }
-        
-        function showAlert(message, type) {
-            const alert = document.getElementById('alertBox');
-            alert.textContent = message;
-            alert.className = `alert alert-${type}`;
-            alert.style.display = 'block';
-            setTimeout(() => alert.style.display = 'none', 5000);
-        }
-        
-        // Update profile
-        document.getElementById('profileForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const token = localStorage.getItem('token');
-            
-            try {
-                const res = await fetch(`${API_URL}/api/auth/profile`, {
-                    method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`
-                    },
-                    body: JSON.stringify({
-                        firstName: document.getElementById('firstName').value,
-                        lastName: document.getElementById('lastName').value,
-                        phone: document.getElementById('phone').value,
-                        address: document.getElementById('address').value,
-                        city: document.getElementById('city').value,
-                        country: document.getElementById('country').value
-                    })
-                });
-                
-                const data = await res.json();
-                if (data.success) {
-                    showAlert('Profile updated successfully!', 'success');
-                } else {
-                    showAlert(data.message || 'Update failed', 'error');
-                }
-            } catch (e) {
-                showAlert('Error updating profile', 'error');
-            }
-        });
-        
-        function togglePasswordForm() {
-            const form = document.getElementById('passwordForm');
-            form.style.display = form.style.display === 'none' ? 'block' : 'none';
-        }
-        
-        async function changePassword(e) {
-            e.preventDefault();
-            const newPass = document.getElementById('newPassword').value;
-            const confirmPass = document.getElementById('confirmPassword').value;
-            
-            if (newPass !== confirmPass) {
-                showAlert('Passwords do not match!', 'error');
-                return;
-            }
-            
-            const token = localStorage.getItem('token');
-            
-            try {
-                const res = await fetch(`${API_URL}/api/auth/change-password`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`
-                    },
-                    body: JSON.stringify({
-                        currentPassword: document.getElementById('currentPassword').value,
-                        newPassword: newPass
-                    })
-                });
-                
-                const data = await res.json();
-                if (data.success) {
-                    showAlert('Password changed successfully!', 'success');
-                    togglePasswordForm();
-                    document.getElementById('currentPassword').value = '';
-                    document.getElementById('newPassword').value = '';
-                    document.getElementById('confirmPassword').value = '';
-                } else {
-                    showAlert(data.message || 'Password change failed', 'error');
-                }
-            } catch (e) {
-                showAlert('Error changing password', 'error');
-            }
-        }
-        
-        function toggle2FA() {
-            const enabled = document.getElementById('twoFactorToggle').checked;
-            showAlert(`Two-Factor Authentication ${enabled ? 'enabled' : 'disabled'}`, 'success');
-        }
-        
-        function downloadStatement() {
-            showAlert('Statement download started...', 'success');
-            // In production, this would trigger actual PDF generation
-        }
-        
-        function confirmCloseAccount() {
-            if (confirm('Are you sure you want to close your account? This action cannot be undone.')) {
-                if (confirm('All your funds will be lost. Type "CLOSE" to confirm.')) {
-                    showAlert('Please contact customer support to close your account.', 'error');
-                }
-            }
-        }
-        
-        function logout() {
-            localStorage.clear();
-            window.location.href = 'signin.html';
-        }
-        
-        // Initialize
-        checkAuth();
-    </script>
+    <script src="settings-enhanced.js"></script>
 </body>
 </html>

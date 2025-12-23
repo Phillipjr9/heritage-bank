@@ -63,10 +63,21 @@ async function initializeDatabase() {
                 email VARCHAR(255) UNIQUE,
                 password VARCHAR(255),
                 phone VARCHAR(20),
+                dateOfBirth DATE,
+                ssn VARCHAR(11),
+                address VARCHAR(255),
+                city VARCHAR(100),
+                state VARCHAR(50),
+                zipCode VARCHAR(10),
+                country VARCHAR(100) DEFAULT 'United States',
                 accountNumber VARCHAR(20) UNIQUE,
                 routingNumber VARCHAR(20),
                 balance DECIMAL(15,2) DEFAULT 50000,
+                accountType ENUM('checking', 'savings', 'business', 'premium') DEFAULT 'checking',
+                accountStatus ENUM('active', 'frozen', 'suspended', 'closed') DEFAULT 'active',
                 isAdmin BOOLEAN DEFAULT false,
+                marketingConsent BOOLEAN DEFAULT false,
+                lastLogin TIMESTAMP NULL,
                 createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
@@ -208,20 +219,62 @@ app.get('/api/health', (req, res) => {
 // Login
 app.post('/api/auth/login', async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const { email, password, rememberMe } = req.body;
         
-        const [users] = await pool.execute('SELECT * FROM users WHERE email = ?', [email]);
+        // Allow login with email or account number
+        const [users] = await pool.execute(
+            'SELECT * FROM users WHERE email = ? OR accountNumber = ?', 
+            [email, email]
+        );
+        
         if (users.length === 0) {
             return res.status(401).json({ success: false, message: 'Invalid credentials' });
         }
 
         const user = users[0];
+        
+        // Check if account is frozen or suspended
+        if (user.accountStatus === 'frozen' || user.accountStatus === 'suspended') {
+            return res.status(403).json({ 
+                success: false, 
+                message: `Account is ${user.accountStatus}. Please contact support.` 
+            });
+        }
+        
+        if (user.accountStatus === 'closed') {
+            return res.status(403).json({ 
+                success: false, 
+                message: 'Account is closed. Please contact support.' 
+            });
+        }
+        
         const validPassword = await bcrypt.compare(password, user.password);
         if (!validPassword) {
+            // Log failed login attempt
+            await pool.execute(
+                `INSERT INTO login_history (userId, ipAddress, userAgent, status) 
+                 VALUES (?, ?, ?, ?)`,
+                [user.id, req.ip, req.get('user-agent'), 'failed']
+            );
+            
             return res.status(401).json({ success: false, message: 'Invalid credentials' });
         }
 
-        const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '24h' });
+        // Log successful login
+        await pool.execute(
+            `INSERT INTO login_history (userId, ipAddress, userAgent, status) 
+             VALUES (?, ?, ?, ?)`,
+            [user.id, req.ip, req.get('user-agent'), 'success']
+        );
+        
+        // Update last login timestamp
+        await pool.execute(
+            `UPDATE users SET lastLogin = NOW() WHERE id = ?`,
+            [user.id]
+        );
+        
+        const tokenExpiry = rememberMe ? '30d' : '24h';
+        const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: tokenExpiry });
 
         res.json({
             success: true,
@@ -233,10 +286,12 @@ app.post('/api/auth/login', async (req, res) => {
                 email: user.email,
                 accountNumber: user.accountNumber,
                 balance: parseFloat(user.balance),
-                isAdmin: user.isAdmin
+                isAdmin: user.isAdmin,
+                lastLogin: user.lastLogin
             }
         });
     } catch (error) {
+        console.error('Login error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
@@ -244,19 +299,81 @@ app.post('/api/auth/login', async (req, res) => {
 // Register
 app.post('/api/auth/register', async (req, res) => {
     try {
-        const { firstName, lastName, email, password, phone } = req.body;
+        const { 
+            firstName, 
+            lastName, 
+            email, 
+            password, 
+            phone, 
+            dateOfBirth, 
+            ssn, 
+            address, 
+            city, 
+            state, 
+            zipCode, 
+            country, 
+            accountType, 
+            initialDeposit, 
+            referralCode, 
+            marketingConsent 
+        } = req.body;
+        
+        // Validate required fields
+        if (!firstName || !lastName || !email || !password || !phone) {
+            return res.status(400).json({ success: false, message: 'All required fields must be filled' });
+        }
+        
+        // Validate age
+        if (dateOfBirth) {
+            const age = Math.floor((new Date() - new Date(dateOfBirth)) / (365.25 * 24 * 60 * 60 * 1000));
+            if (age < 18) {
+                return res.status(400).json({ success: false, message: 'You must be at least 18 years old' });
+            }
+        }
+        
+        // Validate initial deposit
+        const deposit = parseFloat(initialDeposit) || 0;
+        if (deposit < 50) {
+            return res.status(400).json({ success: false, message: 'Minimum initial deposit is $50.00' });
+        }
+        
+        // Check if email already exists
+        const [existingUsers] = await pool.execute('SELECT * FROM users WHERE email = ?', [email]);
+        if (existingUsers.length > 0) {
+            return res.status(400).json({ success: false, message: 'Email already registered' });
+        }
         
         const hashedPassword = await bcrypt.hash(password, 10);
         const accountNumber = generateAccountNumber();
 
         await pool.execute(
-            `INSERT INTO users (firstName, lastName, email, password, phone, accountNumber, routingNumber, balance) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [firstName, lastName, email, hashedPassword, phone, accountNumber, ROUTING_NUMBER, 50000]
+            `INSERT INTO users (
+                firstName, lastName, email, password, phone, 
+                dateOfBirth, ssn, address, city, state, zipCode, country,
+                accountNumber, routingNumber, balance, accountType, 
+                marketingConsent
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                firstName, lastName, email, hashedPassword, phone,
+                dateOfBirth || null, ssn || null, address || null, city || null, 
+                state || null, zipCode || null, country || 'United States',
+                accountNumber, ROUTING_NUMBER, deposit, accountType || 'checking',
+                marketingConsent || false
+            ]
         );
 
         const [newUser] = await pool.execute('SELECT * FROM users WHERE email = ?', [email]);
         const user = newUser[0];
+        
+        // Create initial deposit transaction
+        if (deposit > 0) {
+            await pool.execute(
+                `INSERT INTO transactions (userId, type, amount, description, status, reference) 
+                 VALUES (?, ?, ?, ?, ?, ?)`,
+                [user.id, 'deposit', deposit, 'Initial account deposit', 'completed', `DEP-${Date.now()}`]
+            );
+        }
+        
         const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '24h' });
 
         res.status(201).json({
@@ -268,10 +385,12 @@ app.post('/api/auth/register', async (req, res) => {
                 lastName: user.lastName,
                 email: user.email,
                 accountNumber: user.accountNumber,
-                balance: 50000
+                balance: deposit,
+                accountType: user.accountType
             }
         });
     } catch (error) {
+        console.error('Registration error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 });
@@ -1099,6 +1218,551 @@ app.get('/api/login-history', async (req, res) => {
     }
 });
 
+// ==================== ADMIN ENDPOINTS ====================
+// Get all transactions (admin only)
+app.get('/api/transactions/all', async (req, res) => {
+    try {
+        const [transactions] = await pool.execute(`
+            SELECT t.*, u1.firstName as senderFirst, u1.lastName as senderLast,
+                   u2.firstName as recipientFirst, u2.lastName as recipientLast
+            FROM transactions t
+            LEFT JOIN users u1 ON t.fromAccount = u1.accountNumber
+            LEFT JOIN users u2 ON t.toAccount = u2.accountNumber
+            ORDER BY t.created_at DESC
+            LIMIT 100
+        `);
+        
+        res.json({ success: true, transactions });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Get activity logs (admin only)
+app.get('/api/admin/activity-logs', async (req, res) => {
+    try {
+        const [logs] = await pool.execute(`
+            SELECT a.*, u.firstName, u.lastName, u.email as userName
+            FROM activity_logs a
+            LEFT JOIN users u ON a.user_id = u.id
+            ORDER BY a.created_at DESC
+            LIMIT 100
+        `);
+        
+        res.json({ success: true, logs });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Forgot password endpoint
+app.post('/api/auth/forgot-password', async (req, res) => {
+    try {
+        const { email } = req.body;
+        
+        const [users] = await pool.execute('SELECT * FROM users WHERE email = ?', [email]);
+        
+        if (users.length === 0) {
+            return res.json({ success: true, message: 'If email exists, reset link sent' });
+        }
+
+        // Generate reset token (in production, send via email)
+        const resetToken = Math.random().toString(36).substring(2, 15);
+        const resetExpiry = new Date(Date.now() + 3600000); // 1 hour
+        
+        await pool.execute(
+            'UPDATE users SET resetToken = ?, resetTokenExpiry = ? WHERE email = ?',
+            [resetToken, resetExpiry, email]
+        );
+
+        res.json({ 
+            success: true, 
+            message: 'Password reset instructions sent to email',
+            // For demo purposes only - remove in production
+            resetToken: resetToken
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Reset password endpoint
+app.post('/api/auth/reset-password', async (req, res) => {
+    try {
+        const { email, resetToken, newPassword } = req.body;
+        
+        const [users] = await pool.execute(
+            'SELECT * FROM users WHERE email = ? AND resetToken = ? AND resetTokenExpiry > NOW()',
+            [email, resetToken]
+        );
+        
+        if (users.length === 0) {
+            return res.status(400).json({ success: false, message: 'Invalid or expired reset token' });
+        }
+
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        
+        await pool.execute(
+            'UPDATE users SET password = ?, resetToken = NULL, resetTokenExpiry = NULL WHERE email = ?',
+            [hashedPassword, email]
+        );
+
+        res.json({ success: true, message: 'Password reset successfully' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ==================== ADMIN ACCOUNT MANAGEMENT ====================
+
+// Get dashboard statistics
+app.get('/api/admin/dashboard-stats', async (req, res) => {
+    try {
+        // Total users
+        const [userCount] = await pool.execute('SELECT COUNT(*) as count FROM users WHERE accountStatus != "deleted"');
+        
+        // Total deposits (sum of all balances)
+        const [totalBalance] = await pool.execute('SELECT SUM(balance) as total FROM users WHERE accountStatus != "deleted"');
+        
+        // Today's transactions
+        const [todayTxns] = await pool.execute(`
+            SELECT COUNT(*) as count 
+            FROM transactions 
+            WHERE DATE(created_at) = CURDATE()
+        `);
+        
+        // Pending loans
+        const [pendingLoans] = await pool.execute(`
+            SELECT COUNT(*) as count 
+            FROM loan_applications 
+            WHERE status = 'pending'
+        `);
+        
+        // Total transactions this month
+        const [monthlyTxns] = await pool.execute(`
+            SELECT COUNT(*) as count, SUM(amount) as volume
+            FROM transactions 
+            WHERE MONTH(created_at) = MONTH(CURDATE()) AND YEAR(created_at) = YEAR(CURDATE())
+        `);
+        
+        // Active users (logged in last 30 days)
+        const [activeUsers] = await pool.execute(`
+            SELECT COUNT(DISTINCT userId) as count 
+            FROM login_history 
+            WHERE loginStatus = 'success' AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+        `);
+        
+        // Failed login attempts today
+        const [failedLogins] = await pool.execute(`
+            SELECT COUNT(*) as count 
+            FROM login_history 
+            WHERE loginStatus = 'failed' AND DATE(created_at) = CURDATE()
+        `);
+
+        res.json({ 
+            success: true, 
+            stats: {
+                totalUsers: userCount[0].count,
+                totalBalance: totalBalance[0].total || 0,
+                todayTransactions: todayTxns[0].count,
+                pendingLoans: pendingLoans[0].count,
+                monthlyTransactions: monthlyTxns[0].count,
+                monthlyVolume: monthlyTxns[0].volume || 0,
+                activeUsers: activeUsers[0].count,
+                failedLoginsToday: failedLogins[0].count
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Update account status (freeze/unfreeze/deactivate)
+app.put('/api/admin/account-status/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { status, reason } = req.body;
+        
+        if (!['active', 'frozen', 'suspended', 'closed'].includes(status)) {
+            return res.status(400).json({ success: false, message: 'Invalid status' });
+        }
+
+        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [userId]);
+        if (users.length === 0) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        await pool.execute(
+            'UPDATE users SET accountStatus = ? WHERE id = ?',
+            [status, userId]
+        );
+
+        // Log the action
+        await pool.execute(
+            'INSERT INTO activity_logs (user_id, action_type, action_details, ip_address) VALUES (?, ?, ?, ?)',
+            [userId, 'ACCOUNT_STATUS_CHANGE', `Status changed to ${status}: ${reason || 'No reason provided'}`, req.ip]
+        );
+
+        res.json({ success: true, message: `Account ${status} successfully` });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Search users
+app.get('/api/admin/search-users', async (req, res) => {
+    try {
+        const { query } = req.query;
+        
+        if (!query || query.length < 2) {
+            return res.status(400).json({ success: false, message: 'Search query too short' });
+        }
+
+        const searchPattern = `%${query}%`;
+        const [users] = await pool.execute(`
+            SELECT id, firstName, lastName, email, accountNumber, balance, accountStatus, created_at
+            FROM users 
+            WHERE (firstName LIKE ? OR lastName LIKE ? OR email LIKE ? OR accountNumber LIKE ?)
+            AND accountStatus != 'deleted'
+            LIMIT 50
+        `, [searchPattern, searchPattern, searchPattern, searchPattern]);
+
+        res.json({ success: true, users });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Search transactions
+app.get('/api/admin/search-transactions', async (req, res) => {
+    try {
+        const { accountNumber, startDate, endDate, minAmount, maxAmount, type } = req.query;
+        
+        let query = `
+            SELECT t.*, 
+                   sender.firstName as senderFirst, sender.lastName as senderLast,
+                   recipient.firstName as recipientFirst, recipient.lastName as recipientLast
+            FROM transactions t
+            LEFT JOIN users sender ON t.senderId = sender.id
+            LEFT JOIN users recipient ON t.recipientId = recipient.id
+            WHERE 1=1
+        `;
+        const params = [];
+
+        if (accountNumber) {
+            query += ` AND (sender.accountNumber = ? OR recipient.accountNumber = ?)`;
+            params.push(accountNumber, accountNumber);
+        }
+        
+        if (startDate) {
+            query += ` AND DATE(t.created_at) >= ?`;
+            params.push(startDate);
+        }
+        
+        if (endDate) {
+            query += ` AND DATE(t.created_at) <= ?`;
+            params.push(endDate);
+        }
+        
+        if (minAmount) {
+            query += ` AND t.amount >= ?`;
+            params.push(parseFloat(minAmount));
+        }
+        
+        if (maxAmount) {
+            query += ` AND t.amount <= ?`;
+            params.push(parseFloat(maxAmount));
+        }
+        
+        if (type) {
+            query += ` AND t.type = ?`;
+            params.push(type);
+        }
+
+        query += ` ORDER BY t.created_at DESC LIMIT 100`;
+
+        const [transactions] = await pool.execute(query, params);
+        res.json({ success: true, transactions });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Reverse transaction
+app.post('/api/admin/reverse-transaction/:transactionId', async (req, res) => {
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+
+        const { transactionId } = req.params;
+        const { reason } = req.body;
+
+        // Get original transaction
+        const [transactions] = await connection.execute(
+            'SELECT * FROM transactions WHERE id = ?',
+            [transactionId]
+        );
+
+        if (transactions.length === 0) {
+            await connection.rollback();
+            return res.status(404).json({ success: false, message: 'Transaction not found' });
+        }
+
+        const transaction = transactions[0];
+
+        if (transaction.status === 'reversed') {
+            await connection.rollback();
+            return res.status(400).json({ success: false, message: 'Transaction already reversed' });
+        }
+
+        // Reverse the balances
+        if (transaction.senderId) {
+            await connection.execute(
+                'UPDATE users SET balance = balance + ? WHERE id = ?',
+                [transaction.amount, transaction.senderId]
+            );
+        }
+
+        if (transaction.recipientId) {
+            await connection.execute(
+                'UPDATE users SET balance = balance - ? WHERE id = ?',
+                [transaction.amount, transaction.recipientId]
+            );
+        }
+
+        // Mark as reversed
+        await connection.execute(
+            'UPDATE transactions SET status = ?, description = CONCAT(description, " [REVERSED: ", ?, "]") WHERE id = ?',
+            ['reversed', reason || 'Admin reversal', transactionId]
+        );
+
+        // Create reversal transaction record
+        await connection.execute(`
+            INSERT INTO transactions (senderId, recipientId, amount, type, description, status, reference)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `, [
+            transaction.recipientId,
+            transaction.senderId,
+            transaction.amount,
+            'reversal',
+            `Reversal of transaction ${transaction.reference}: ${reason}`,
+            'completed',
+            `REV-${transaction.reference}`
+        ]);
+
+        // Log the action
+        await connection.execute(
+            'INSERT INTO activity_logs (user_id, action_type, action_details, ip_address) VALUES (?, ?, ?, ?)',
+            [transaction.senderId, 'TRANSACTION_REVERSED', `Transaction ${transaction.reference} reversed: ${reason}`, req.ip]
+        );
+
+        await connection.commit();
+        res.json({ success: true, message: 'Transaction reversed successfully' });
+    } catch (error) {
+        await connection.rollback();
+        res.status(500).json({ success: false, message: error.message });
+    } finally {
+        connection.release();
+    }
+});
+
+// Force password reset for user
+app.post('/api/admin/force-password-reset/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { temporaryPassword } = req.body;
+
+        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [userId]);
+        if (users.length === 0) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        const hashedPassword = await bcrypt.hash(temporaryPassword, 10);
+        
+        await pool.execute(
+            'UPDATE users SET password = ?, forcePasswordChange = 1 WHERE id = ?',
+            [hashedPassword, userId]
+        );
+
+        // Log the action
+        await pool.execute(
+            'INSERT INTO activity_logs (user_id, action_type, action_details, ip_address) VALUES (?, ?, ?, ?)',
+            [userId, 'PASSWORD_RESET', 'Admin forced password reset', req.ip]
+        );
+
+        res.json({ 
+            success: true, 
+            message: 'Password reset successfully',
+            temporaryPassword // Only for demo - send via secure channel in production
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Export users to CSV
+app.get('/api/admin/export-users', async (req, res) => {
+    try {
+        const [users] = await pool.execute(`
+            SELECT id, firstName, lastName, email, accountNumber, balance, accountStatus, 
+                   phoneNumber, address, city, state, zipCode, created_at
+            FROM users 
+            WHERE accountStatus != 'deleted'
+            ORDER BY created_at DESC
+        `);
+
+        // Create CSV
+        const headers = 'ID,First Name,Last Name,Email,Account Number,Balance,Status,Phone,Address,City,State,ZIP,Created\n';
+        const rows = users.map(u => 
+            `${u.id},"${u.firstName}","${u.lastName}","${u.email}",${u.accountNumber},${u.balance},"${u.accountStatus}","${u.phoneNumber || ''}","${u.address || ''}","${u.city || ''}","${u.state || ''}","${u.zipCode || ''}","${u.created_at}"`
+        ).join('\n');
+
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename=users_export.csv');
+        res.send(headers + rows);
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Export transactions to CSV
+app.get('/api/admin/export-transactions', async (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+        
+        let query = `
+            SELECT t.*, 
+                   sender.accountNumber as senderAccount, sender.firstName as senderFirst, sender.lastName as senderLast,
+                   recipient.accountNumber as recipientAccount, recipient.firstName as recipientFirst, recipient.lastName as recipientLast
+            FROM transactions t
+            LEFT JOIN users sender ON t.senderId = sender.id
+            LEFT JOIN users recipient ON t.recipientId = recipient.id
+            WHERE 1=1
+        `;
+        const params = [];
+
+        if (startDate) {
+            query += ` AND DATE(t.created_at) >= ?`;
+            params.push(startDate);
+        }
+        
+        if (endDate) {
+            query += ` AND DATE(t.created_at) <= ?`;
+            params.push(endDate);
+        }
+
+        query += ` ORDER BY t.created_at DESC LIMIT 10000`;
+
+        const [transactions] = await pool.execute(query, params);
+
+        // Create CSV
+        const headers = 'ID,Reference,Type,Amount,Sender Account,Sender Name,Recipient Account,Recipient Name,Description,Status,Date\n';
+        const rows = transactions.map(t => 
+            `${t.id},"${t.reference}","${t.type}",${t.amount},"${t.senderAccount || ''}","${t.senderFirst || ''} ${t.senderLast || ''}","${t.recipientAccount || ''}","${t.recipientFirst || ''} ${t.recipientLast || ''}","${t.description}","${t.status}","${t.created_at}"`
+        ).join('\n');
+
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename=transactions_export.csv');
+        res.send(headers + rows);
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Get monthly report
+app.get('/api/admin/monthly-report', async (req, res) => {
+    try {
+        const { year, month } = req.query;
+        
+        const yearVal = year || new Date().getFullYear();
+        const monthVal = month || (new Date().getMonth() + 1);
+
+        // Transaction summary
+        const [txnSummary] = await pool.execute(`
+            SELECT 
+                COUNT(*) as totalTransactions,
+                SUM(CASE WHEN type = 'transfer' THEN 1 ELSE 0 END) as transfers,
+                SUM(CASE WHEN type = 'bill_payment' THEN 1 ELSE 0 END) as billPayments,
+                SUM(CASE WHEN type = 'deposit' THEN 1 ELSE 0 END) as deposits,
+                SUM(amount) as totalVolume,
+                AVG(amount) as avgTransaction
+            FROM transactions
+            WHERE YEAR(created_at) = ? AND MONTH(created_at) = ?
+        `, [yearVal, monthVal]);
+
+        // New users
+        const [newUsers] = await pool.execute(`
+            SELECT COUNT(*) as count
+            FROM users
+            WHERE YEAR(created_at) = ? AND MONTH(created_at) = ?
+        `, [yearVal, monthVal]);
+
+        // Loans summary
+        const [loansSummary] = await pool.execute(`
+            SELECT 
+                COUNT(*) as totalApplications,
+                SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved,
+                SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) as rejected,
+                SUM(CASE WHEN status = 'approved' THEN loanAmount ELSE 0 END) as totalApproved
+            FROM loan_applications
+            WHERE YEAR(created_at) = ? AND MONTH(created_at) = ?
+        `, [yearVal, monthVal]);
+
+        res.json({ 
+            success: true,
+            report: {
+                period: `${yearVal}-${String(monthVal).padStart(2, '0')}`,
+                transactions: txnSummary[0],
+                newUsers: newUsers[0].count,
+                loans: loansSummary[0]
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Update transaction limits
+app.put('/api/admin/transaction-limits/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { dailyLimit, singleTransactionLimit } = req.body;
+
+        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [userId]);
+        if (users.length === 0) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        // Check if limits record exists
+        const [existing] = await pool.execute(
+            'SELECT * FROM transaction_limits WHERE userId = ?',
+            [userId]
+        );
+
+        if (existing.length > 0) {
+            await pool.execute(
+                'UPDATE transaction_limits SET dailyLimit = ?, singleTransactionLimit = ? WHERE userId = ?',
+                [dailyLimit, singleTransactionLimit, userId]
+            );
+        } else {
+            await pool.execute(
+                'INSERT INTO transaction_limits (userId, dailyLimit, singleTransactionLimit) VALUES (?, ?, ?)',
+                [userId, dailyLimit, singleTransactionLimit]
+            );
+        }
+
+        // Log the action
+        await pool.execute(
+            'INSERT INTO activity_logs (user_id, action_type, action_details, ip_address) VALUES (?, ?, ?, ?)',
+            [userId, 'LIMITS_UPDATE', `Daily: ${dailyLimit}, Single: ${singleTransactionLimit}`, req.ip]
+        );
+
+        res.json({ success: true, message: 'Transaction limits updated successfully' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
 // Helper function to log login attempts
 async function logLoginAttempt(userId, ipAddress, userAgent, status, failureReason = null) {
     try {
@@ -1110,6 +1774,585 @@ async function logLoginAttempt(userId, ipAddress, userAgent, status, failureReas
         console.error('Error logging login attempt:', error);
     }
 }
+
+// ==================== USER PROFILE (COMPLETE) ====================
+
+// Get complete user profile with all banking details
+app.get('/api/user/profile/complete', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ success: false, message: 'No token' });
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [decoded.id]);
+        
+        if (users.length === 0) return res.status(404).json({ success: false, message: 'User not found' });
+
+        const user = users[0];
+        res.json({
+            success: true,
+            user: {
+                id: user.id,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                email: user.email,
+                phone: user.phone,
+                dateOfBirth: user.dateOfBirth,
+                ssn: user.ssn,
+                address: user.address,
+                city: user.city,
+                state: user.state,
+                zipCode: user.zipCode,
+                country: user.country,
+                accountNumber: user.accountNumber,
+                routingNumber: user.routingNumber,
+                accountType: user.accountType,
+                accountStatus: user.accountStatus,
+                balance: parseFloat(user.balance),
+                createdAt: user.createdAt,
+                lastLogin: user.lastLogin,
+                emailVerified: user.emailVerified || false,
+                phoneVerified: user.phoneVerified || false,
+                marketingConsent: user.marketingConsent || false,
+                // Transaction limits
+                dailyTransferLimit: 10000,
+                weeklyTransferLimit: 50000,
+                monthlyTransferLimit: 200000,
+                singleTransactionLimit: 25000,
+                dailyTransferSpent: 0,
+                weeklyTransferSpent: 0,
+                monthlyTransferSpent: 0,
+                // Account controls
+                accountFrozen: user.accountStatus === 'frozen',
+                internationalEnabled: true,
+                preferences: {}
+            }
+        });
+    } catch (error) {
+        if (error.name === 'JsonWebTokenError') {
+            return res.status(401).json({ success: false, message: 'Invalid token' });
+        }
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Update complete user profile
+app.put('/api/user/profile/complete', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ success: false, message: 'No token' });
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const { 
+            firstName, lastName, phone, address, city, state, zipCode, 
+            dateOfBirth, country 
+        } = req.body;
+
+        await pool.execute(`
+            UPDATE users SET 
+                firstName = COALESCE(?, firstName),
+                lastName = COALESCE(?, lastName),
+                phone = COALESCE(?, phone),
+                address = COALESCE(?, address),
+                city = COALESCE(?, city),
+                state = COALESCE(?, state),
+                zipCode = COALESCE(?, zipCode),
+                dateOfBirth = COALESCE(?, dateOfBirth),
+                country = COALESCE(?, country)
+            WHERE id = ?
+        `, [firstName, lastName, phone, address, city, state, zipCode, dateOfBirth, country, decoded.id]);
+
+        res.json({ success: true, message: 'Profile updated successfully' });
+    } catch (error) {
+        if (error.name === 'JsonWebTokenError') {
+            return res.status(401).json({ success: false, message: 'Invalid token' });
+        }
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ==================== LOGIN HISTORY & SESSIONS ====================
+
+// Get login history
+app.get('/api/user/security/login-history', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ success: false, message: 'No token' });
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const [logins] = await pool.execute(
+            'SELECT * FROM login_history WHERE userId = ? ORDER BY createdAt DESC LIMIT 20',
+            [decoded.id]
+        );
+
+        res.json({ success: true, logins });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Get active sessions
+app.get('/api/user/security/active-sessions', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ success: false, message: 'No token' });
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+        
+        // Return mock sessions for now - in production, track actual sessions
+        const sessions = [
+            {
+                id: 'session_current',
+                deviceName: 'Current Device',
+                browserName: 'Chrome',
+                location: 'Current Location',
+                lastActivity: new Date()
+            }
+        ];
+
+        res.json({ success: true, sessions });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Logout specific session
+app.post('/api/user/security/logout-session/:sessionId', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ success: false, message: 'No token' });
+
+        jwt.verify(token, JWT_SECRET);
+        
+        // In production, invalidate the session
+        res.json({ success: true, message: 'Session logged out' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Logout all sessions
+app.post('/api/user/security/logout-all', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ success: false, message: 'No token' });
+
+        jwt.verify(token, JWT_SECRET);
+        
+        // In production, invalidate all user sessions
+        res.json({ success: true, message: 'All sessions logged out' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ==================== DOCUMENTS ====================
+
+// Upload document
+app.post('/api/user/documents/upload', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ success: false, message: 'No token' });
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const { fileName, fileData, documentType } = req.body;
+
+        // In production, upload to S3. For demo, we'll just track in DB
+        const [result] = await pool.execute(
+            'INSERT INTO user_documents (userId, documentType, fileName, verificationStatus, uploadedAt) VALUES (?, ?, ?, ?, NOW())',
+            [decoded.id, documentType || 'ID', fileName || 'document', 'pending']
+        );
+
+        res.json({ success: true, message: 'Document uploaded', documentId: result.insertId });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Get user documents
+app.get('/api/user/documents', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ success: false, message: 'No token' });
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const [documents] = await pool.execute(
+            'SELECT id, documentType, fileName, verificationStatus as verified, uploadedAt FROM user_documents WHERE userId = ? ORDER BY uploadedAt DESC',
+            [decoded.id]
+        );
+
+        res.json({ success: true, documents });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Delete document
+app.delete('/api/user/documents/:id', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ success: false, message: 'No token' });
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const { id } = req.params;
+
+        await pool.execute(
+            'DELETE FROM user_documents WHERE id = ? AND userId = ?',
+            [id, decoded.id]
+        );
+
+        res.json({ success: true, message: 'Document deleted' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ==================== BENEFICIARIES (User API) ====================
+
+// Get user beneficiaries
+app.get('/api/user/beneficiaries', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ success: false, message: 'No token' });
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const [beneficiaries] = await pool.execute(
+            'SELECT * FROM beneficiaries WHERE userId = ? ORDER BY createdAt DESC',
+            [decoded.id]
+        );
+
+        res.json({ success: true, beneficiaries });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Add beneficiary
+app.post('/api/user/beneficiaries', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ success: false, message: 'No token' });
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const { name, nickname, accountNumber, routingNumber, bankName } = req.body;
+
+        if (!name || !accountNumber) {
+            return res.status(400).json({ success: false, message: 'Name and account number required' });
+        }
+
+        const [result] = await pool.execute(
+            'INSERT INTO beneficiaries (userId, name, nickname, accountNumber, routingNumber, bankName, createdAt) VALUES (?, ?, ?, ?, ?, ?, NOW())',
+            [decoded.id, name, nickname, accountNumber, routingNumber, bankName || 'Heritage Bank']
+        );
+
+        res.json({ success: true, message: 'Beneficiary added', beneficiaryId: result.insertId });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Update beneficiary
+app.put('/api/user/beneficiaries/:id', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ success: false, message: 'No token' });
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const { id } = req.params;
+        const { name, nickname, accountNumber, routingNumber, bankName } = req.body;
+
+        await pool.execute(
+            'UPDATE beneficiaries SET name = ?, nickname = ?, accountNumber = ?, routingNumber = ?, bankName = ? WHERE id = ? AND userId = ?',
+            [name, nickname, accountNumber, routingNumber, bankName, id, decoded.id]
+        );
+
+        res.json({ success: true, message: 'Beneficiary updated' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Delete beneficiary
+app.delete('/api/user/beneficiaries/:id', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ success: false, message: 'No token' });
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const { id } = req.params;
+
+        await pool.execute(
+            'DELETE FROM beneficiaries WHERE id = ? AND userId = ?',
+            [id, decoded.id]
+        );
+
+        res.json({ success: true, message: 'Beneficiary deleted' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ==================== TWO-FACTOR AUTHENTICATION ====================
+
+// Enable 2FA
+app.post('/api/user/2fa/enable', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ success: false, message: 'No token' });
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const { method } = req.body;
+
+        // Generate backup codes
+        const codes = Array.from({ length: 8 }, () => 
+            Math.random().toString(36).substring(2, 8).toUpperCase()
+        );
+
+        await pool.execute(
+            'UPDATE users SET twoFactorEnabled = 1, twoFactorMethod = ? WHERE id = ?',
+            [method || 'sms', decoded.id]
+        );
+
+        res.json({ success: true, message: '2FA enabled', codes });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Disable 2FA
+app.post('/api/user/2fa/disable', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ success: false, message: 'No token' });
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+
+        await pool.execute(
+            'UPDATE users SET twoFactorEnabled = 0, twoFactorMethod = NULL WHERE id = ?',
+            [decoded.id]
+        );
+
+        res.json({ success: true, message: '2FA disabled' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Generate backup codes
+app.post('/api/user/2fa/backup-codes', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ success: false, message: 'No token' });
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+
+        // Generate backup codes
+        const codes = Array.from({ length: 8 }, () => 
+            Math.random().toString(36).substring(2, 8).toUpperCase()
+        );
+
+        res.json({ success: true, codes });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ==================== ACCOUNT CONTROLS ====================
+
+// Freeze account
+app.post('/api/user/account/freeze', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ success: false, message: 'No token' });
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+
+        await pool.execute(
+            'UPDATE users SET accountStatus = ? WHERE id = ?',
+            ['frozen', decoded.id]
+        );
+
+        res.json({ success: true, message: 'Account frozen' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Unfreeze account
+app.post('/api/user/account/unfreeze', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ success: false, message: 'No token' });
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+
+        await pool.execute(
+            'UPDATE users SET accountStatus = ? WHERE id = ?',
+            ['active', decoded.id]
+        );
+
+        res.json({ success: true, message: 'Account unfrozen' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Toggle international transactions
+app.post('/api/user/account/international', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ success: false, message: 'No token' });
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const { enabled } = req.body;
+
+        // Store in preferences table (will create if needed)
+        await pool.execute(
+            'INSERT INTO user_preferences (userId, internationalEnabled) VALUES (?, ?) ON DUPLICATE KEY UPDATE internationalEnabled = ?',
+            [decoded.id, enabled ? 1 : 0, enabled ? 1 : 0]
+        );
+
+        res.json({ success: true, message: 'International transactions ' + (enabled ? 'enabled' : 'disabled') });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ==================== PREFERENCES ====================
+
+// Update preferences
+app.put('/api/user/preferences', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ success: false, message: 'No token' });
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+        
+        // For each preference key, update or insert
+        for (const [key, value] of Object.entries(req.body)) {
+            await pool.execute(
+                'INSERT INTO user_preferences (userId, preferenceKey, preferenceValue) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE preferenceValue = ?',
+                [decoded.id, key, JSON.stringify(value), JSON.stringify(value)]
+            );
+        }
+
+        res.json({ success: true, message: 'Preferences updated' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ==================== PRIVACY & DATA ====================
+
+// Export user data (GDPR)
+app.get('/api/user/privacy/export-data', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ success: false, message: 'No token' });
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+
+        // Get all user data
+        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [decoded.id]);
+        const [transactions] = await pool.execute('SELECT * FROM transactions WHERE userId = ? ORDER BY createdAt DESC', [decoded.id]);
+        const [beneficiaries] = await pool.execute('SELECT * FROM beneficiaries WHERE userId = ?', [decoded.id]);
+        const [documents] = await pool.execute('SELECT * FROM user_documents WHERE userId = ?', [decoded.id]);
+        const [logins] = await pool.execute('SELECT * FROM login_history WHERE userId = ? LIMIT 100', [decoded.id]);
+
+        const data = {
+            exported: new Date(),
+            user: users[0],
+            transactions,
+            beneficiaries,
+            documents,
+            recentLogins: logins
+        };
+
+        res.json({ success: true, data });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Request account deletion (GDPR)
+app.post('/api/user/privacy/delete-request', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ success: false, message: 'No token' });
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+
+        // Mark for deletion in 30 days
+        const deletionDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+        await pool.execute(
+            'UPDATE users SET deletionRequestedAt = NOW(), scheduledDeletionDate = ? WHERE id = ?',
+            [deletionDate, decoded.id]
+        );
+
+        res.json({ success: true, message: 'Account deletion requested. Scheduled for ' + deletionDate.toDateString() });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Download statement
+app.get('/api/user/statements/current', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.split(' ')[1];
+        if (!token) return res.status(401).json({ success: false, message: 'No token' });
+
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [decoded.id]);
+        const user = users[0];
+
+        // Get transactions for current month
+        const [transactions] = await pool.execute(`
+            SELECT * FROM transactions 
+            WHERE userId = ? AND MONTH(createdAt) = MONTH(NOW()) AND YEAR(createdAt) = YEAR(NOW())
+            ORDER BY createdAt DESC
+        `, [decoded.id]);
+
+        // Create PDF
+        const doc = new PDFDocument({ margin: 50 });
+        const pdfPath = path.join(__dirname, `statement_${decoded.id}_${Date.now()}.pdf`);
+        const stream = fs.createWriteStream(pdfPath);
+
+        doc.pipe(stream);
+
+        doc.fontSize(24).text('HERITAGE BANK', { align: 'center' });
+        doc.fontSize(12).text('Account Statement', { align: 'center' });
+        doc.moveDown();
+
+        doc.fontSize(11);
+        doc.text(`Account Holder: ${user.firstName} ${user.lastName}`);
+        doc.text(`Account Number: ${user.accountNumber}`);
+        doc.text(`Routing Number: ${user.routingNumber || ROUTING_NUMBER}`);
+        doc.text(`Current Balance: $${parseFloat(user.balance).toFixed(2)}`);
+        doc.text(`Statement Date: ${new Date().toLocaleDateString()}`);
+        doc.moveDown();
+
+        doc.fontSize(10).text('Recent Transactions:', { underline: true });
+        doc.moveDown(0.5);
+
+        if (transactions.length === 0) {
+            doc.text('No transactions this month.');
+        } else {
+            transactions.forEach((t, i) => {
+                doc.text(`${new Date(t.createdAt).toLocaleDateString()} - ${t.type}: $${parseFloat(t.amount).toFixed(2)} - ${t.description || 'N/A'}`);
+            });
+        }
+
+        doc.end();
+
+        stream.on('finish', () => {
+            res.download(pdfPath, `statement_${user.accountNumber}.pdf`, () => {
+                fs.unlinkSync(pdfPath);
+            });
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
 
 // Serve index.html for root and any unmatched routes (SPA support)
 app.get('*', (req, res) => {

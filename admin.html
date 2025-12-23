@@ -65,9 +65,12 @@
             <ul class="admin-menu">
                 <li class="admin-menu-item active" data-section="dashboard"><i class="fas fa-tachometer-alt"></i> Dashboard</li>
                 <li class="admin-menu-item" data-section="users"><i class="fas fa-users"></i> Users</li>
+                <li class="admin-menu-item" data-section="search"><i class="fas fa-search"></i> Search</li>
                 <li class="admin-menu-item" data-section="transactions"><i class="fas fa-exchange-alt"></i> Transactions</li>
                 <li class="admin-menu-item" data-section="loans"><i class="fas fa-hand-holding-usd"></i> Loan Applications</li>
+                <li class="admin-menu-item" data-section="documents"><i class="fas fa-file-alt"></i> Documents</li>
                 <li class="admin-menu-item" data-section="activity"><i class="fas fa-history"></i> Activity Logs</li>
+                <li class="admin-menu-item" data-section="reports"><i class="fas fa-chart-bar"></i> Reports</li>
                 <li class="admin-menu-item" data-section="create-user"><i class="fas fa-user-plus"></i> Create User</li>
                 <li class="admin-menu-item" data-section="fund-user"><i class="fas fa-money-bill-wave"></i> Fund User</li>
             </ul>
@@ -88,6 +91,10 @@
                         <div class="stat-card"><i class="fas fa-dollar-sign"></i><h3 id="totalBalance">$0</h3><p>Total Balance</p></div>
                         <div class="stat-card"><i class="fas fa-hand-holding-usd"></i><h3 id="pendingLoans">0</h3><p>Pending Loans</p></div>
                         <div class="stat-card"><i class="fas fa-exchange-alt"></i><h3 id="todayTransactions">0</h3><p>Today's Transactions</p></div>
+                        <div class="stat-card"><i class="fas fa-chart-line"></i><h3 id="monthlyTransactions">0</h3><p>Monthly Transactions</p></div>
+                        <div class="stat-card"><i class="fas fa-user-check"></i><h3 id="activeUsers">0</h3><p>Active Users (30d)</p></div>
+                        <div class="stat-card"><i class="fas fa-money-bill-wave"></i><h3 id="monthlyVolume">$0</h3><p>Monthly Volume</p></div>
+                        <div class="stat-card" style="background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);"><i class="fas fa-exclamation-triangle"></i><h3 id="failedLogins">0</h3><p>Failed Logins Today</p></div>
                     </div>
                 </div>
 
@@ -95,17 +102,86 @@
                 <div id="users" class="content-section">
                     <h2 class="section-title">All Users</h2>
                     <table>
-                        <thead><tr><th>Name</th><th>Email</th><th>Account #</th><th>Balance</th><th>Created</th></tr></thead>
+                        <thead><tr><th>Name</th><th>Email</th><th>Account #</th><th>Balance</th><th>Status</th><th>Actions</th></tr></thead>
                         <tbody id="usersTableBody"></tbody>
                     </table>
+                </div>
+
+                <!-- Search -->
+                <div id="search" class="content-section">
+                    <h2 class="section-title">Search & Filter</h2>
+                    
+                    <div style="background: #f5f5f5; padding: 20px; border-radius: 10px; margin-bottom: 30px;">
+                        <h3 style="margin-bottom: 15px;"><i class="fas fa-user-search"></i> Search Users</h3>
+                        <div style="display: flex; gap: 10px;">
+                            <input type="text" id="userSearchInput" placeholder="Search by name, email, or account number..." style="flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 6px;">
+                            <button onclick="searchUsers()" style="padding: 12px 30px; background: #1a472a; color: white; border: none; border-radius: 6px; cursor: pointer;"><i class="fas fa-search"></i> Search</button>
+                        </div>
+                        <div id="userSearchResults" style="margin-top: 20px;"></div>
+                    </div>
+
+                    <div style="background: #f5f5f5; padding: 20px; border-radius: 10px;">
+                        <h3 style="margin-bottom: 15px;"><i class="fas fa-filter"></i> Filter Transactions</h3>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Account Number</label>
+                                <input type="text" id="txnAccountNumber" placeholder="Enter account number">
+                            </div>
+                            <div class="form-group">
+                                <label>Transaction Type</label>
+                                <select id="txnType">
+                                    <option value="">All Types</option>
+                                    <option value="transfer">Transfer</option>
+                                    <option value="bill_payment">Bill Payment</option>
+                                    <option value="deposit">Deposit</option>
+                                    <option value="withdrawal">Withdrawal</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Start Date</label>
+                                <input type="date" id="txnStartDate">
+                            </div>
+                            <div class="form-group">
+                                <label>End Date</label>
+                                <input type="date" id="txnEndDate">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Min Amount ($)</label>
+                                <input type="number" id="txnMinAmount" min="0" step="0.01">
+                            </div>
+                            <div class="form-group">
+                                <label>Max Amount ($)</label>
+                                <input type="number" id="txnMaxAmount" min="0" step="0.01">
+                            </div>
+                        </div>
+                        <button onclick="searchTransactions()" class="btn-primary"><i class="fas fa-search"></i> Search Transactions</button>
+                        <div id="txnSearchResults" style="margin-top: 20px;"></div>
+                    </div>
                 </div>
 
                 <!-- Transactions -->
                 <div id="transactions" class="content-section">
                     <h2 class="section-title">Recent Transactions</h2>
+                    <div style="margin-bottom: 15px; display: flex; gap: 10px;">
+                        <button onclick="loadTransactions()" class="btn-primary" style="width: auto; padding: 10px 20px;"><i class="fas fa-sync"></i> Refresh</button>
+                        <button onclick="exportTransactions()" style="background: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer;"><i class="fas fa-file-excel"></i> Export CSV</button>
+                    </div>
                     <table>
-                        <thead><tr><th>Date</th><th>From</th><th>To</th><th>Amount</th><th>Type</th><th>Status</th></tr></thead>
-                        <tbody id="transactionsTableBody"><tr><td colspan="6" style="text-align:center; color:#999;">Loading...</td></tr></tbody>
+                        <thead><tr><th>Date</th><th>From</th><th>To</th><th>Amount</th><th>Type</th><th>Status</th><th>Actions</th></tr></thead>
+                        <tbody id="transactionsTableBody"><tr><td colspan="7" style="text-align:center; color:#999;">Loading...</td></tr></tbody>
+                    </table>
+                </div>
+
+                <!-- Documents -->
+                <div id="documents" class="content-section">
+                    <h2 class="section-title">Document Verification</h2>
+                    <table>
+                        <thead><tr><th>User</th><th>Document Type</th><th>Submitted</th><th>Status</th><th>Actions</th></tr></thead>
+                        <tbody id="documentsTableBody"><tr><td colspan="5" style="text-align:center; color:#999;">Loading...</td></tr></tbody>
                     </table>
                 </div>
 
@@ -170,6 +246,49 @@
                         <button type="submit" class="btn-primary"><i class="fas fa-paper-plane"></i> Send Funds</button>
                     </form>
                 </div>
+
+                <!-- Reports -->
+                <div id="reports" class="content-section">
+                    <h2 class="section-title">Reports & Analytics</h2>
+                    
+                    <div style="background: #f5f5f5; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+                        <h3><i class="fas fa-chart-line"></i> Monthly Report</h3>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Year</label>
+                                <input type="number" id="reportYear" value="2025" min="2020" max="2030">
+                            </div>
+                            <div class="form-group">
+                                <label>Month</label>
+                                <select id="reportMonth">
+                                    <option value="1">January</option>
+                                    <option value="2">February</option>
+                                    <option value="3">March</option>
+                                    <option value="4">April</option>
+                                    <option value="5">May</option>
+                                    <option value="6">June</option>
+                                    <option value="7">July</option>
+                                    <option value="8">August</option>
+                                    <option value="9">September</option>
+                                    <option value="10">October</option>
+                                    <option value="11">November</option>
+                                    <option value="12" selected>December</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button onclick="generateMonthlyReport()" class="btn-primary" style="margin-bottom: 20px;"><i class="fas fa-file-alt"></i> Generate Report</button>
+                        <div id="monthlyReportContent"></div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
+                        <button onclick="exportUsers()" style="background: #28a745; color: white; border: none; padding: 20px; border-radius: 10px; cursor: pointer; font-size: 1.1rem;">
+                            <i class="fas fa-users"></i><br>Export All Users (CSV)
+                        </button>
+                        <button onclick="exportAllTransactions()" style="background: #007bff; color: white; border: none; padding: 20px; border-radius: 10px; cursor: pointer; font-size: 1.1rem;">
+                            <i class="fas fa-exchange-alt"></i><br>Export All Transactions (CSV)
+                        </button>
+                    </div>
+                </div>
             </div>
         </main>
     </div>
@@ -186,7 +305,7 @@
     </div>
 
     <script>
-        const API_URL = '';
+        const API_URL = 'http://localhost:3001';
 
         // Menu navigation
         document.querySelectorAll('.admin-menu-item').forEach(item => {
@@ -197,7 +316,9 @@
                 document.getElementById(item.dataset.section).classList.add('active');
             });
         });
-
+    </script>
+    <script src="admin-features.js"></script>
+</head>
         function toggleRecipientField() {
             const type = document.getElementById('recipientType').value;
             document.getElementById('emailField').style.display = type === 'email' ? 'block' : 'none';
@@ -221,7 +342,10 @@
                             <td>${u.email}</td>
                             <td>${u.accountNumber}</td>
                             <td>$${parseFloat(u.balance).toLocaleString()}</td>
-                            <td>${new Date(u.created_at).toLocaleDateString()}</td>
+                            <td><span class="badge badge-${u.accountStatus === 'active' ? 'approved' : 'pending'}">${u.accountStatus || 'active'}</span></td>
+                            <td>
+                                <button onclick="manageAccount(${u.id}, '${u.firstName} ${u.lastName}')" class="btn-view btn-sm">Manage</button>
+                            </td>
                         </tr>
                     `).join('');
                 }
