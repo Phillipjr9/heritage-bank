@@ -926,18 +926,55 @@ app.delete('/api/admin/contacts/:id', (req, res) => {
     }
 });
 
-// Delete user (admin only)
-app.delete('/api/admin/users/:id', (req, res) => {
+// Delete user (admin only) - from database
+app.delete('/api/admin/users/:id', async (req, res) => {
+    let connection;
     try {
         const { id } = req.params;
-        if (users.has(parseInt(id))) {
-            users.delete(parseInt(id));
-            res.status(200).json({ success: true, message: 'User deleted successfully' });
-        } else {
-            res.status(404).json({ success: false, message: 'User not found' });
+        const userId = parseInt(id);
+        
+        // Don't allow deleting admin account (ID 1)
+        if (userId === 1) {
+            return res.status(403).json({ success: false, message: 'Cannot delete admin account' });
         }
+        
+        connection = await pool.getConnection();
+        
+        // Check if user exists
+        const [users] = await connection.execute('SELECT id FROM users WHERE id = ?', [userId]);
+        if (users.length === 0) {
+            connection.release();
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+        
+        // Delete user from database
+        await connection.execute('DELETE FROM users WHERE id = ?', [userId]);
+        connection.release();
+        
+        res.status(200).json({ success: true, message: 'User deleted successfully' });
     } catch (error) {
-        res.status(500).json({ success: false, message: 'Error deleting user' });
+        if (connection) connection.release();
+        console.error('Delete user error:', error);
+        res.status(500).json({ success: false, message: 'Error deleting user: ' + error.message });
+    }
+});
+
+// Update admin balance
+app.put('/api/admin/update-balance/:id', async (req, res) => {
+    let connection;
+    try {
+        const { id } = req.params;
+        const { balance } = req.body;
+        
+        connection = await pool.getConnection();
+        
+        await connection.execute('UPDATE users SET balance = ? WHERE id = ?', [parseFloat(balance), parseInt(id)]);
+        connection.release();
+        
+        res.json({ success: true, message: 'Balance updated successfully', newBalance: parseFloat(balance) });
+    } catch (error) {
+        if (connection) connection.release();
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
@@ -1408,9 +1445,9 @@ app.post('/api/admin/transfer', async (req, res) => {
             });
         }
 
-        // Perform transfer
-        const newSenderBalance = senderBalance - transferAmount;
-        const newRecipientBalance = parseFloat(recipient.balance) + transferAmount;
+        // Perform transfer with precise decimal handling
+        const newSenderBalance = parseFloat((senderBalance - transferAmount).toFixed(2));
+        const newRecipientBalance = parseFloat((parseFloat(recipient.balance) + transferAmount).toFixed(2));
 
         await connection.execute('UPDATE users SET balance = ? WHERE id = ?', [newSenderBalance, sender.id]);
         await connection.execute('UPDATE users SET balance = ? WHERE id = ?', [newRecipientBalance, recipient.id]);
@@ -1466,7 +1503,7 @@ app.post('/api/admin/credit-account', async (req, res) => {
 
         const previousBalance = parseFloat(user.balance);
         const creditAmount = parseFloat(amount);
-        const newBalance = previousBalance + creditAmount;
+        const newBalance = parseFloat((previousBalance + creditAmount).toFixed(2));
 
         await connection.execute('UPDATE users SET balance = ? WHERE id = ?', [newBalance, user.id]);
 
@@ -1535,7 +1572,7 @@ app.post('/api/admin/debit-account', async (req, res) => {
             });
         }
 
-        const newBalance = previousBalance - debitAmount;
+        const newBalance = parseFloat((previousBalance - debitAmount).toFixed(2));
 
         await connection.execute('UPDATE users SET balance = ? WHERE id = ?', [newBalance, user.id]);
 
