@@ -993,65 +993,56 @@ app.post('/api/admin/create-user', async (req, res) => {
         // Generate unique account number
         const accountNumber = generateAccountNumber();
 
-        // Insert into database - use simpler insert that works with base columns
-        const [result] = await connection.execute(
-            `INSERT INTO users (firstName, lastName, email, password, phone, country, accountType, address, city, state, zip, balance, accountNumber, routingNumber, isAdmin)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                firstName.trim(),
-                lastName.trim(),
-                email.trim(),
-                hashedPassword,
-                phone || '',
-                country || 'United States',
-                accountType || 'checking',
-                address || '',
-                city || '',
-                state || '',
-                zip || '',
-                balanceNum,
-                accountNumber,
-                ROUTING_NUMBER,
-                0  // isAdmin = false
-            ]
-        );
+        // Insert into database - minimal columns for maximum compatibility
+        try {
+            const [result] = await connection.execute(
+                `INSERT INTO users (firstName, lastName, email, password, accountNumber, routingNumber, balance, accountType, isAdmin)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    firstName.trim(),
+                    lastName.trim(),
+                    email.trim(),
+                    hashedPassword,
+                    accountNumber,
+                    ROUTING_NUMBER,
+                    balanceNum,
+                    accountType || 'checking',
+                    0  // isAdmin = false
+                ]
+            );
+            
+            // Fetch the created user to return complete info
+            const [newUsers] = await connection.execute(
+                'SELECT id, firstName, lastName, email, accountNumber, routingNumber, balance, accountType FROM users WHERE id = ?',
+                [result.insertId]
+            );
 
-        // Fetch the created user to return complete info
-        const [newUsers] = await connection.execute(
-            'SELECT id, firstName, lastName, email, accountNumber, routingNumber, balance, accountType FROM users WHERE id = ?',
-            [result.insertId]
-        );
+            const newUser = newUsers[0];
 
-        const newUser = newUsers[0];
-
-        // Also add to in-memory users for immediate availability
-        users.set(newUser.id, {
-            id: newUser.id,
-            firstName: newUser.firstName,
-            lastName: newUser.lastName,
-            email: newUser.email,
-            accountNumber: newUser.accountNumber,
-            routingNumber: newUser.routingNumber,
-            balance: newUser.balance,
-            accountType: newUser.accountType,
-            createdByAdmin: true
-        });
-
-        res.status(201).json({
-            success: true,
-            message: 'User created successfully by admin',
-            user: {
-                id: newUser.id,
-                firstName: newUser.firstName,
-                lastName: newUser.lastName,
-                email: newUser.email,
-                accountNumber: newUser.accountNumber,
-                routingNumber: newUser.routingNumber,
-                balance: parseFloat(newUser.balance),
-                accountType: newUser.accountType,
-                bankName: BANK_NAME
-            }
-        });
+            res.status(201).json({
+                success: true,
+                message: 'User created successfully by admin',
+                user: {
+                    id: newUser.id,
+                    firstName: newUser.firstName,
+                    lastName: newUser.lastName,
+                    email: newUser.email,
+                    accountNumber: newUser.accountNumber,
+                    routingNumber: newUser.routingNumber,
+                    balance: parseFloat(newUser.balance),
+                    accountType: newUser.accountType,
+                    bankName: BANK_NAME
+                }
+            });
+        } catch (insertError) {
+            console.error('Insert error details:', insertError);
+            res.status(500).json({ 
+                success: false, 
+                message: 'Database insert error: ' + insertError.message,
+                sqlState: insertError.sqlState,
+                errno: insertError.errno
+            });
+        }
     } catch (error) {
         console.error('Error creating user:', error);
         res.status(500).json({ success: false, message: 'Error creating user: ' + error.message });
