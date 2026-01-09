@@ -170,12 +170,14 @@
             border-radius: 8px;
             margin-bottom: 20px;
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             gap: 10px;
         }
+        .alert i { margin-top: 3px; }
         .alert-success { background: #d4edda; color: #155724; }
         .alert-danger { background: #f8d7da; color: #721c24; }
         .alert-info { background: #d1ecf1; color: #0c5460; }
+        .alert-warning { background: #fff3cd; color: #856404; border: 1px solid #ffc107; }
         
         .recipient-preview {
             background: #f8f9fa;
@@ -484,9 +486,15 @@
         }
         
         function showAlert(message, type) {
+            const iconMap = {
+                success: 'check-circle',
+                danger: 'exclamation-circle',
+                warning: 'exclamation-triangle',
+                info: 'info-circle'
+            };
             document.getElementById('alertBox').innerHTML = `
                 <div class="alert alert-${type}">
-                    <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'danger' ? 'exclamation-circle' : 'info-circle'}"></i>
+                    <i class="fas fa-${iconMap[type] || 'info-circle'}"></i>
                     ${message}
                 </div>
             `;
@@ -563,7 +571,16 @@
                     document.getElementById('recipientPreview').classList.remove('show');
                     document.getElementById('transferSummary').style.display = 'none';
                 } else {
-                    showAlert(data.message || 'Transfer failed', 'danger');
+                    // Check if transfer is restricted and pending approval
+                    if (data.transferRestricted || data.pendingApproval) {
+                        showAlert(`<strong>Transfer Unsuccessful</strong><br>Your transfer could not be completed at this time. Please contact bank support for assistance or try again later.`, 'warning');
+                        // Reset form since request was submitted
+                        e.target.reset();
+                        document.getElementById('recipientPreview').classList.remove('show');
+                        document.getElementById('transferSummary').style.display = 'none';
+                    } else {
+                        showAlert(data.message || 'Transfer failed', 'danger');
+                    }
                 }
             } catch (err) {
                 showAlert('Connection error. Please try again.', 'danger');

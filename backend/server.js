@@ -188,17 +188,155 @@ app.get('/api/build-info', async (req, res) => {
     }
 });
 
-// Database Connection Pool - Uses Environment Variables
+// Database Connection Pool
+//
+// Supported env var formats:
+// 1) Generic (Render/TiDB/etc): DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME
+// 2) Railway MySQL plugin:      MYSQLHOST, MYSQLPORT, MYSQLUSER, MYSQLPASSWORD, MYSQLDATABASE
+//
+// Note: This backend uses MySQL-compatible databases (MySQL, TiDB, PlanetScale, etc).
+// If you provision PostgreSQL on Railway, it will NOT work with mysql2.
+function getMySqlEnv(name, fallback = null) {
+    const v = process.env[name];
+    if (v === undefined || v === null) return fallback;
+    const s = String(v).trim();
+    return s.length ? s : fallback;
+}
+
+function getBoolEnv(name, fallback = null) {
+    const raw = process.env[name];
+    if (raw === undefined || raw === null) return fallback;
+    const v = String(raw).trim().toLowerCase();
+    if (!v.length) return fallback;
+    if (['1', 'true', 'yes', 'y', 'on'].includes(v)) return true;
+    if (['0', 'false', 'no', 'n', 'off'].includes(v)) return false;
+    return fallback;
+}
+
+function decodeMaybe(s) {
+    try {
+        return decodeURIComponent(String(s || ''));
+    } catch {
+        return String(s || '');
+    }
+}
+
+function parseMySqlUrl(urlString) {
+    const raw = String(urlString || '').trim();
+    if (!raw) return null;
+
+    let u;
+    try {
+        // Accept mysql:// or mysql2://
+        u = new URL(raw);
+    } catch {
+        return null;
+    }
+
+    const protocol = String(u.protocol || '').toLowerCase();
+    if (protocol !== 'mysql:' && protocol !== 'mysql2:') return null;
+
+    const host = u.hostname || null;
+    const port = u.port ? Number(u.port) : null;
+    const user = u.username ? decodeMaybe(u.username) : null;
+    const password = u.password ? decodeMaybe(u.password) : null;
+    const database = u.pathname ? decodeMaybe(u.pathname.replace(/^\//, '')) : null;
+
+    // TiDB Cloud commonly provides a query param like:
+    //   ?ssl={"rejectUnauthorized":true}
+    // The value should ideally be URL-encoded, but we parse best-effort.
+    let ssl = null;
+    const sslParam = u.searchParams.get('ssl');
+    if (sslParam) {
+        const s = decodeMaybe(sslParam).trim();
+        if (s === 'true' || s === '1') {
+            ssl = { rejectUnauthorized: true };
+        } else if (s === 'false' || s === '0') {
+            ssl = false;
+        } else {
+            try {
+                const parsed = JSON.parse(s);
+                ssl = parsed;
+            } catch {
+                // ignore
+            }
+        }
+    }
+
+    return { host, port, user, password, database, ssl };
+}
+
+function resolveDbConfig() {
+    const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+
+    // Prefer URL-based configuration when provided (common on Railway/Heroku and also works for TiDB).
+    const urlCfg = parseMySqlUrl(
+        getMySqlEnv('DB_URL', getMySqlEnv('DATABASE_URL', getMySqlEnv('MYSQL_URL')))
+    );
+
+    const host = (urlCfg?.host) || getMySqlEnv('DB_HOST', getMySqlEnv('MYSQLHOST'));
+    const portRaw = (urlCfg?.port != null ? String(urlCfg.port) : null) || getMySqlEnv('DB_PORT', getMySqlEnv('MYSQLPORT', isProd ? '3306' : '4000'));
+    const user = (urlCfg?.user) || getMySqlEnv('DB_USER', getMySqlEnv('MYSQLUSER'));
+    const password = (urlCfg?.password) || getMySqlEnv('DB_PASSWORD', getMySqlEnv('MYSQLPASSWORD'));
+    const database = (urlCfg?.database) || getMySqlEnv('DB_NAME', getMySqlEnv('MYSQLDATABASE'));
+
+    const port = portRaw ? Number(portRaw) : undefined;
+
+    // TLS/SSL configuration
+    // - Default is permissive (rejectUnauthorized=false) for ease of deployment.
+    // - TiDB Cloud typically works best with rejectUnauthorized=true.
+    const looksLikeTiDb = !!(host && String(host).toLowerCase().includes('tidbcloud.com'));
+    const envRejectUnauthorized = getBoolEnv('DB_SSL_REJECT_UNAUTHORIZED', null);
+    const defaultRejectUnauthorized = looksLikeTiDb ? true : false;
+
+    let ssl = { rejectUnauthorized: envRejectUnauthorized ?? defaultRejectUnauthorized };
+
+    // If URL explicitly provides ssl=false, disable TLS.
+    if (urlCfg?.ssl === false) {
+        ssl = null;
+    } else if (urlCfg?.ssl && typeof urlCfg.ssl === 'object') {
+        // Merge URL-provided SSL object but allow env var to override rejectUnauthorized.
+        ssl = {
+            ...urlCfg.ssl,
+            rejectUnauthorized: envRejectUnauthorized ?? urlCfg.ssl.rejectUnauthorized ?? defaultRejectUnauthorized
+        };
+    }
+
+    // Optional custom CA (some providers require providing a CA bundle).
+    // Prefer base64 to support multiline values in Railway.
+    const caB64 = getMySqlEnv('DB_SSL_CA_B64');
+    const ca = getMySqlEnv('DB_SSL_CA');
+    if (ssl && (caB64 || ca)) {
+        try {
+            ssl.ca = caB64 ? Buffer.from(caB64, 'base64').toString('utf8') : ca;
+        } catch {
+            // ignore malformed CA
+        }
+    }
+
+    return {
+        host,
+        port,
+        user,
+        password,
+        database,
+        ssl
+    };
+}
+
+const dbCfg = resolveDbConfig();
 const pool = mysql.createPool({
-    host: process.env.DB_HOST,
-    port: process.env.DB_PORT || 4000,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
+    host: dbCfg.host,
+    port: dbCfg.port,
+    user: dbCfg.user,
+    password: dbCfg.password,
+    database: dbCfg.database,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
-    ssl: { rejectUnauthorized: false }
+    // For TiDB Cloud and some managed MySQL providers, TLS is required.
+    // Controlled via DB_SSL_REJECT_UNAUTHORIZED / DB_SSL_CA(_B64) and/or DB_URL ?ssl=...
+    ...(dbCfg.ssl ? { ssl: dbCfg.ssl } : {})
 });
 
 // Tracks whether DB schema initialization has completed.
@@ -324,6 +462,35 @@ async function initializeDatabase() {
         try { await connection.execute('ALTER TABLE users ADD COLUMN marketingConsent BOOLEAN DEFAULT false'); } catch (e) {}
         try { await connection.execute('ALTER TABLE users ADD COLUMN lastLogin TIMESTAMP NULL'); } catch (e) {}
         try { await connection.execute('ALTER TABLE users ADD COLUMN createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP'); } catch (e) {}
+
+        // Transfer restriction flag - when true, user needs admin approval for transfers
+        try { await connection.execute('ALTER TABLE users ADD COLUMN transferRestricted BOOLEAN DEFAULT false'); } catch (e) {}
+
+        // Pending transfers table (for accounts with transfer restrictions)
+        await connection.execute(`
+            CREATE TABLE IF NOT EXISTS pending_transfers (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                fromUserId INT NOT NULL,
+                toUserId INT NOT NULL,
+                toEmail VARCHAR(255),
+                toAccountNumber VARCHAR(50),
+                amount DECIMAL(15,2) NOT NULL,
+                description VARCHAR(500),
+                status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
+                rejectionReason VARCHAR(500),
+                createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                reviewedAt TIMESTAMP NULL,
+                reviewedBy INT NULL,
+                INDEX idx_pending_from (fromUserId),
+                INDEX idx_pending_status (status),
+                INDEX idx_pending_created (createdAt)
+            )
+        `);
+
+        // Best-effort schema alignment for pending_transfers
+        try { await connection.execute('ALTER TABLE pending_transfers ADD COLUMN rejectionReason VARCHAR(500) NULL'); } catch (e) {}
+        try { await connection.execute('ALTER TABLE pending_transfers ADD COLUMN reviewedAt TIMESTAMP NULL'); } catch (e) {}
+        try { await connection.execute('ALTER TABLE pending_transfers ADD COLUMN reviewedBy INT NULL'); } catch (e) {}
 
         // Transactions table (core ledger for transfers/credits/debits)
         await connection.execute(`
@@ -2887,7 +3054,7 @@ app.get('/api/auth/profile', async (req, res) => {
 app.get('/api/admin/users-with-balances', requireAuth, requireAdmin, async (req, res) => {
     try {
         const [users] = await pool.execute(
-            'SELECT id, firstName, lastName, email, accountNumber, balance, isAdmin, accountStatus, accountType, phone FROM users'
+            'SELECT id, firstName, lastName, email, accountNumber, balance, isAdmin, accountStatus, accountType, phone, transferRestricted FROM users'
         );
         res.json({ success: true, users });
     } catch (error) {
@@ -3488,6 +3655,251 @@ app.post('/api/admin/debit-account', requireAuth, requireAdmin, async (req, res)
     }
 });
 
+// ==================== TRANSFER RESTRICTION MANAGEMENT ====================
+
+// Admin: Toggle transfer restriction on a user account
+app.post('/api/admin/toggle-transfer-restriction', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { userId, email, accountNumber, restricted } = req.body;
+
+        let user;
+        if (userId) {
+            const [rows] = await pool.execute('SELECT * FROM users WHERE id = ?', [userId]);
+            user = rows[0];
+        } else if (email) {
+            const [rows] = await pool.execute('SELECT * FROM users WHERE email = ?', [email.toLowerCase()]);
+            user = rows[0];
+        } else if (accountNumber) {
+            const [rows] = await pool.execute('SELECT * FROM users WHERE accountNumber = ?', [accountNumber]);
+            user = rows[0];
+        }
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        const newRestrictionStatus = restricted !== undefined ? !!restricted : !user.transferRestricted;
+
+        await pool.execute('UPDATE users SET transferRestricted = ? WHERE id = ?', [newRestrictionStatus, user.id]);
+
+        // Log the activity
+        try {
+            await pool.execute(
+                'INSERT INTO activity_logs (user_id, action_type, action_details, ip_address) VALUES (?, ?, ?, ?)',
+                [user.id, 'TRANSFER_RESTRICTION_CHANGED', `Transfer restriction ${newRestrictionStatus ? 'enabled' : 'disabled'} by admin`, req.ip]
+            );
+        } catch (e) {}
+
+        res.json({
+            success: true,
+            message: `Transfer restriction ${newRestrictionStatus ? 'enabled' : 'disabled'} for ${user.firstName} ${user.lastName}`,
+            transferRestricted: newRestrictionStatus,
+            user: {
+                id: user.id,
+                name: `${user.firstName} ${user.lastName}`,
+                email: user.email,
+                accountNumber: user.accountNumber
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Admin: Get all pending transfers
+app.get('/api/admin/pending-transfers', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const [rows] = await pool.execute(`
+            SELECT 
+                pt.*,
+                sender.firstName AS senderFirstName,
+                sender.lastName AS senderLastName,
+                sender.email AS senderEmail,
+                sender.accountNumber AS senderAccountNumber,
+                recipient.firstName AS recipientFirstName,
+                recipient.lastName AS recipientLastName,
+                recipient.email AS recipientEmail,
+                recipient.accountNumber AS recipientAccountNumber
+            FROM pending_transfers pt
+            LEFT JOIN users sender ON pt.fromUserId = sender.id
+            LEFT JOIN users recipient ON pt.toUserId = recipient.id
+            WHERE pt.status = 'pending'
+            ORDER BY pt.createdAt DESC
+        `);
+
+        res.json({
+            success: true,
+            pendingTransfers: rows
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Admin: Approve pending transfer
+app.post('/api/admin/approve-transfer/:transferId', requireAuth, requireAdmin, async (req, res) => {
+    const connection = await pool.getConnection();
+    try {
+        const { transferId } = req.params;
+
+        await connection.beginTransaction();
+
+        // Get pending transfer with lock
+        const [transfers] = await connection.execute(
+            'SELECT * FROM pending_transfers WHERE id = ? AND status = ? FOR UPDATE',
+            [transferId, 'pending']
+        );
+        const pendingTransfer = transfers[0];
+
+        if (!pendingTransfer) {
+            await connection.rollback();
+            return res.status(404).json({ success: false, message: 'Pending transfer not found or already processed' });
+        }
+
+        // Lock sender and recipient
+        const [senders] = await connection.execute('SELECT * FROM users WHERE id = ? FOR UPDATE', [pendingTransfer.fromUserId]);
+        const sender = senders[0];
+
+        const [recipients] = await connection.execute('SELECT * FROM users WHERE id = ? FOR UPDATE', [pendingTransfer.toUserId]);
+        const recipientUser = recipients[0];
+
+        if (!sender || !recipientUser) {
+            await connection.rollback();
+            return res.status(404).json({ success: false, message: 'Sender or recipient no longer exists' });
+        }
+
+        const amountValue = parseFloat(pendingTransfer.amount);
+        const senderBalance = parseFloat(sender.balance);
+
+        if (senderBalance < amountValue) {
+            await connection.rollback();
+            return res.status(400).json({ success: false, message: `Insufficient funds. Sender balance: $${senderBalance.toLocaleString()}` });
+        }
+
+        // Process the transfer
+        await connection.execute('UPDATE users SET balance = balance - ? WHERE id = ?', [amountValue, sender.id]);
+        await connection.execute('UPDATE users SET balance = balance + ? WHERE id = ?', [amountValue, recipientUser.id]);
+
+        const reference = 'TRF' + Date.now().toString(36).toUpperCase();
+        await connection.execute(
+            `INSERT INTO transactions (fromUserId, toUserId, amount, type, status, description, reference)
+             VALUES (?, ?, ?, 'transfer', 'completed', ?, ?)`,
+            [sender.id, recipientUser.id, amountValue, pendingTransfer.description || 'Transfer (Admin Approved)', reference]
+        );
+
+        // Update pending transfer status
+        await connection.execute(
+            'UPDATE pending_transfers SET status = ?, reviewedAt = NOW(), reviewedBy = ? WHERE id = ?',
+            ['approved', req.auth.id, transferId]
+        );
+
+        // Log activities
+        try {
+            await connection.execute(
+                'INSERT INTO activity_logs (user_id, action_type, action_details, ip_address) VALUES (?, ?, ?, ?)',
+                [sender.id, 'TRANSFER_APPROVED', `Transfer of $${amountValue.toLocaleString()} to ${recipientUser.firstName} ${recipientUser.lastName} approved by admin`, req.ip]
+            );
+        } catch (e) {}
+
+        await connection.commit();
+
+        res.json({
+            success: true,
+            message: `Transfer of $${amountValue.toLocaleString()} from ${sender.firstName} ${sender.lastName} to ${recipientUser.firstName} ${recipientUser.lastName} has been approved`,
+            reference
+        });
+    } catch (error) {
+        try { await connection.rollback(); } catch (e) {}
+        res.status(500).json({ success: false, message: error.message });
+    } finally {
+        connection.release();
+    }
+});
+
+// Admin: Reject pending transfer
+app.post('/api/admin/reject-transfer/:transferId', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { transferId } = req.params;
+        const { reason } = req.body;
+
+        // Get pending transfer
+        const [transfers] = await pool.execute(
+            'SELECT * FROM pending_transfers WHERE id = ? AND status = ?',
+            [transferId, 'pending']
+        );
+        const pendingTransfer = transfers[0];
+
+        if (!pendingTransfer) {
+            return res.status(404).json({ success: false, message: 'Pending transfer not found or already processed' });
+        }
+
+        // Update status to rejected
+        await pool.execute(
+            'UPDATE pending_transfers SET status = ?, rejectionReason = ?, reviewedAt = NOW(), reviewedBy = ? WHERE id = ?',
+            ['rejected', reason || 'Rejected by admin', req.auth.id, transferId]
+        );
+
+        // Log activity
+        try {
+            await pool.execute(
+                'INSERT INTO activity_logs (user_id, action_type, action_details, ip_address) VALUES (?, ?, ?, ?)',
+                [pendingTransfer.fromUserId, 'TRANSFER_REJECTED', `Transfer request of $${parseFloat(pendingTransfer.amount).toLocaleString()} rejected. Reason: ${reason || 'Not specified'}`, req.ip]
+            );
+        } catch (e) {}
+
+        res.json({
+            success: true,
+            message: 'Transfer request has been rejected'
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// Admin: Get users with transfer restrictions
+app.get('/api/admin/restricted-users', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const [rows] = await pool.execute(`
+            SELECT id, firstName, lastName, email, accountNumber, balance, accountStatus, transferRestricted
+            FROM users
+            WHERE transferRestricted = true
+            ORDER BY lastName, firstName
+        `);
+
+        res.json({
+            success: true,
+            users: rows
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// User: Get pending transfer status (for the user to check their pending transfers)
+app.get('/api/user/pending-transfers', requireAuth, async (req, res) => {
+    try {
+        const [rows] = await pool.execute(`
+            SELECT 
+                pt.*,
+                recipient.firstName AS recipientFirstName,
+                recipient.lastName AS recipientLastName,
+                recipient.accountNumber AS recipientAccountNumber
+            FROM pending_transfers pt
+            LEFT JOIN users recipient ON pt.toUserId = recipient.id
+            WHERE pt.fromUserId = ?
+            ORDER BY pt.createdAt DESC
+            LIMIT 20
+        `, [req.auth.id]);
+
+        res.json({
+            success: true,
+            pendingTransfers: rows
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
 // Transfer funds
 app.post('/api/user/transfer', requireAuth, requireNotImpersonation, async (req, res) => {
     const connection = await pool.getConnection();
@@ -3525,6 +3937,52 @@ app.post('/api/user/transfer', requireAuth, requireNotImpersonation, async (req,
         if (sender.accountStatus && sender.accountStatus !== 'active') {
             await connection.rollback();
             return res.status(403).json({ success: false, message: `Account is ${sender.accountStatus}. Transfers not allowed.` });
+        }
+
+        // Check if sender has transfer restriction (needs admin approval)
+        if (sender.transferRestricted) {
+            // Find recipient first to store in pending_transfers
+            let recipientUser;
+            if (toEmailValue) {
+                const [rows] = await connection.execute('SELECT * FROM users WHERE email = ?', [toEmailValue]);
+                recipientUser = rows[0];
+            } else {
+                const [rows] = await connection.execute('SELECT * FROM users WHERE accountNumber = ?', [toAccountValue]);
+                recipientUser = rows[0];
+            }
+
+            if (!recipientUser) {
+                await connection.rollback();
+                return res.status(404).json({ success: false, message: 'Recipient not found' });
+            }
+
+            if (sender.id === recipientUser.id) {
+                await connection.rollback();
+                return res.status(400).json({ success: false, message: 'Cannot transfer to the same account' });
+            }
+
+            // Check balance before creating pending transfer
+            const senderBalance = parseFloat(sender.balance);
+            if (senderBalance < amountValue) {
+                await connection.rollback();
+                return res.status(400).json({ success: false, message: 'Insufficient funds' });
+            }
+
+            // Create pending transfer request
+            await connection.execute(
+                `INSERT INTO pending_transfers (fromUserId, toUserId, toEmail, toAccountNumber, amount, description, status)
+                 VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
+                [sender.id, recipientUser.id, toEmailValue || null, toAccountValue || null, amountValue, description || 'Transfer']
+            );
+
+            await connection.commit();
+            
+            return res.status(403).json({ 
+                success: false, 
+                message: 'Transfer cannot be completed at this time. Please contact bank support for assistance.',
+                pendingApproval: true,
+                transferRestricted: true
+            });
         }
 
         // Lock recipient
