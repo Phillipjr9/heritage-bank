@@ -309,6 +309,9 @@
                 <div class="nav-item" onclick="showSection('transfers')">
                     <i class="fas fa-paper-plane"></i> Fund Account
                 </div>
+                <div class="nav-item" onclick="showSection('transfer-approvals')">
+                    <i class="fas fa-clock"></i> Transfer Approvals
+                </div>
                 <div class="nav-item" onclick="showSection('loans')">
                     <i class="fas fa-hand-holding-usd"></i> Loan Applications
                 </div>
@@ -589,6 +592,70 @@
                             </div>
                             <button type="submit" class="btn btn-danger"><i class="fas fa-minus"></i> Debit Account</button>
                         </form>
+                    </div>
+                </div>
+
+                <!-- Transfer Approvals Section -->
+                <div id="transfer-approvals" class="section">
+                    <div class="card">
+                        <h2><i class="fas fa-clock"></i> Pending Transfer Approvals</h2>
+                        <p style="color: #888; margin-bottom: 20px;">These are transfers from users with restricted accounts that require your approval.</p>
+                        <button class="btn btn-info" onclick="loadPendingTransfers()" style="margin-bottom: 20px;"><i class="fas fa-sync"></i> Refresh</button>
+                        <div class="table-wrapper">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>From</th>
+                                        <th>To</th>
+                                        <th>Amount</th>
+                                        <th>Description</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="pendingTransfersBody">
+                                    <tr><td colspan="6" class="loader"><i class="fas fa-spinner fa-spin"></i><br>Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <h2><i class="fas fa-user-lock"></i> Manage Transfer Restrictions</h2>
+                        <p style="color: #888; margin-bottom: 20px;">Enable transfer restrictions on specific accounts. Users with restrictions need admin approval for all transfers.</p>
+                        
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label>User Email or Account Number</label>
+                                <input type="text" id="restrictionUserInput" placeholder="Enter email or account number">
+                            </div>
+                            <div class="form-group" style="display: flex; align-items: flex-end; gap: 10px;">
+                                <button class="btn btn-danger" onclick="toggleTransferRestriction(true)"><i class="fas fa-lock"></i> Enable Restriction</button>
+                                <button class="btn btn-success" onclick="toggleTransferRestriction(false)"><i class="fas fa-unlock"></i> Remove Restriction</button>
+                            </div>
+                        </div>
+                        <div id="restrictionAlert" class="alert" style="margin-top: 15px;"></div>
+                    </div>
+
+                    <div class="card">
+                        <h2><i class="fas fa-list"></i> Users with Transfer Restrictions</h2>
+                        <button class="btn btn-info" onclick="loadRestrictedUsers()" style="margin-bottom: 20px;"><i class="fas fa-sync"></i> Refresh</button>
+                        <div class="table-wrapper">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Email</th>
+                                        <th>Account</th>
+                                        <th>Balance</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="restrictedUsersBody">
+                                    <tr><td colspan="5" style="text-align:center;color:#888;">Click refresh to load restricted users</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
 
@@ -918,7 +985,7 @@
         // Load All Users
         async function loadAllUsers() {
             const tbody = document.getElementById('usersTableBody');
-            tbody.innerHTML = '<tr><td colspan="6" class="loader"><i class="fas fa-spinner fa-spin"></i><br>Loading...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="loader"><i class="fas fa-spinner fa-spin"></i><br>Loading...</td></tr>';
             try {
                 const res = await fetch(`${API_BASE}/api/admin/users-with-balances`, {
                     headers: { 'Authorization': `Bearer ${getToken()}` }
@@ -926,12 +993,16 @@
                 const data = await res.json();
                 if (data.success && data.users) {
                     if (data.users.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;">No users found</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;">No users found</td></tr>';
                         return;
                     }
-                    tbody.innerHTML = data.users.map(u => `
+                    tbody.innerHTML = data.users.map(u => {
+                        const restrictionBadge = u.transferRestricted 
+                            ? '<span class="badge badge-danger" title="Transfer Restricted"><i class="fas fa-lock"></i></span>' 
+                            : '';
+                        return `
                         <tr>
-                            <td>${u.firstName} ${u.lastName}</td>
+                            <td>${u.firstName} ${u.lastName} ${restrictionBadge}</td>
                             <td>${u.email}</td>
                             <td>${u.accountNumber || 'N/A'}</td>
                             <td>$${parseFloat(u.balance || 0).toLocaleString('en-US', {minimumFractionDigits: 2})}</td>
@@ -942,10 +1013,10 @@
                                 <button class="btn btn-sm btn-danger" onclick="quickDebit('${u.email}')"><i class="fas fa-minus"></i></button>
                             </td>
                         </tr>
-                    `).join('');
+                    `;}).join('');
                 }
             } catch (e) {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#e74c3c;">Error loading users</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#e74c3c;">Error loading users</td></tr>';
             }
         }
 
@@ -1398,6 +1469,182 @@
             document.getElementById('debitAmount').focus();
         }
 
+        // ==================== TRANSFER APPROVALS ====================
+
+        // Load Pending Transfers
+        async function loadPendingTransfers() {
+            const tbody = document.getElementById('pendingTransfersBody');
+            tbody.innerHTML = '<tr><td colspan="6" class="loader"><i class="fas fa-spinner fa-spin"></i><br>Loading...</td></tr>';
+            try {
+                const res = await fetch(`${API_BASE}/api/admin/pending-transfers`, {
+                    headers: { 'Authorization': `Bearer ${getToken()}` }
+                });
+                const data = await res.json();
+                if (data.success && data.pendingTransfers) {
+                    if (data.pendingTransfers.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;">No pending transfers</td></tr>';
+                        return;
+                    }
+                    tbody.innerHTML = data.pendingTransfers.map(t => `
+                        <tr>
+                            <td>${new Date(t.createdAt).toLocaleString()}</td>
+                            <td>${t.senderFirstName || ''} ${t.senderLastName || ''}<br><small style="color:#888;">${t.senderEmail || t.senderAccountNumber || ''}</small></td>
+                            <td>${t.recipientFirstName || ''} ${t.recipientLastName || ''}<br><small style="color:#888;">${t.recipientEmail || t.recipientAccountNumber || ''}</small></td>
+                            <td style="color:#27ae60; font-weight:600;">$${parseFloat(t.amount).toLocaleString('en-US', {minimumFractionDigits: 2})}</td>
+                            <td>${t.description || '-'}</td>
+                            <td>
+                                <button class="btn btn-sm btn-success" onclick="approveTransfer(${t.id})"><i class="fas fa-check"></i> Approve</button>
+                                <button class="btn btn-sm btn-danger" onclick="rejectTransfer(${t.id})"><i class="fas fa-times"></i> Reject</button>
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+            } catch (e) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#e74c3c;">Error loading pending transfers</td></tr>';
+            }
+        }
+
+        // Approve Transfer
+        async function approveTransfer(transferId) {
+            if (!confirm('Are you sure you want to approve this transfer? The funds will be transferred immediately.')) return;
+            try {
+                const res = await fetch(`${API_BASE}/api/admin/approve-transfer/${transferId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${getToken()}`
+                    }
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert('Transfer approved successfully!');
+                    loadPendingTransfers();
+                    loadTransactions();
+                    loadDashboardStats();
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+
+        // Reject Transfer
+        async function rejectTransfer(transferId) {
+            const reason = prompt('Enter rejection reason (optional):');
+            if (reason === null) return; // User cancelled
+            try {
+                const res = await fetch(`${API_BASE}/api/admin/reject-transfer/${transferId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${getToken()}`
+                    },
+                    body: JSON.stringify({ reason: reason || 'Rejected by admin' })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert('Transfer rejected.');
+                    loadPendingTransfers();
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+
+        // Toggle Transfer Restriction
+        async function toggleTransferRestriction(restrict) {
+            const input = document.getElementById('restrictionUserInput').value.trim();
+            if (!input) {
+                showAlert('restrictionAlert', 'Please enter a user email or account number', false);
+                return;
+            }
+            try {
+                const payload = { restricted: restrict };
+                if (input.includes('@')) {
+                    payload.email = input;
+                } else {
+                    payload.accountNumber = input;
+                }
+
+                const res = await fetch(`${API_BASE}/api/admin/toggle-transfer-restriction`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${getToken()}`
+                    },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showAlert('restrictionAlert', `✓ ${data.message}`, true);
+                    document.getElementById('restrictionUserInput').value = '';
+                    loadRestrictedUsers();
+                } else {
+                    showAlert('restrictionAlert', '✗ ' + data.message, false);
+                }
+            } catch (e) {
+                showAlert('restrictionAlert', '✗ Error: ' + e.message, false);
+            }
+        }
+
+        // Load Restricted Users
+        async function loadRestrictedUsers() {
+            const tbody = document.getElementById('restrictedUsersBody');
+            tbody.innerHTML = '<tr><td colspan="5" class="loader"><i class="fas fa-spinner fa-spin"></i><br>Loading...</td></tr>';
+            try {
+                const res = await fetch(`${API_BASE}/api/admin/restricted-users`, {
+                    headers: { 'Authorization': `Bearer ${getToken()}` }
+                });
+                const data = await res.json();
+                if (data.success && data.users) {
+                    if (data.users.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;">No users with transfer restrictions</td></tr>';
+                        return;
+                    }
+                    tbody.innerHTML = data.users.map(u => `
+                        <tr>
+                            <td>${u.firstName || ''} ${u.lastName || ''}</td>
+                            <td>${u.email}</td>
+                            <td>${u.accountNumber || 'N/A'}</td>
+                            <td>$${parseFloat(u.balance || 0).toLocaleString('en-US', {minimumFractionDigits: 2})}</td>
+                            <td>
+                                <button class="btn btn-sm btn-success" onclick="removeRestriction('${u.email}')"><i class="fas fa-unlock"></i> Remove Restriction</button>
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+            } catch (e) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#e74c3c;">Error loading users</td></tr>';
+            }
+        }
+
+        // Quick Remove Restriction
+        async function removeRestriction(email) {
+            if (!confirm(`Remove transfer restriction from ${email}?`)) return;
+            try {
+                const res = await fetch(`${API_BASE}/api/admin/toggle-transfer-restriction`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${getToken()}`
+                    },
+                    body: JSON.stringify({ email, restricted: false })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert('Restriction removed successfully!');
+                    loadRestrictedUsers();
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+
         // Load Loans
         async function loadLoans() {
             const tbody = document.getElementById('loansTableBody');
@@ -1548,6 +1795,14 @@
                 const data = await res.json();
                 const user = data.users?.find(u => u.id === userId);
                 if (user) {
+                    const isRestricted = !!user.transferRestricted;
+                    const restrictionBadge = isRestricted 
+                        ? '<span class="badge badge-danger">Restricted</span>' 
+                        : '<span class="badge badge-success">Allowed</span>';
+                    const restrictionBtn = isRestricted
+                        ? `<button class="btn btn-success" onclick="toggleUserRestriction(${user.id}, '${user.email}', false)"><i class="fas fa-unlock"></i> Allow Transfers</button>`
+                        : `<button class="btn btn-danger" onclick="toggleUserRestriction(${user.id}, '${user.email}', true)"><i class="fas fa-lock"></i> Restrict Transfers</button>`;
+                    
                     document.getElementById('userModalContent').innerHTML = `
                         <div class="user-details-grid">
                             <div class="detail-item"><div class="label">ID</div><div class="value">${user.id}</div></div>
@@ -1557,11 +1812,12 @@
                             <div class="detail-item"><div class="label">Balance</div><div class="value">$${parseFloat(user.balance).toLocaleString()}</div></div>
                             <div class="detail-item"><div class="label">Status</div><div class="value">${user.accountStatus || 'active'}</div></div>
                             <div class="detail-item"><div class="label">Type</div><div class="value">${user.accountType || 'checking'}</div></div>
-                            <div class="detail-item"><div class="label">Phone</div><div class="value">${user.phone || 'N/A'}</div></div>
+                            <div class="detail-item"><div class="label">Transfer Status</div><div class="value">${restrictionBadge}</div></div>
                         </div>
-                        <div style="margin-top: 20px;">
+                        <div style="margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
                             <button class="btn btn-success" onclick="quickCredit('${user.email}'); closeModal('userModal');"><i class="fas fa-plus"></i> Credit</button>
                             <button class="btn btn-danger" onclick="quickDebit('${user.email}'); closeModal('userModal');"><i class="fas fa-minus"></i> Debit</button>
+                            ${restrictionBtn}
                         </div>
                     `;
                     document.getElementById('userModal').classList.add('active');
@@ -1569,6 +1825,31 @@
             } catch (e) {
                 console.error('Error loading user details:', e);
                 alert('Error loading user details. Please refresh and try again.');
+            }
+        }
+
+        // Toggle User Transfer Restriction from modal
+        async function toggleUserRestriction(userId, email, restrict) {
+            try {
+                const res = await fetch(`${API_BASE}/api/admin/toggle-transfer-restriction`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${getToken()}`
+                    },
+                    body: JSON.stringify({ userId, restricted: restrict })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert(data.message);
+                    closeModal('userModal');
+                    loadAllUsers();
+                    loadRestrictedUsers();
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            } catch (e) {
+                alert('Error: ' + e.message);
             }
         }
 
