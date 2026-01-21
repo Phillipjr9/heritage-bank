@@ -120,8 +120,9 @@ function maskAccountNumber(accountNumber) {
  * Show Alert Message
  * @param {string} message - The message to display
  * @param {string} type - The alert type (success, error, warning, info)
+ * @param {number} duration - Duration in milliseconds before auto-hide (default: 5000)
  */
-function showAlert(message, type = 'info') {
+function showAlert(message, type = 'info', duration = 5000) {
     // Create alert element if it doesn't exist
     let alertBox = document.getElementById('alertBox');
     if (!alertBox) {
@@ -155,10 +156,10 @@ function showAlert(message, type = 'info') {
     alertBox.textContent = message;
     alertBox.style.display = 'block';
     
-    // Auto-hide after 5 seconds
+    // Auto-hide after specified duration
     setTimeout(() => {
         alertBox.style.display = 'none';
-    }, 5000);
+    }, duration);
 }
 
 /**
