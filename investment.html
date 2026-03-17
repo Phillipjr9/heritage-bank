@@ -188,11 +188,20 @@
                 </button>
             </form>
         </div>
+        
+        <!-- My Investments Section -->
+        <div class="card" id="myInvestments" style="display: none;">
+            <h2 style="color: #1a472a; margin-top: 0;"><i class="fas fa-chart-pie"></i> My Investments</h2>
+            <!-- Will be populated dynamically -->
+        </div>
 
         <p style="color: #999; font-size: 12px; text-align: center; margin-top: 20px;">
             * Past performance does not guarantee future results. Please read all investment documents carefully.
         </p>
     </div>
+    
+    <!-- Notification toast -->
+    <div id="notification" style="display: none; position: fixed; top: 20px; right: 20px; padding: 15px 25px; border-radius: 8px; z-index: 1000; min-width: 250px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); font-weight: 500;"></div>
 
     <script src="script.js"></script>
     <script>
@@ -226,21 +235,17 @@
         }
 
         async function investNow(product, rate) {
-            if (!userId) {
-                alert('Please sign in to invest.');
-                window.location.href = 'signin.html';
-                return;
-            }
-            
             const amount = prompt(`Invest in ${product} (${rate}% APY)\n\nMinimum amount: $500\nEnter investment amount:`, '1000');
             
             if (amount && parseFloat(amount) >= 500) {
                 const amountNum = parseFloat(amount);
+                const periodYears = prompt('Investment period in years (1-30):', '5');
+                const period = parseInt(periodYears) || 5;
+                
                 const payload = {
-                    userId: userId,
                     product: `${product} (${rate}% APY)`,
                     amount: amountNum,
-                    period: 5
+                    period: period
                 };
 
                 try {
@@ -257,9 +262,7 @@
                     
                     if (data.success) {
                         showNotification(`✓ Investment of $${amountNum.toFixed(2)} in ${product} confirmed! Est. Return: $${data.investment.estimatedReturn}`, 'success');
-                        setTimeout(() => {
-                            window.location.href = 'dashboard.html';
-                        }, 2000);
+                        loadMyInvestments();
                     } else {
                         showNotification('Error: ' + data.message, 'error');
                     }
@@ -273,12 +276,6 @@
 
         async function handleInvestment(e) {
             e.preventDefault();
-
-            if (!userId) {
-                alert('Please sign in to invest.');
-                window.location.href = 'signin.html';
-                return;
-            }
 
             const product = document.getElementById('product').value;
             const amount = parseFloat(document.getElementById('investAmount').value);
@@ -295,7 +292,6 @@
             }
 
             const payload = {
-                userId: userId,
                 product: product,
                 amount: amount,
                 period: period
@@ -321,7 +317,7 @@ Investment Confirmation
 Product: ${product}
 Amount: $${amount.toFixed(2)}
 Period: ${period} years
-Est. Returns: $${estimatedReturn}
+Est. Returns: $${estimatedReturn.toFixed(2)}
 Maturity Date: ${new Date(maturityDate).toLocaleDateString()}
 
 Your investment has been confirmed!
@@ -329,9 +325,10 @@ Funds have been invested immediately.
 `;
                     alert(confirmMsg);
                     showNotification('✓ Investment confirmed!', 'success');
-                    setTimeout(() => {
-                        window.location.href = 'dashboard.html';
-                    }, 2000);
+                    loadMyInvestments();
+                    document.getElementById('product').value = '';
+                    document.getElementById('investAmount').value = '';
+                    document.getElementById('period').value = '';
                 } else {
                     showNotification('Error: ' + data.message, 'error');
                 }
@@ -339,9 +336,94 @@ Funds have been invested immediately.
                 showNotification('Error: ' + err.message, 'error');
             }
         }
+        
+        // Load user's existing investments
+        async function loadMyInvestments() {
+            try {
+                const res = await fetch(`${API_URL}/api/investments/my-investments`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                const data = await res.json();
+                if (data.success && data.investments.length > 0) {
+                    displayInvestments(data);
+                }
+            } catch (e) {
+                console.error('Error loading investments:', e);
+            }
+        }
+        
+        function displayInvestments(data) {
+            const container = document.getElementById('myInvestments');
+            if (!container) return;
+            
+            let html = `
+                <div style="margin-bottom: 20px; padding: 15px; background: linear-gradient(135deg, #1a472a, #2d5a3d); color: white; border-radius: 10px;">
+                    <div style="display: flex; justify-content: space-between; flex-wrap: wrap; gap: 15px;">
+                        <div>
+                            <p style="margin: 0; font-size: 12px; opacity: 0.8;">Total Invested</p>
+                            <p style="margin: 5px 0; font-size: 24px; font-weight: bold;">$${data.totalInvested.toLocaleString()}</p>
+                        </div>
+                        <div>
+                            <p style="margin: 0; font-size: 12px; opacity: 0.8;">Estimated Returns</p>
+                            <p style="margin: 5px 0; font-size: 24px; font-weight: bold; color: #d4af37;">+$${data.totalEstimatedReturn.toLocaleString()}</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            data.investments.forEach(inv => {
+                const status = inv.status === 'active' ? 
+                    '<span style="background: #d4edda; color: #155724; padding: 3px 8px; border-radius: 4px; font-size: 11px;">Active</span>' :
+                    `<span style="background: #f8d7da; color: #721c24; padding: 3px 8px; border-radius: 4px; font-size: 11px;">${inv.status}</span>`;
+                    
+                html += `
+                    <div style="padding: 15px; background: #f8f9fa; border-radius: 8px; margin-bottom: 10px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <strong>${inv.product}</strong> ${status}
+                                <p style="margin: 5px 0 0; color: #666; font-size: 13px;">
+                                    $${parseFloat(inv.amount).toLocaleString()} • ${inv.apy}% APY • ${inv.period} years
+                                </p>
+                            </div>
+                            <div style="text-align: right;">
+                                <p style="margin: 0; color: #d4af37; font-weight: bold;">+$${parseFloat(inv.estimatedReturn).toLocaleString()}</p>
+                                <p style="margin: 3px 0 0; color: #999; font-size: 12px;">Matures: ${new Date(inv.maturityDate).toLocaleDateString()}</p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            container.innerHTML = html;
+            container.style.display = 'block';
+        }
+        
+        // Show notification toast
+        function showNotification(message, type = 'info') {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.style.display = 'block';
+            
+            if (type === 'success') {
+                notification.style.background = '#d4edda';
+                notification.style.color = '#155724';
+            } else if (type === 'error') {
+                notification.style.background = '#f8d7da';
+                notification.style.color = '#721c24';
+            } else {
+                notification.style.background = '#cce5ff';
+                notification.style.color = '#004085';
+            }
+            
+            setTimeout(() => {
+                notification.style.display = 'none';
+            }, 4000);
+        }
 
         // Initialize
         checkAuth();
+        loadMyInvestments();
     </script>
 </body>
 </html>

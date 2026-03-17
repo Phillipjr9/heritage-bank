@@ -3714,7 +3714,7 @@ app.post('/api/admin/debit-account', requireAuth, requireAdmin, async (req, res)
         try {
             await connection.execute(
                 'INSERT INTO activity_logs (user_id, action_type, action_details) VALUES (?, ?, ?)',
-                [user.id, 'ADMIN_DEBIT', `$${amountValue} debited. ${txDescription}`]
+                [user.id, 'DEBIT', `$${amountValue} debited. ${txDescription}`]
             );
         } catch (e) {}
 
@@ -7366,7 +7366,7 @@ app.post('/api/admin/users/:userId/adjust-balance', requireAuth, requireAdmin, a
         await pool.execute('UPDATE users SET balance = ? WHERE id = ?', [newBalance, userId]);
 
         // Create transaction record
-        const txType = adjustmentType === 'debit' ? 'admin_debit' : 'admin_credit';
+        const txType = adjustmentType === 'debit' ? 'debit' : 'credit';
         const referenceId = `ADJ-${Date.now()}`;
         if (adjustmentType === 'debit') {
             await pool.execute(
@@ -8914,6 +8914,640 @@ app.put('/api/admin/support/tickets/:ticketId/status', requireAuth, requireAdmin
         res.json({ success: true, message: 'Ticket updated' });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// ==================== LOAN APPLICATION ENDPOINTS ====================
+
+// Create loan_applications table if not exists
+async function ensureLoanTables() {
+    try {
+        await pool.execute(`
+            CREATE TABLE IF NOT EXISTS loan_applications (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                loan_type VARCHAR(50) NOT NULL,
+                loan_amount DECIMAL(15,2) NOT NULL,
+                loan_duration_months INT NOT NULL,
+                interest_rate DECIMAL(5,2) DEFAULT 6.99,
+                monthly_payment DECIMAL(15,2),
+                monthly_income DECIMAL(15,2),
+                employment_status VARCHAR(50),
+                employer_name VARCHAR(100),
+                years_employed INT,
+                purpose TEXT,
+                first_name VARCHAR(50),
+                last_name VARCHAR(50),
+                email VARCHAR(100),
+                phone VARCHAR(20),
+                address VARCHAR(255),
+                city VARCHAR(100),
+                state VARCHAR(50),
+                zip VARCHAR(20),
+                status ENUM('pending', 'under_review', 'approved', 'rejected', 'disbursed') DEFAULT 'pending',
+                admin_notes TEXT,
+                reviewed_by INT,
+                reviewed_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_user_id (user_id),
+                INDEX idx_status (status)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        `);
+        console.log('✅ loan_applications table ready');
+    } catch (e) {
+        if (!e.message.includes('already exists')) {
+            console.error('Error creating loan_applications table:', e.message);
+        }
+    }
+}
+
+// Create investments table if not exists
+async function ensureInvestmentTables() {
+    try {
+        await pool.execute(`
+            CREATE TABLE IF NOT EXISTS investments (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                product_name VARCHAR(100) NOT NULL,
+                product_type ENUM('savings_bond', 'index_fund', 'fixed_deposit', 'growth_fund') NOT NULL,
+                amount DECIMAL(15,2) NOT NULL,
+                apy DECIMAL(5,2) NOT NULL,
+                period_years INT NOT NULL,
+                estimated_return DECIMAL(15,2),
+                maturity_date DATE,
+                status ENUM('active', 'matured', 'withdrawn', 'cancelled') DEFAULT 'active',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_user_id (user_id),
+                INDEX idx_status (status)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        `);
+        console.log('✅ investments table ready');
+    } catch (e) {
+        if (!e.message.includes('already exists')) {
+            console.error('Error creating investments table:', e.message);
+        }
+    }
+}
+
+// Create chat_messages table for live chat
+async function ensureChatTables() {
+    try {
+        await pool.execute(`
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                session_id VARCHAR(100) NOT NULL,
+                message TEXT NOT NULL,
+                sender_type ENUM('user', 'agent', 'system') NOT NULL,
+                agent_id INT,
+                is_read BOOLEAN DEFAULT FALSE,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_user_id (user_id),
+                INDEX idx_session_id (session_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        `);
+        
+        await pool.execute(`
+            CREATE TABLE IF NOT EXISTS chat_sessions (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                session_id VARCHAR(100) UNIQUE NOT NULL,
+                status ENUM('active', 'waiting', 'closed') DEFAULT 'waiting',
+                agent_id INT,
+                started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                ended_at DATETIME,
+                INDEX idx_user_id (user_id),
+                INDEX idx_status (status)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        `);
+        console.log('✅ chat tables ready');
+    } catch (e) {
+        if (!e.message.includes('already exists')) {
+            console.error('Error creating chat tables:', e.message);
+        }
+    }
+}
+
+// Initialize tables
+setTimeout(async () => {
+    await ensureLoanTables();
+    await ensureInvestmentTables();
+    await ensureChatTables();
+}, 2000);
+
+// Submit loan application
+app.post('/api/loans/apply', requireAuth, async (req, res) => {
+    try {
+        const userId = req.auth.id;
+        const {
+            loanType, amount, term, firstName, lastName, email, phone,
+            address, city, state, zip, employment, employer, income,
+            yearsEmployed, purpose
+        } = req.body;
+
+        // Validation
+        if (!loanType || !amount || !term) {
+            return res.status(400).json({ success: false, message: 'Loan type, amount, and term are required' });
+        }
+
+        const loanAmount = parseFloat(amount);
+        const loanDuration = parseInt(term);
+        
+        if (loanAmount < 1000 || loanAmount > 500000) {
+            return res.status(400).json({ success: false, message: 'Loan amount must be between $1,000 and $500,000' });
+        }
+
+        // Calculate interest rate based on loan type
+        const rates = {
+            personal: 6.99, home: 5.25, auto: 4.49,
+            business: 7.50, education: 4.99, emergency: 9.99
+        };
+        const interestRate = rates[loanType] || 6.99;
+
+        // Calculate monthly payment
+        const monthlyRate = interestRate / 100 / 12;
+        const monthlyPayment = loanAmount * (monthlyRate * Math.pow(1 + monthlyRate, loanDuration)) / 
+                              (Math.pow(1 + monthlyRate, loanDuration) - 1);
+
+        const [result] = await pool.execute(`
+            INSERT INTO loan_applications (
+                user_id, loan_type, loan_amount, loan_duration_months, interest_rate,
+                monthly_payment, monthly_income, employment_status, employer_name,
+                years_employed, purpose, first_name, last_name, email, phone,
+                address, city, state, zip, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+        `, [
+            userId, loanType, loanAmount, loanDuration, interestRate,
+            monthlyPayment.toFixed(2), income || null, employment || null, employer || null,
+            yearsEmployed || null, purpose || null, firstName || null, lastName || null,
+            email || null, phone || null, address || null, city || null, state || null, zip || null
+        ]);
+
+        // Log activity
+        await pool.execute(
+            'INSERT INTO activity_logs (user_id, action_type, action_details) VALUES (?, ?, ?)',
+            [userId, 'LOAN_APPLICATION', `Applied for ${loanType} loan of $${loanAmount.toLocaleString()}`]
+        ).catch(() => {});
+
+        res.status(201).json({
+            success: true,
+            message: 'Loan application submitted successfully',
+            applicationId: `LOAN-${result.insertId}`,
+            estimatedMonthlyPayment: parseFloat(monthlyPayment.toFixed(2))
+        });
+    } catch (error) {
+        console.error('Loan application error:', error);
+        res.status(500).json({ success: false, message: 'Error submitting loan application' });
+    }
+});
+
+// Get user's loan applications
+app.get('/api/loans/my-applications', requireAuth, async (req, res) => {
+    try {
+        const userId = req.auth.id;
+        
+        const [applications] = await pool.execute(`
+            SELECT id, loan_type as loanType, loan_amount as amount, 
+                   loan_duration_months as term, interest_rate as rate,
+                   monthly_payment as monthlyPayment, status, 
+                   created_at as createdAt, reviewed_at as reviewedAt,
+                   admin_notes as adminNotes
+            FROM loan_applications 
+            WHERE user_id = ? 
+            ORDER BY created_at DESC
+        `, [userId]);
+
+        res.json({ success: true, applications });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Error fetching applications' });
+    }
+});
+
+// Get specific loan application
+app.get('/api/loans/:id', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.auth.id;
+        
+        const [applications] = await pool.execute(`
+            SELECT * FROM loan_applications WHERE id = ? AND user_id = ?
+        `, [id, userId]);
+
+        if (applications.length === 0) {
+            return res.status(404).json({ success: false, message: 'Application not found' });
+        }
+
+        res.json({ success: true, application: applications[0] });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Error fetching application' });
+    }
+});
+
+// Admin: Get all loan applications
+app.get('/api/admin/loans', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { status, page = 1, limit = 20 } = req.query;
+        const offset = (page - 1) * limit;
+
+        let query = `
+            SELECT la.*, u.firstName, u.lastName, u.email as userEmail
+            FROM loan_applications la
+            LEFT JOIN users u ON la.user_id = u.id
+        `;
+        const params = [];
+
+        if (status) {
+            query += ' WHERE la.status = ?';
+            params.push(status);
+        }
+
+        query += ' ORDER BY la.created_at DESC LIMIT ? OFFSET ?';
+        params.push(parseInt(limit), offset);
+
+        const [applications] = await pool.execute(query, params);
+
+        // Get total count
+        const [countResult] = await pool.execute(
+            'SELECT COUNT(*) as total FROM loan_applications' + (status ? ' WHERE status = ?' : ''),
+            status ? [status] : []
+        );
+
+        res.json({
+            success: true,
+            applications,
+            total: countResult[0].total,
+            page: parseInt(page),
+            totalPages: Math.ceil(countResult[0].total / limit)
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Error fetching loan applications' });
+    }
+});
+
+// Admin: Update loan status
+app.put('/api/admin/loans/:id/status', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status, adminNotes } = req.body;
+
+        if (!['pending', 'under_review', 'approved', 'rejected', 'disbursed'].includes(status)) {
+            return res.status(400).json({ success: false, message: 'Invalid status' });
+        }
+
+        await pool.execute(`
+            UPDATE loan_applications 
+            SET status = ?, admin_notes = ?, reviewed_by = ?, reviewed_at = NOW()
+            WHERE id = ?
+        `, [status, adminNotes || null, req.auth.id, id]);
+
+        // If approved, notify user
+        if (status === 'approved') {
+            const [apps] = await pool.execute('SELECT user_id, loan_amount, loan_type FROM loan_applications WHERE id = ?', [id]);
+            if (apps.length > 0) {
+                await pool.execute(
+                    'INSERT INTO notifications (userId, type, title, message) VALUES (?, ?, ?, ?)',
+                    [apps[0].user_id, 'loan', 'Loan Approved!', 
+                     `Your ${apps[0].loan_type} loan application for $${apps[0].loan_amount} has been approved.`]
+                ).catch(() => {});
+            }
+        }
+
+        res.json({ success: true, message: `Loan application ${status}` });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Error updating loan status' });
+    }
+});
+
+// ==================== INVESTMENT ENDPOINTS ====================
+
+// Create/submit investment
+app.post('/api/investments/invest', requireAuth, async (req, res) => {
+    try {
+        const userId = req.auth.id;
+        const { product, amount, period } = req.body;
+
+        if (!product || !amount || !period) {
+            return res.status(400).json({ success: false, message: 'Product, amount, and period are required' });
+        }
+
+        const investAmount = parseFloat(amount);
+        const periodYears = parseInt(period);
+
+        if (investAmount < 500) {
+            return res.status(400).json({ success: false, message: 'Minimum investment is $500' });
+        }
+
+        // Get user balance
+        const [users] = await pool.execute('SELECT balance FROM users WHERE id = ?', [userId]);
+        if (users.length === 0) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        const userBalance = parseFloat(users[0].balance) || 0;
+        if (userBalance < investAmount) {
+            return res.status(400).json({ success: false, message: 'Insufficient balance' });
+        }
+
+        // Determine product type and APY
+        const productTypes = {
+            'Savings Bond': { type: 'savings_bond', apy: 3.5 },
+            'Index Fund': { type: 'index_fund', apy: 7.2 },
+            'Fixed Deposit': { type: 'fixed_deposit', apy: 4.8 },
+            'Growth Fund': { type: 'growth_fund', apy: 9.5 }
+        };
+
+        // Extract product name from input
+        const productName = Object.keys(productTypes).find(p => product.includes(p)) || 'Fixed Deposit';
+        const productInfo = productTypes[productName];
+        
+        // Calculate estimated return using compound interest
+        const estimatedReturn = investAmount * Math.pow(1 + productInfo.apy / 100, periodYears) - investAmount;
+        const maturityDate = new Date();
+        maturityDate.setFullYear(maturityDate.getFullYear() + periodYears);
+
+        // Deduct from balance
+        await pool.execute('UPDATE users SET balance = balance - ? WHERE id = ?', [investAmount, userId]);
+
+        // Create investment record
+        const [result] = await pool.execute(`
+            INSERT INTO investments (user_id, product_name, product_type, amount, apy, period_years, estimated_return, maturity_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `, [userId, productName, productInfo.type, investAmount, productInfo.apy, periodYears, estimatedReturn.toFixed(2), maturityDate.toISOString().split('T')[0]]);
+
+        // Create transaction record
+        await pool.execute(`
+            INSERT INTO transactions (fromUserId, type, amount, description, status, reference)
+            VALUES (?, 'investment', ?, ?, 'completed', ?)
+        `, [userId, investAmount, `Investment in ${productName} for ${periodYears} years`, `INV-${result.insertId}`]);
+
+        // Log activity
+        await pool.execute(
+            'INSERT INTO activity_logs (user_id, action_type, action_details) VALUES (?, ?, ?)',
+            [userId, 'INVESTMENT', `Invested $${investAmount.toLocaleString()} in ${productName}`]
+        ).catch(() => {});
+
+        res.status(201).json({
+            success: true,
+            message: 'Investment created successfully',
+            investment: {
+                id: result.insertId,
+                product: productName,
+                amount: investAmount,
+                apy: productInfo.apy,
+                period: periodYears,
+                estimatedReturn: parseFloat(estimatedReturn.toFixed(2)),
+                maturityDate: maturityDate.toISOString().split('T')[0],
+                newBalance: userBalance - investAmount
+            }
+        });
+    } catch (error) {
+        console.error('Investment error:', error);
+        res.status(500).json({ success: false, message: 'Error creating investment' });
+    }
+});
+
+// Get user's investments
+app.get('/api/investments/my-investments', requireAuth, async (req, res) => {
+    try {
+        const userId = req.auth.id;
+
+        const [investments_list] = await pool.execute(`
+            SELECT id, product_name as product, product_type as type, amount, 
+                   apy, period_years as period, estimated_return as estimatedReturn,
+                   maturity_date as maturityDate, status, created_at as investedAt
+            FROM investments
+            WHERE user_id = ?
+            ORDER BY created_at DESC
+        `, [userId]);
+
+        // Calculate totals
+        const totalInvested = investments_list.reduce((sum, inv) => sum + parseFloat(inv.amount), 0);
+        const totalEstimatedReturn = investments_list.reduce((sum, inv) => sum + parseFloat(inv.estimatedReturn || 0), 0);
+
+        res.json({
+            success: true,
+            totalInvested,
+            totalEstimatedReturn,
+            count: investments_list.length,
+            investments: investments_list
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Error fetching investments' });
+    }
+});
+
+// Get investment details
+app.get('/api/investments/:id', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.auth.id;
+
+        const [investments_list] = await pool.execute(`
+            SELECT * FROM investments WHERE id = ? AND user_id = ?
+        `, [id, userId]);
+
+        if (investments_list.length === 0) {
+            return res.status(404).json({ success: false, message: 'Investment not found' });
+        }
+
+        res.json({ success: true, investment: investments_list[0] });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Error fetching investment' });
+    }
+});
+
+// ==================== LIVE CHAT ENDPOINTS ====================
+
+// Start a chat session
+app.post('/api/chat/start', requireAuth, async (req, res) => {
+    try {
+        const userId = req.auth.id;
+        const sessionId = `CHAT-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+        // Check for existing active session
+        const [existing] = await pool.execute(
+            'SELECT * FROM chat_sessions WHERE user_id = ? AND status IN ("active", "waiting")',
+            [userId]
+        );
+
+        if (existing.length > 0) {
+            return res.json({ success: true, sessionId: existing[0].session_id, resumed: true });
+        }
+
+        // Create new session
+        await pool.execute(
+            'INSERT INTO chat_sessions (user_id, session_id, status) VALUES (?, ?, "waiting")',
+            [userId, sessionId]
+        );
+
+        // Add welcome message
+        await pool.execute(
+            'INSERT INTO chat_messages (user_id, session_id, message, sender_type) VALUES (?, ?, ?, "system")',
+            [userId, sessionId, 'Welcome to Heritage Bank Live Chat! A support agent will be with you shortly. Average wait time is 2-3 minutes.']
+        );
+
+        res.json({ success: true, sessionId, resumed: false });
+    } catch (error) {
+        console.error('Chat start error:', error);
+        res.status(500).json({ success: false, message: 'Error starting chat' });
+    }
+});
+
+// Send chat message
+app.post('/api/chat/message', requireAuth, async (req, res) => {
+    try {
+        const userId = req.auth.id;
+        const { sessionId, message } = req.body;
+
+        if (!sessionId || !message) {
+            return res.status(400).json({ success: false, message: 'Session ID and message required' });
+        }
+
+        // Verify session belongs to user
+        const [sessions] = await pool.execute(
+            'SELECT * FROM chat_sessions WHERE session_id = ? AND user_id = ?',
+            [sessionId, userId]
+        );
+
+        if (sessions.length === 0) {
+            return res.status(404).json({ success: false, message: 'Chat session not found' });
+        }
+
+        // Insert message
+        const [result] = await pool.execute(
+            'INSERT INTO chat_messages (user_id, session_id, message, sender_type) VALUES (?, ?, ?, "user")',
+            [userId, sessionId, message]
+        );
+
+        // Auto-response (simulated agent for demo)
+        const autoResponses = [
+            'Thank you for your message. Let me look into that for you.',
+            'I understand your concern. Let me check our records.',
+            'I appreciate your patience. One moment please.',
+            'That\'s a great question! Let me provide you with the information.'
+        ];
+
+        // Add simulated agent response after a short delay (for demo purposes)
+        setTimeout(async () => {
+            try {
+                const randomResponse = autoResponses[Math.floor(Math.random() * autoResponses.length)];
+                await pool.execute(
+                    'INSERT INTO chat_messages (user_id, session_id, message, sender_type) VALUES (?, ?, ?, "agent")',
+                    [userId, sessionId, randomResponse]
+                );
+            } catch (e) {}
+        }, 2000);
+
+        res.json({ success: true, messageId: result.insertId });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Error sending message' });
+    }
+});
+
+// Get chat messages
+app.get('/api/chat/messages/:sessionId', requireAuth, async (req, res) => {
+    try {
+        const userId = req.auth.id;
+        const { sessionId } = req.params;
+        const { since } = req.query;
+
+        // Verify session belongs to user
+        const [sessions] = await pool.execute(
+            'SELECT * FROM chat_sessions WHERE session_id = ? AND user_id = ?',
+            [sessionId, userId]
+        );
+
+        if (sessions.length === 0) {
+            return res.status(404).json({ success: false, message: 'Chat session not found' });
+        }
+
+        let query = 'SELECT id, message, sender_type as sender, created_at as timestamp FROM chat_messages WHERE session_id = ?';
+        const params = [sessionId];
+
+        if (since) {
+            query += ' AND id > ?';
+            params.push(parseInt(since));
+        }
+
+        query += ' ORDER BY created_at ASC';
+
+        const [messages] = await pool.execute(query, params);
+
+        res.json({ success: true, messages, sessionStatus: sessions[0].status });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Error fetching messages' });
+    }
+});
+
+// End chat session
+app.post('/api/chat/end', requireAuth, async (req, res) => {
+    try {
+        const userId = req.auth.id;
+        const { sessionId } = req.body;
+
+        await pool.execute(
+            'UPDATE chat_sessions SET status = "closed", ended_at = NOW() WHERE session_id = ? AND user_id = ?',
+            [sessionId, userId]
+        );
+
+        // Add closing message
+        await pool.execute(
+            'INSERT INTO chat_messages (user_id, session_id, message, sender_type) VALUES (?, ?, ?, "system")',
+            [userId, sessionId, 'Chat session ended. Thank you for contacting Heritage Bank!']
+        );
+
+        res.json({ success: true, message: 'Chat session ended' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Error ending chat' });
+    }
+});
+
+// Admin: Get all active chat sessions
+app.get('/api/admin/chats', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const [sessions] = await pool.execute(`
+            SELECT cs.*, u.firstName, u.lastName, u.email,
+                   (SELECT COUNT(*) FROM chat_messages WHERE session_id = cs.session_id) as messageCount
+            FROM chat_sessions cs
+            LEFT JOIN users u ON cs.user_id = u.id
+            WHERE cs.status IN ('active', 'waiting')
+            ORDER BY cs.started_at DESC
+        `);
+
+        res.json({ success: true, sessions });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Error fetching chat sessions' });
+    }
+});
+
+// Admin: Send message to chat
+app.post('/api/admin/chat/message', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { sessionId, message } = req.body;
+
+        const [sessions] = await pool.execute('SELECT * FROM chat_sessions WHERE session_id = ?', [sessionId]);
+        if (sessions.length === 0) {
+            return res.status(404).json({ success: false, message: 'Session not found' });
+        }
+
+        // Update session status to active if it was waiting
+        if (sessions[0].status === 'waiting') {
+            await pool.execute(
+                'UPDATE chat_sessions SET status = "active", agent_id = ? WHERE session_id = ?',
+                [req.auth.id, sessionId]
+            );
+        }
+
+        await pool.execute(
+            'INSERT INTO chat_messages (user_id, session_id, message, sender_type, agent_id) VALUES (?, ?, ?, "agent", ?)',
+            [sessions[0].user_id, sessionId, message, req.auth.id]
+        );
+
+        res.json({ success: true, message: 'Message sent' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Error sending message' });
     }
 });
 
