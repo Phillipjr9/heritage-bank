@@ -167,11 +167,14 @@
                             const cls = credit ? 'credit' : 'debit';
                             const sign = credit ? '+' : '-';
                             const date = tx.createdAt || tx.date || tx.created_at;
+                            // Clean up description - remove "Admin" references
+                            let desc = tx.description || tx.type || 'Transaction';
+                            desc = desc.replace(/Admin\s*/gi, '').trim() || tx.type || 'Transaction';
                             return `
                                 <tr>
                                     <td>${formatDate(date)}</td>
                                     <td>
-                                        <div>${tx.description || tx.type || 'Transaction'}</div>
+                                        <div>${desc}</div>
                                         <div class="muted">From: ${tx.fromFirstName || ''} ${tx.fromLastName || ''} • To: ${tx.toFirstName || ''} ${tx.toLastName || ''}</div>
                                     </td>
                                     <td>${tx.type || '-'}</td>
