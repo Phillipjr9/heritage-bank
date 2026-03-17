@@ -421,10 +421,10 @@
 
         // Load user's existing loan applications
         async function loadMyApplications() {
-            if (!userId || !token) return;
+            if (!token) return;
             
             try {
-                const res = await fetch(`${API_URL}/api/loans/my-applications?userId=${userId}`, {
+                const res = await fetch(`${API_URL}/api/loans/my-applications`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 
@@ -446,16 +446,21 @@
             let html = `<h3><i class="fas fa-history"></i> My Loan Applications</h3>`;
             
             applications.slice(0, 5).forEach(app => {
-                const statusClass = app.status.replace('_', '-');
+                const loanType = app.loanType || app.loan_type || 'personal';
+                const amount = app.amount || app.loan_amount || 0;
+                const term = app.term || app.loan_duration_months || 12;
+                const status = app.status || 'pending';
+                const statusClass = status.replace('_', '-');
+                
                 html += `
                     <div class="application-item">
                         <div>
-                            <strong>${app.loan_type.charAt(0).toUpperCase() + app.loan_type.slice(1)} Loan</strong>
+                            <strong>${loanType.charAt(0).toUpperCase() + loanType.slice(1)} Loan</strong>
                             <p style="color: #666; font-size: 0.9rem; margin: 5px 0 0;">
-                                $${parseFloat(app.loan_amount).toLocaleString()} • ${app.loan_duration_months} months
+                                $${parseFloat(amount).toLocaleString()} • ${term} months
                             </p>
                         </div>
-                        <span class="app-status ${statusClass}">${app.status.replace('_', ' ')}</span>
+                        <span class="app-status ${statusClass}">${status.replace('_', ' ')}</span>
                     </div>
                 `;
             });
@@ -511,6 +516,16 @@
             const monthlyIncome = parseFloat(document.querySelector('[name="income"]').value);
             const employmentStatus = document.querySelector('[name="employment"]').value;
             const purpose = document.querySelector('[name="purpose"]').value;
+            const firstName = document.querySelector('[name="firstName"]').value;
+            const lastName = document.querySelector('[name="lastName"]').value;
+            const email = document.querySelector('[name="email"]').value;
+            const phone = document.querySelector('[name="phone"]').value;
+            const address = document.querySelector('[name="address"]').value;
+            const city = document.querySelector('[name="city"]').value;
+            const state = document.querySelector('[name="state"]').value;
+            const zip = document.querySelector('[name="zip"]').value;
+            const employer = document.querySelector('[name="employer"]').value;
+            const yearsEmployed = document.querySelector('[name="yearsEmployed"]')?.value;
 
             // Validate
             if (!loanType) {
@@ -528,13 +543,22 @@
                         'Authorization': `Bearer ${token}`
                     },
                     body: JSON.stringify({
-                        userId: userId,
                         loanType: loanType,
-                        loanAmount: loanAmount,
-                        loanDurationMonths: loanDurationMonths,
-                        monthlyIncome: monthlyIncome / 12, // Convert annual to monthly
-                        employmentStatus: employmentStatus,
-                        purpose: purpose
+                        amount: loanAmount,
+                        term: loanDurationMonths,
+                        income: monthlyIncome,
+                        employment: employmentStatus,
+                        purpose: purpose,
+                        firstName: firstName,
+                        lastName: lastName,
+                        email: email,
+                        phone: phone,
+                        address: address,
+                        city: city,
+                        state: state,
+                        zip: zip,
+                        employer: employer,
+                        yearsEmployed: yearsEmployed
                     })
                 });
 
@@ -542,7 +566,7 @@
 
                 if (res.ok && data.success) {
                     // Show success modal
-                    document.getElementById('applicationId').textContent = '#LA-' + data.applicationId.toString().padStart(6, '0');
+                    document.getElementById('applicationId').textContent = data.applicationId;
                     document.getElementById('successModal').classList.add('active');
                     
                     // Reset form
