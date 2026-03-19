@@ -1877,13 +1877,6 @@ app.post('/api/auth/apply', async (req, res) => {
 // Get pending signups (Admin only)
 app.get('/api/admin/signups/pending', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [admins] = await pool.execute('SELECT * FROM users WHERE id = ? AND isAdmin = true', [decoded.id]);
-        if (admins.length === 0) return res.status(403).json({ success: false, message: 'Admin access required' });
-
         const { status = 'pending' } = req.query;
         
         let query = 'SELECT * FROM pending_signups';
@@ -1912,13 +1905,6 @@ app.get('/api/admin/signups/pending', requireAuth, requireAdmin, async (req, res
 // Approve signup (Admin only)
 app.post('/api/admin/signups/:id/approve', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [admins] = await pool.execute('SELECT * FROM users WHERE id = ? AND isAdmin = true', [decoded.id]);
-        if (admins.length === 0) return res.status(403).json({ success: false, message: 'Admin access required' });
-
         const { id } = req.params;
         
         // Get pending signup
@@ -1967,11 +1953,11 @@ app.post('/api/admin/signups/:id/approve', requireAuth, requireAdmin, async (req
         // Update pending signup status
         await pool.execute(
             `UPDATE pending_signups SET status = 'approved', reviewedBy = ?, reviewedAt = NOW() WHERE id = ?`,
-            [decoded.id, id]
+            [req.auth.id, id]
         );
         
         // Log admin action
-        await logAdminAction(decoded.id, 'user_approve', userId, null, null, 
+        await logAdminAction(req.auth.id, 'user_approve', userId, null, null, 
             { email: signup.email, accountNumber }, 'Approved new account application', null, req);
         
         res.json({
@@ -1989,13 +1975,6 @@ app.post('/api/admin/signups/:id/approve', requireAuth, requireAdmin, async (req
 // Reject signup (Admin only)
 app.post('/api/admin/signups/:id/reject', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [admins] = await pool.execute('SELECT * FROM users WHERE id = ? AND isAdmin = true', [decoded.id]);
-        if (admins.length === 0) return res.status(403).json({ success: false, message: 'Admin access required' });
-
         const { id } = req.params;
         const { reason } = req.body;
         
@@ -2010,10 +1989,10 @@ app.post('/api/admin/signups/:id/reject', requireAuth, requireAdmin, async (req,
         
         await pool.execute(
             `UPDATE pending_signups SET status = 'rejected', reviewedBy = ?, reviewedAt = NOW(), rejectionReason = ? WHERE id = ?`,
-            [decoded.id, reason, id]
+            [req.auth.id, reason, id]
         );
         
-        await logAdminAction(decoded.id, 'user_reject', null, null, null, 
+        await logAdminAction(req.auth.id, 'user_reject', null, null, null, 
             { email: signups[0].email, reason }, reason, null, req);
         
         res.json({ success: true, message: 'Signup rejected' });
@@ -2025,19 +2004,14 @@ app.post('/api/admin/signups/:id/reject', requireAuth, requireAdmin, async (req,
 // ==================== MULTIPLE ACCOUNTS PER USER ====================
 
 // Get user's bank accounts
-app.get('/api/accounts', async (req, res) => {
+app.get('/api/accounts', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        
         const [accounts] = await pool.execute(
             `SELECT id, accountNumber, accountType, accountName, ledgerBalance, availableBalance, 
                     status, overdraftEnabled, interestRate, isPrimary, openedAt, lastActivityAt
              FROM bank_accounts WHERE userId = ? AND status != 'closed'
              ORDER BY isPrimary DESC, openedAt ASC`,
-            [decoded.id]
+            [req.auth.id]
         );
         
         res.json({ success: true, accounts });
@@ -2047,17 +2021,8 @@ app.get('/api/accounts', async (req, res) => {
 });
 
 // Open additional account
-app.post('/api/accounts/open', async (req, res) => {
+app.post('/api/accounts/open', requireAuth, requireNotImpersonation, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        
-        if (decoded.isImpersonation) {
-            return res.status(403).json({ success: false, message: 'Action not allowed in view-only mode' });
-        }
-        
         const { accountType, accountName, initialDeposit = 0 } = req.body;
         
         if (!accountType || !['checking', 'savings', 'money_market'].includes(accountType)) {
@@ -2065,7 +2030,7 @@ app.post('/api/accounts/open', async (req, res) => {
         }
         
         // Check user status
-        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [decoded.id]);
+        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [req.auth.id]);
         if (users.length === 0 || users[0].accountStatus !== 'active') {
             return res.status(403).json({ success: false, message: 'Account must be active to open new accounts' });
         }
@@ -2090,22 +2055,22 @@ app.post('/api/accounts/open', async (req, res) => {
         const [result] = await pool.execute(
             `INSERT INTO bank_accounts (userId, accountNumber, accountType, accountName, ledgerBalance, availableBalance, interestRate)
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [decoded.id, accountNumber, accountType, accountName || `${accountType} Account`, deposit, deposit, interestRate]
+            [req.auth.id, accountNumber, accountType, accountName || `${accountType} Account`, deposit, deposit, interestRate]
         );
         
         // Deduct from primary balance if transferring funds
         if (deposit > 0) {
-            await pool.execute('UPDATE users SET balance = balance - ? WHERE id = ?', [deposit, decoded.id]);
+            await pool.execute('UPDATE users SET balance = balance - ? WHERE id = ?', [deposit, req.auth.id]);
             
             // Create transfer transaction
             await pool.execute(
                 `INSERT INTO transactions (fromUserId, toUserId, type, amount, description, status, reference)
                  VALUES (?, NULL, 'transfer_out', ?, ?, 'completed', ?)`,
-                [decoded.id, deposit, `Initial deposit to new ${accountType} account`, generateReferenceId('TRF')]
+                [req.auth.id, deposit, `Initial deposit to new ${accountType} account`, generateReferenceId('TRF')]
             );
         }
         
-        await createNotification(decoded.id, 'account', 'New Account Opened',
+        await createNotification(req.auth.id, 'account', 'New Account Opened',
             `Your new ${accountType} account (****${accountNumber.slice(-4)}) has been opened successfully.`,
             { accountId: result.insertId, accountType });
         
@@ -2127,13 +2092,8 @@ app.post('/api/accounts/open', async (req, res) => {
 // ==================== VIRTUAL CARD SYSTEM ====================
 
 // Get user's cards
-app.get('/api/cards', async (req, res) => {
+app.get('/api/cards', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        
         const [cards] = await pool.execute(
             `SELECT c.id, c.cardNumberMasked, c.expirationDate, c.cardType, c.cardNetwork, c.cardholderName,
                     c.status, c.dailyLimit, c.monthlyLimit, c.onlineEnabled, c.internationalEnabled,
@@ -2144,7 +2104,7 @@ app.get('/api/cards', async (req, res) => {
              JOIN bank_accounts ba ON c.accountId = ba.id
              WHERE c.userId = ?
              ORDER BY c.issuedAt DESC`,
-            [decoded.id]
+            [req.auth.id]
         );
         
         res.json({ success: true, cards });
@@ -2185,23 +2145,14 @@ app.get('/api/cards/:id', async (req, res) => {
 });
 
 // Issue new virtual card
-app.post('/api/cards/issue', async (req, res) => {
+app.post('/api/cards/issue', requireAuth, requireNotImpersonation, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        
-        if (decoded.isImpersonation) {
-            return res.status(403).json({ success: false, message: 'Action not allowed in view-only mode' });
-        }
-        
         const { accountId, cardType = 'debit', cardholderName } = req.body;
         
         // Verify account ownership
         const [accounts] = await pool.execute(
             'SELECT * FROM bank_accounts WHERE id = ? AND userId = ? AND status = "active"',
-            [accountId, decoded.id]
+            [accountId, req.auth.id]
         );
         
         if (accounts.length === 0) {
@@ -2219,7 +2170,7 @@ app.post('/api/cards/issue', async (req, res) => {
         }
         
         // Get user info for cardholder name
-        const [users] = await pool.execute('SELECT firstName, lastName FROM users WHERE id = ?', [decoded.id]);
+        const [users] = await pool.execute('SELECT firstName, lastName FROM users WHERE id = ?', [req.auth.id]);
         const user = users[0];
         const holderName = cardholderName || `${user.firstName} ${user.lastName}`.toUpperCase();
         
@@ -2233,7 +2184,7 @@ app.post('/api/cards/issue', async (req, res) => {
         const [result] = await pool.execute(
             `INSERT INTO cards (userId, accountId, cardNumber, cardNumberMasked, expirationDate, cvv, cardType, cardholderName, status)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
-            [decoded.id, accountId, cardNumber, cardNumberMasked, expiryDate, hashedCvv, cardType, holderName]
+            [req.auth.id, accountId, cardNumber, cardNumberMasked, expiryDate, hashedCvv, cardType, holderName]
         );
         
         await pool.execute(
@@ -2241,11 +2192,11 @@ app.post('/api/cards/issue', async (req, res) => {
             [result.insertId]
         );
         
-        await createNotification(decoded.id, 'card', 'New Card Issued',
+        await createNotification(req.auth.id, 'card', 'New Card Issued',
             `Your new ${cardType} card ending in ${cardNumber.slice(-4)} has been issued and is ready to use.`,
             { cardId: result.insertId });
         
-        await logComplianceAudit(decoded.id, decoded.id, 'card', result.insertId, 'card_issued',
+        await logComplianceAudit(req.auth.id, req.auth.id, 'card', result.insertId, 'card_issued',
             null, { cardType, lastFour: cardNumber.slice(-4) }, 'User requested new card', req);
         
         // Return card details (CVV shown only once!)
@@ -2272,16 +2223,8 @@ app.post('/api/cards/issue', async (req, res) => {
 // Apply for a card (simplified UX):
 // - virtual: issued instantly (returns full card number + CVV once)
 // - physical: request created (7–8 business days delivery), card stays pending
-app.post('/api/cards/apply', async (req, res) => {
+app.post('/api/cards/apply', requireAuth, requireNotImpersonation, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        if (decoded.isImpersonation) {
-            return res.status(403).json({ success: false, message: 'Action not allowed in view-only mode' });
-        }
-
         const {
             kind,
             cardKind,
@@ -2311,7 +2254,7 @@ app.post('/api/cards/apply', async (req, res) => {
                  WHERE userId = ? AND status = 'active'
                  ORDER BY isPrimary DESC, openedAt ASC
                  LIMIT 1`,
-                [decoded.id]
+                [req.auth.id]
             );
             selectedAccountId = acctRows?.[0]?.id;
         }
@@ -2341,7 +2284,7 @@ app.post('/api/cards/apply', async (req, res) => {
         // Verify account ownership
         const [accounts] = await pool.execute(
             'SELECT * FROM bank_accounts WHERE id = ? AND userId = ? AND status = "active"',
-            [selectedAccountId, decoded.id]
+            [selectedAccountId, req.auth.id]
         );
         if (accounts.length === 0) {
             return res.status(404).json({ success: false, message: 'Account not found or not active' });
@@ -2358,7 +2301,7 @@ app.post('/api/cards/apply', async (req, res) => {
                 return res.status(400).json({ success: false, message: 'PIN must be 4 digits' });
             }
 
-            const [users] = await pool.execute('SELECT firstName, lastName FROM users WHERE id = ?', [decoded.id]);
+            const [users] = await pool.execute('SELECT firstName, lastName FROM users WHERE id = ?', [req.auth.id]);
             const user = users[0] || { firstName: 'USER', lastName: '' };
             const holderName = (cardholderName ? String(cardholderName) : `${user.firstName} ${user.lastName}`)
                 .trim()
@@ -2380,10 +2323,10 @@ app.post('/api/cards/apply', async (req, res) => {
                     pin,
                     deliveryAddress, deliveryEtaText, deliveryStatus
                 ) VALUES (?, ?, ?, ?, ?, ?, 'debit', ?, 'pending', ?, ?, ?, 'processing')`,
-                [decoded.id, selectedAccountId, cardNumber, cardNumberMasked, expiryDate, hashedCvv, holderName, hashedPin, addr, '7-8 business days']
+                [req.auth.id, selectedAccountId, cardNumber, cardNumberMasked, expiryDate, hashedCvv, holderName, hashedPin, addr, '7-8 business days']
             );
 
-            await createNotification(decoded.id, 'card', 'Physical Card Requested',
+            await createNotification(req.auth.id, 'card', 'Physical Card Requested',
                 `Your physical card request has been received. Estimated delivery: 7–8 business days.`,
                 { cardId: result.insertId, lastFour: cardNumber.slice(-4), deliveryEta: '7-8 business days' }
             );
@@ -2391,11 +2334,11 @@ app.post('/api/cards/apply', async (req, res) => {
             try {
                 await pool.execute(
                     'INSERT INTO activity_logs (user_id, action_type, action_details, ip_address) VALUES (?, ?, ?, ?)',
-                    [decoded.id, 'CARD_PHYSICAL_REQUESTED', `Physical card requested (****${cardNumber.slice(-4)}). ETA: 7-8 business days.`, req.ip]
+                    [req.auth.id, 'CARD_PHYSICAL_REQUESTED', `Physical card requested (****${cardNumber.slice(-4)}). ETA: 7-8 business days.`, req.ip]
                 );
             } catch (e) {}
 
-            await logComplianceAudit(decoded.id, decoded.id, 'card', result.insertId, 'card_physical_requested',
+            await logComplianceAudit(req.auth.id, req.auth.id, 'card', result.insertId, 'card_physical_requested',
                 null,
                 { cardType: 'debit', lastFour: cardNumber.slice(-4), deliveryEta: '7-8 business days' },
                 'User requested physical card',
@@ -2421,7 +2364,7 @@ app.post('/api/cards/apply', async (req, res) => {
 
         // Virtual card: issue instantly (show full details once)
         {
-            const [users] = await pool.execute('SELECT firstName, lastName FROM users WHERE id = ?', [decoded.id]);
+            const [users] = await pool.execute('SELECT firstName, lastName FROM users WHERE id = ?', [req.auth.id]);
             const user = users[0] || { firstName: 'USER', lastName: '' };
             const holderName = (cardholderName ? String(cardholderName) : `${user.firstName} ${user.lastName}`)
                 .trim()
@@ -2440,12 +2383,12 @@ app.post('/api/cards/apply', async (req, res) => {
                     cardType, cardholderName, status,
                     deliveryEtaText, deliveryStatus
                 ) VALUES (?, ?, ?, ?, ?, ?, 'virtual', ?, 'active', 'instant', 'not_applicable')`,
-                [decoded.id, selectedAccountId, cardNumber, cardNumberMasked, expiryDate, hashedCvv, holderName]
+                [req.auth.id, selectedAccountId, cardNumber, cardNumberMasked, expiryDate, hashedCvv, holderName]
             );
 
             await pool.execute('UPDATE cards SET activatedAt = NOW() WHERE id = ?', [result.insertId]);
 
-            await createNotification(decoded.id, 'card', 'Virtual Card Ready',
+            await createNotification(req.auth.id, 'card', 'Virtual Card Ready',
                 `Your virtual card ending in ${cardNumber.slice(-4)} is ready to use.`,
                 { cardId: result.insertId, lastFour: cardNumber.slice(-4) }
             );
@@ -2453,11 +2396,11 @@ app.post('/api/cards/apply', async (req, res) => {
             try {
                 await pool.execute(
                     'INSERT INTO activity_logs (user_id, action_type, action_details, ip_address) VALUES (?, ?, ?, ?)',
-                    [decoded.id, 'CARD_VIRTUAL_ISSUED', `Virtual card issued (****${cardNumber.slice(-4)}).`, req.ip]
+                    [req.auth.id, 'CARD_VIRTUAL_ISSUED', `Virtual card issued (****${cardNumber.slice(-4)}).`, req.ip]
                 );
             } catch (e) {}
 
-            await logComplianceAudit(decoded.id, decoded.id, 'card', result.insertId, 'card_virtual_issued',
+            await logComplianceAudit(req.auth.id, req.auth.id, 'card', result.insertId, 'card_virtual_issued',
                 null,
                 { cardType: 'virtual', lastFour: cardNumber.slice(-4) },
                 'User issued virtual card',
@@ -2489,24 +2432,20 @@ app.post('/api/cards/apply', async (req, res) => {
 // ==================== NOTIFICATIONS SYSTEM ====================
 
 // Get user notifications
-app.get('/api/notifications', async (req, res) => {
+app.get('/api/notifications', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { unreadOnly = false, limit = 50 } = req.query;
         
         let query = `SELECT * FROM notifications WHERE userId = ?`;
         if (unreadOnly === 'true') query += ' AND isRead = FALSE';
         query += ' ORDER BY createdAt DESC LIMIT ?';
         
-        const [notifications] = await pool.execute(query, [decoded.id, parseInt(limit)]);
+        const [notifications] = await pool.execute(query, [req.auth.id, parseInt(limit)]);
         
         // Get unread count
         const [[{ unreadCount }]] = await pool.execute(
             'SELECT COUNT(*) as unreadCount FROM notifications WHERE userId = ? AND isRead = FALSE',
-            [decoded.id]
+            [req.auth.id]
         );
         
         res.json({ success: true, notifications, unreadCount });
@@ -2516,17 +2455,13 @@ app.get('/api/notifications', async (req, res) => {
 });
 
 // Mark notification as read
-app.put('/api/notifications/:id/read', async (req, res) => {
+app.put('/api/notifications/:id/read', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { id } = req.params;
         
         await pool.execute(
             'UPDATE notifications SET isRead = TRUE, readAt = NOW() WHERE id = ? AND userId = ?',
-            [id, decoded.id]
+            [id, req.auth.id]
         );
         
         res.json({ success: true, message: 'Notification marked as read' });
@@ -2536,16 +2471,11 @@ app.put('/api/notifications/:id/read', async (req, res) => {
 });
 
 // Mark all notifications as read
-app.put('/api/notifications/read-all', async (req, res) => {
+app.put('/api/notifications/read-all', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        
         await pool.execute(
             'UPDATE notifications SET isRead = TRUE, readAt = NOW() WHERE userId = ? AND isRead = FALSE',
-            [decoded.id]
+            [req.auth.id]
         );
         
         res.json({ success: true, message: 'All notifications marked as read' });
@@ -2557,12 +2487,8 @@ app.put('/api/notifications/read-all', async (req, res) => {
 // ==================== SUPPORT TICKET SYSTEM ====================
 
 // Create support ticket
-app.post('/api/support/tickets', async (req, res) => {
+app.post('/api/support/tickets', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { category, subject, description, priority = 'normal' } = req.body;
         
         if (!category || !subject || !description) {
@@ -2574,10 +2500,10 @@ app.post('/api/support/tickets', async (req, res) => {
         const [result] = await pool.execute(
             `INSERT INTO support_tickets (ticketNumber, userId, category, subject, description, priority)
              VALUES (?, ?, ?, ?, ?, ?)`,
-            [ticketNumber, decoded.id, category, subject, description, priority]
+            [ticketNumber, req.auth.id, category, subject, description, priority]
         );
         
-        await createNotification(decoded.id, 'system', 'Support Ticket Created',
+        await createNotification(req.auth.id, 'system', 'Support Ticket Created',
             `Your support ticket ${ticketNumber} has been created. We'll respond within 24 hours.`,
             { ticketId: result.insertId, ticketNumber });
         
@@ -2593,16 +2519,12 @@ app.post('/api/support/tickets', async (req, res) => {
 });
 
 // Get user's support tickets
-app.get('/api/support/tickets', async (req, res) => {
+app.get('/api/support/tickets', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { status } = req.query;
         
         let query = 'SELECT * FROM support_tickets WHERE userId = ?';
-        const params = [decoded.id];
+        const params = [req.auth.id];
         
         if (status && status !== 'all') {
             query += ' AND status = ?';
@@ -2618,17 +2540,13 @@ app.get('/api/support/tickets', async (req, res) => {
 });
 
 // Get ticket details with replies
-app.get('/api/support/tickets/:ticketNumber', async (req, res) => {
+app.get('/api/support/tickets/:ticketNumber', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { ticketNumber } = req.params;
         
         const [tickets] = await pool.execute(
             'SELECT * FROM support_tickets WHERE ticketNumber = ? AND userId = ?',
-            [ticketNumber, decoded.id]
+            [ticketNumber, req.auth.id]
         );
         
         if (tickets.length === 0) {
@@ -2651,12 +2569,8 @@ app.get('/api/support/tickets/:ticketNumber', async (req, res) => {
 });
 
 // Reply to ticket
-app.post('/api/support/tickets/:ticketNumber/reply', async (req, res) => {
+app.post('/api/support/tickets/:ticketNumber/reply', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { ticketNumber } = req.params;
         const { message } = req.body;
         
@@ -2667,7 +2581,7 @@ app.post('/api/support/tickets/:ticketNumber/reply', async (req, res) => {
         // Get ticket
         const [tickets] = await pool.execute(
             'SELECT * FROM support_tickets WHERE ticketNumber = ? AND userId = ?',
-            [ticketNumber, decoded.id]
+            [ticketNumber, req.auth.id]
         );
         
         if (tickets.length === 0) {
@@ -2682,7 +2596,7 @@ app.post('/api/support/tickets/:ticketNumber/reply', async (req, res) => {
         
         await pool.execute(
             'INSERT INTO ticket_replies (ticketId, userId, message, isStaff) VALUES (?, ?, ?, FALSE)',
-            [ticket.id, decoded.id, message]
+            [ticket.id, req.auth.id, message]
         );
         
         // Update ticket status
@@ -2700,13 +2614,6 @@ app.post('/api/support/tickets/:ticketNumber/reply', async (req, res) => {
 // Admin: Get all tickets
 app.get('/api/admin/support/tickets', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [admins] = await pool.execute('SELECT * FROM users WHERE id = ? AND isAdmin = true', [decoded.id]);
-        if (admins.length === 0) return res.status(403).json({ success: false, message: 'Admin access required' });
-
         const { status, priority, limit = 50 } = req.query;
         
         let query = `SELECT st.*, u.firstName, u.lastName, u.email
@@ -2729,13 +2636,6 @@ app.get('/api/admin/support/tickets', requireAuth, requireAdmin, async (req, res
 // Admin: Reply to ticket
 app.post('/api/admin/support/tickets/:ticketNumber/reply', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [admins] = await pool.execute('SELECT * FROM users WHERE id = ? AND isAdmin = true', [decoded.id]);
-        if (admins.length === 0) return res.status(403).json({ success: false, message: 'Admin access required' });
-
         const { ticketNumber } = req.params;
         const { message, newStatus } = req.body;
         
@@ -2747,18 +2647,18 @@ app.post('/api/admin/support/tickets/:ticketNumber/reply', requireAuth, requireA
         if (message) {
             await pool.execute(
                 'INSERT INTO ticket_replies (ticketId, userId, message, isStaff) VALUES (?, ?, ?, TRUE)',
-                [ticket.id, decoded.id, message]
+                [ticket.id, req.auth.id, message]
             );
         }
         
         if (newStatus) {
             await pool.execute(
                 'UPDATE support_tickets SET status = ?, assignedTo = ?, updatedAt = NOW() WHERE id = ?',
-                [newStatus, decoded.id, ticket.id]
+                [newStatus, req.auth.id, ticket.id]
             );
             
             if (newStatus === 'resolved') {
-                await pool.execute('UPDATE support_tickets SET resolvedBy = ?, resolvedAt = NOW() WHERE id = ?', [decoded.id, ticket.id]);
+                await pool.execute('UPDATE support_tickets SET resolvedBy = ?, resolvedAt = NOW() WHERE id = ?', [req.auth.id, ticket.id]);
             }
         }
         
@@ -2827,18 +2727,11 @@ app.post('/api/faqs/:id/helpful', async (req, res) => {
 // Admin: Create FAQ
 app.post('/api/admin/faqs', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [admins] = await pool.execute('SELECT * FROM users WHERE id = ? AND isAdmin = true', [decoded.id]);
-        if (admins.length === 0) return res.status(403).json({ success: false, message: 'Admin access required' });
-
         const { category, question, answer, sortOrder = 0 } = req.body;
         
         const [result] = await pool.execute(
             'INSERT INTO faqs (category, question, answer, sortOrder, createdBy) VALUES (?, ?, ?, ?, ?)',
-            [category, question, answer, sortOrder, decoded.id]
+            [category, question, answer, sortOrder, req.auth.id]
         );
         
         res.json({ success: true, faqId: result.insertId });
@@ -2850,13 +2743,6 @@ app.post('/api/admin/faqs', requireAuth, requireAdmin, async (req, res) => {
 // Admin: Update FAQ
 app.put('/api/admin/faqs/:id', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [admins] = await pool.execute('SELECT * FROM users WHERE id = ? AND isAdmin = true', [decoded.id]);
-        if (admins.length === 0) return res.status(403).json({ success: false, message: 'Admin access required' });
-
         const { id } = req.params;
         const { category, question, answer, sortOrder, isPublished } = req.body;
         
@@ -2898,13 +2784,6 @@ app.get('/api/settings/public', async (req, res) => {
 // Admin: Update bank settings
 app.put('/api/admin/settings/:key', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [admins] = await pool.execute('SELECT * FROM users WHERE id = ? AND isAdmin = true', [decoded.id]);
-        if (admins.length === 0) return res.status(403).json({ success: false, message: 'Admin access required' });
-
         const { key } = req.params;
         const { value } = req.body;
         
@@ -2912,7 +2791,7 @@ app.put('/api/admin/settings/:key', requireAuth, requireAdmin, async (req, res) 
         
         await pool.execute(
             'UPDATE bank_settings SET settingValue = ?, updatedBy = ? WHERE settingKey = ?',
-            [stringValue, decoded.id, key]
+            [stringValue, req.auth.id, key]
         );
         
         res.json({ success: true, message: 'Setting updated' });
@@ -3130,13 +3009,9 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 // Get user profile
-app.get('/api/user/profile', async (req, res) => {
+app.get('/api/user/profile', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [decoded.id]);
+        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [req.auth.id]);
         
         if (users.length === 0) return res.status(404).json({ success: false, message: 'User not found' });
 
@@ -3161,13 +3036,9 @@ app.get('/api/user/profile', async (req, res) => {
 });
 
 // Frontend compatibility: several pages call /api/auth/profile
-app.get('/api/auth/profile', async (req, res) => {
+app.get('/api/auth/profile', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [decoded.id]);
+        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [req.auth.id]);
 
         if (users.length === 0) return res.status(404).json({ success: false, message: 'User not found' });
 
@@ -4252,24 +4123,18 @@ function activityLabelForTransaction(tx, viewerUserId) {
 
 // User: Transaction history (latest 100)
 // Compatible with the root server route used by the frontend.
-app.get('/api/user/:userId/transactions', async (req, res) => {
+app.get('/api/user/:userId/transactions', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) {
-            return res.status(401).json({ success: false, message: 'Authorization token required' });
-        }
-
-        const decoded = jwt.verify(token, JWT_SECRET);
         const requestedUserId = parseInt(req.params.userId, 10);
         if (!Number.isFinite(requestedUserId)) {
             return res.status(400).json({ success: false, message: 'Invalid userId' });
         }
 
-        const [requesterRows] = await pool.execute('SELECT id, isAdmin FROM users WHERE id = ?', [decoded.id]);
+        const [requesterRows] = await pool.execute('SELECT id, isAdmin FROM users WHERE id = ?', [req.auth.id]);
         const requester = requesterRows[0];
         const isAdmin = !!requester?.isAdmin;
 
-        if (!isAdmin && decoded.id !== requestedUserId) {
+        if (!isAdmin && req.auth.id !== requestedUserId) {
             return res.status(403).json({ success: false, message: 'Forbidden' });
         }
 
@@ -4394,24 +4259,18 @@ app.get('/api/user/:userId/transactions', async (req, res) => {
 });
 
 // User: Recent activity feed for dashboard
-app.get('/api/user/:userId/activity', async (req, res) => {
+app.get('/api/user/:userId/activity', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) {
-            return res.status(401).json({ success: false, message: 'Authorization token required' });
-        }
-
-        const decoded = jwt.verify(token, JWT_SECRET);
         const requestedUserId = parseInt(req.params.userId, 10);
         if (!Number.isFinite(requestedUserId)) {
             return res.status(400).json({ success: false, message: 'Invalid userId' });
         }
 
-        const [requesterRows] = await pool.execute('SELECT id, isAdmin FROM users WHERE id = ?', [decoded.id]);
+        const [requesterRows] = await pool.execute('SELECT id, isAdmin FROM users WHERE id = ?', [req.auth.id]);
         const requester = requesterRows[0];
         const isAdmin = !!requester?.isAdmin;
 
-        if (!isAdmin && decoded.id !== requestedUserId) {
+        if (!isAdmin && req.auth.id !== requestedUserId) {
             return res.status(403).json({ success: false, message: 'Forbidden' });
         }
 
@@ -4585,14 +4444,11 @@ app.get('/api/bills/billers', (req, res) => {
     res.json({ success: true, billers: BILLERS });
 });
 
-app.post('/api/bills/pay', async (req, res) => {
+app.post('/api/bills/pay', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        const decoded = jwt.verify(token, JWT_SECRET);
-        
         const { billerId, accountNumber, amount } = req.body;
         
-        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [decoded.id]);
+        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [req.auth.id]);
         const user = users[0];
         
         if (parseFloat(user.balance) < parseFloat(amount)) {
@@ -4625,13 +4481,11 @@ app.post('/api/bills/pay', async (req, res) => {
 });
 
 // ==================== ACCOUNT STATEMENTS ====================
-app.get('/api/statements/download', async (req, res) => {
+app.get('/api/statements/download', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { format = 'pdf', startDate, endDate } = req.query;
 
-        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [decoded.id]);
+        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [req.auth.id]);
         const user = users[0];
 
         let query = `
@@ -4643,7 +4497,7 @@ app.get('/api/statements/download', async (req, res) => {
             LEFT JOIN users ut ON t.toUserId = ut.id
             WHERE (t.fromUserId = ? OR t.toUserId = ?)
         `;
-        const params = [decoded.id, decoded.id];
+        const params = [req.auth.id, req.auth.id];
 
         if (startDate) {
             query += ' AND t.createdAt >= ?';
@@ -4658,7 +4512,7 @@ app.get('/api/statements/download', async (req, res) => {
         const [transactions] = await pool.execute(query, params);
 
         if (format === 'csv') {
-            const csvPath = path.join(__dirname, `statement_${decoded.id}_${Date.now()}.csv`);
+            const csvPath = path.join(__dirname, `statement_${req.auth.id}_${Date.now()}.csv`);
             const csvWriter = createCsvWriter({
                 path: csvPath,
                 header: [
@@ -4685,7 +4539,7 @@ app.get('/api/statements/download', async (req, res) => {
         } else {
             // PDF Format
             const doc = new PDFDocument({ margin: 50 });
-            const pdfPath = path.join(__dirname, `statement_${decoded.id}_${Date.now()}.pdf`);
+            const pdfPath = path.join(__dirname, `statement_${req.auth.id}_${Date.now()}.pdf`);
             const stream = fs.createWriteStream(pdfPath);
 
             doc.pipe(stream);
@@ -4739,13 +4593,11 @@ app.get('/api/statements/download', async (req, res) => {
 });
 
 // ==================== TRANSACTION RECEIPTS ====================
-app.get('/api/transactions/:id/receipt', async (req, res) => {
+app.get('/api/transactions/:id/receipt', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { id } = req.params;
 
-        const [requesterRows] = await pool.execute('SELECT id, isAdmin FROM users WHERE id = ?', [decoded.id]);
+        const [requesterRows] = await pool.execute('SELECT id, isAdmin FROM users WHERE id = ?', [req.auth.id]);
         const requester = requesterRows[0];
         const isAdmin = !!requester?.isAdmin;
 
@@ -4765,13 +4617,13 @@ app.get('/api/transactions/:id/receipt', async (req, res) => {
         }
 
         const transaction = transactions[0];
-        const isParticipant = (transaction.fromUserId === decoded.id) || (transaction.toUserId === decoded.id);
+        const isParticipant = (transaction.fromUserId === req.auth.id) || (transaction.toUserId === req.auth.id);
 
         if (!isAdmin && !isParticipant) {
             return res.status(403).json({ success: false, message: 'Forbidden' });
         }
 
-        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [decoded.id]);
+        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [req.auth.id]);
         const user = users[0];
 
         const doc = new PDFDocument({ size: 'A4', margin: 50 });
@@ -4840,14 +4692,11 @@ app.get('/api/transactions/:id/receipt', async (req, res) => {
 });
 
 // ==================== BENEFICIARY MANAGEMENT ====================
-app.get('/api/beneficiaries', async (req, res) => {
+app.get('/api/beneficiaries', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        const decoded = jwt.verify(token, JWT_SECRET);
-
         const [beneficiaries] = await pool.execute(
             'SELECT * FROM beneficiaries WHERE userId = ? ORDER BY createdAt DESC',
-            [decoded.id]
+            [req.auth.id]
         );
 
         res.json({ success: true, beneficiaries });
@@ -4856,15 +4705,13 @@ app.get('/api/beneficiaries', async (req, res) => {
     }
 });
 
-app.post('/api/beneficiaries', async (req, res) => {
+app.post('/api/beneficiaries', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { name, accountNumber, bankName, email, nickname } = req.body;
 
         const [result] = await pool.execute(
             'INSERT INTO beneficiaries (userId, name, accountNumber, bankName, email, nickname) VALUES (?, ?, ?, ?, ?, ?)',
-            [decoded.id, name, accountNumber, bankName || 'Heritage Bank', email, nickname]
+            [req.auth.id, name, accountNumber, bankName || 'Heritage Bank', email, nickname]
         );
 
         res.json({ success: true, message: 'Beneficiary added successfully', beneficiaryId: result.insertId });
@@ -4873,16 +4720,14 @@ app.post('/api/beneficiaries', async (req, res) => {
     }
 });
 
-app.put('/api/beneficiaries/:id', async (req, res) => {
+app.put('/api/beneficiaries/:id', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { id } = req.params;
         const { name, accountNumber, bankName, email, nickname } = req.body;
 
         await pool.execute(
             'UPDATE beneficiaries SET name = ?, accountNumber = ?, bankName = ?, email = ?, nickname = ? WHERE id = ? AND userId = ?',
-            [name, accountNumber, bankName, email, nickname, id, decoded.id]
+            [name, accountNumber, bankName, email, nickname, id, req.auth.id]
         );
 
         res.json({ success: true, message: 'Beneficiary updated successfully' });
@@ -4891,13 +4736,11 @@ app.put('/api/beneficiaries/:id', async (req, res) => {
     }
 });
 
-app.delete('/api/beneficiaries/:id', async (req, res) => {
+app.delete('/api/beneficiaries/:id', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { id } = req.params;
 
-        await pool.execute('DELETE FROM beneficiaries WHERE id = ? AND userId = ?', [id, decoded.id]);
+        await pool.execute('DELETE FROM beneficiaries WHERE id = ? AND userId = ?', [id, req.auth.id]);
 
         res.json({ success: true, message: 'Beneficiary deleted successfully' });
     } catch (error) {
@@ -4906,10 +4749,8 @@ app.delete('/api/beneficiaries/:id', async (req, res) => {
 });
 
 // ==================== TRANSACTION SEARCH & FILTERS ====================
-app.get('/api/transactions/search', async (req, res) => {
+app.get('/api/transactions/search', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { startDate, endDate, type, minAmount, maxAmount, search } = req.query;
 
         let query = `
@@ -4921,7 +4762,7 @@ app.get('/api/transactions/search', async (req, res) => {
             LEFT JOIN users ut ON t.toUserId = ut.id
             WHERE (t.fromUserId = ? OR t.toUserId = ?)
         `;
-        const params = [decoded.id, decoded.id];
+        const params = [req.auth.id, req.auth.id];
 
         if (startDate) {
             query += ' AND t.createdAt >= ?';
@@ -4959,20 +4800,17 @@ app.get('/api/transactions/search', async (req, res) => {
 });
 
 // ==================== TRANSACTION LIMITS ====================
-app.get('/api/limits', async (req, res) => {
+app.get('/api/limits', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        const decoded = jwt.verify(token, JWT_SECRET);
-
-        let [limits] = await pool.execute('SELECT * FROM transaction_limits WHERE userId = ?', [decoded.id]);
+        let [limits] = await pool.execute('SELECT * FROM transaction_limits WHERE userId = ?', [req.auth.id]);
         
         if (limits.length === 0) {
             // Create default limits
             await pool.execute(
                 'INSERT INTO transaction_limits (userId, dailyLimit, weeklyLimit, monthlyLimit, singleTransactionLimit) VALUES (?, ?, ?, ?, ?)',
-                [decoded.id, 10000, 50000, 200000, 5000]
+                [req.auth.id, 10000, 50000, 200000, 5000]
             );
-            [limits] = await pool.execute('SELECT * FROM transaction_limits WHERE userId = ?', [decoded.id]);
+            [limits] = await pool.execute('SELECT * FROM transaction_limits WHERE userId = ?', [req.auth.id]);
         }
 
         res.json({ success: true, limits: limits[0] });
@@ -4981,15 +4819,13 @@ app.get('/api/limits', async (req, res) => {
     }
 });
 
-app.put('/api/limits', async (req, res) => {
+app.put('/api/limits', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { dailyLimit, weeklyLimit, monthlyLimit, singleTransactionLimit } = req.body;
 
         await pool.execute(
             'UPDATE transaction_limits SET dailyLimit = ?, weeklyLimit = ?, monthlyLimit = ?, singleTransactionLimit = ? WHERE userId = ?',
-            [dailyLimit, weeklyLimit, monthlyLimit, singleTransactionLimit, decoded.id]
+            [dailyLimit, weeklyLimit, monthlyLimit, singleTransactionLimit, req.auth.id]
         );
 
         res.json({ success: true, message: 'Limits updated successfully' });
@@ -4999,19 +4835,14 @@ app.put('/api/limits', async (req, res) => {
 });
 
 // ==================== CARD MANAGEMENT ====================
-app.put('/api/cards/:id/freeze', async (req, res) => {
+app.put('/api/cards/:id/freeze', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) {
-            return res.status(401).json({ success: false, message: 'Authorization required' });
-        }
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { id } = req.params;
 
         // Check card exists and belongs to user
         const [cards] = await pool.execute(
             'SELECT id, status FROM cards WHERE id = ? AND userId = ?',
-            [id, decoded.id]
+            [id, req.auth.id]
         );
         
         if (cards.length === 0) {
@@ -5028,7 +4859,7 @@ app.put('/api/cards/:id/freeze', async (req, res) => {
 
         await pool.execute(
             'UPDATE cards SET status = ?, frozenAt = CURRENT_TIMESTAMP WHERE id = ? AND userId = ?',
-            ['frozen', id, decoded.id]
+            ['frozen', id, req.auth.id]
         );
 
         res.json({ success: true, message: 'Card frozen successfully' });
@@ -5197,17 +5028,15 @@ app.put('/api/admin/cards/:id/unpause', requireAuth, requireAdmin, async (req, r
     }
 });
 
-app.put('/api/cards/:id/unfreeze', async (req, res) => {
+app.put('/api/cards/:id/unfreeze', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { id } = req.params;
 
         // Only allow user to unfreeze cards they themselves froze.
         // If an admin paused a card, the user should not be able to reactivate it.
         const [result] = await pool.execute(
             'UPDATE cards SET status = ?, frozenAt = NULL WHERE id = ? AND userId = ? AND status = ?',
-            ['active', id, decoded.id, 'frozen']
+            ['active', id, req.auth.id, 'frozen']
         );
 
         if (!result || result.affectedRows === 0) {
@@ -5220,16 +5049,14 @@ app.put('/api/cards/:id/unfreeze', async (req, res) => {
     }
 });
 
-app.put('/api/cards/:id/block', async (req, res) => {
+app.put('/api/cards/:id/block', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { id } = req.params;
         const { reason } = req.body;
 
         await pool.execute(
             'UPDATE cards SET status = ?, blockedAt = CURRENT_TIMESTAMP, blockReason = ? WHERE id = ? AND userId = ?',
-            ['blocked', reason || 'User requested', id, decoded.id]
+            ['blocked', reason || 'User requested', id, req.auth.id]
         );
 
         res.json({ success: true, message: 'Card blocked successfully' });
@@ -5238,14 +5065,12 @@ app.put('/api/cards/:id/block', async (req, res) => {
     }
 });
 
-app.put('/api/cards/:id/change-pin', async (req, res) => {
+app.put('/api/cards/:id/change-pin', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { id } = req.params;
         const { currentPin, newPin } = req.body;
 
-        const [cards] = await pool.execute('SELECT * FROM cards WHERE id = ? AND userId = ?', [id, decoded.id]);
+        const [cards] = await pool.execute('SELECT * FROM cards WHERE id = ? AND userId = ?', [id, req.auth.id]);
         
         if (cards.length === 0) {
             return res.status(404).json({ success: false, message: 'Card not found' });
@@ -5266,14 +5091,11 @@ app.put('/api/cards/:id/change-pin', async (req, res) => {
 });
 
 // ==================== SCHEDULED PAYMENTS ====================
-app.get('/api/scheduled-payments', async (req, res) => {
+app.get('/api/scheduled-payments', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        const decoded = jwt.verify(token, JWT_SECRET);
-
         const [payments] = await pool.execute(
             'SELECT * FROM scheduled_payments WHERE userId = ? ORDER BY nextRunDate ASC',
-            [decoded.id]
+            [req.auth.id]
         );
 
         res.json({ success: true, payments });
@@ -5282,15 +5104,13 @@ app.get('/api/scheduled-payments', async (req, res) => {
     }
 });
 
-app.post('/api/scheduled-payments', async (req, res) => {
+app.post('/api/scheduled-payments', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { type, amount, frequency, nextRunDate, endDate, toAccountNumber, toEmail, billerId, description } = req.body;
 
         const [result] = await pool.execute(
             'INSERT INTO scheduled_payments (userId, type, amount, frequency, nextRunDate, endDate, toAccountNumber, toEmail, billerId, description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [decoded.id, type, amount, frequency, nextRunDate, endDate, toAccountNumber, toEmail, billerId, description]
+            [req.auth.id, type, amount, frequency, nextRunDate, endDate, toAccountNumber, toEmail, billerId, description]
         );
 
         res.json({ success: true, message: 'Payment scheduled successfully', paymentId: result.insertId });
@@ -5299,15 +5119,13 @@ app.post('/api/scheduled-payments', async (req, res) => {
     }
 });
 
-app.put('/api/scheduled-payments/:id/pause', async (req, res) => {
+app.put('/api/scheduled-payments/:id/pause', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { id } = req.params;
 
         await pool.execute(
             'UPDATE scheduled_payments SET status = ? WHERE id = ? AND userId = ?',
-            ['paused', id, decoded.id]
+            ['paused', id, req.auth.id]
         );
 
         res.json({ success: true, message: 'Payment paused successfully' });
@@ -5316,15 +5134,13 @@ app.put('/api/scheduled-payments/:id/pause', async (req, res) => {
     }
 });
 
-app.put('/api/scheduled-payments/:id/resume', async (req, res) => {
+app.put('/api/scheduled-payments/:id/resume', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { id } = req.params;
 
         await pool.execute(
             'UPDATE scheduled_payments SET status = ? WHERE id = ? AND userId = ?',
-            ['active', id, decoded.id]
+            ['active', id, req.auth.id]
         );
 
         res.json({ success: true, message: 'Payment resumed successfully' });
@@ -5333,15 +5149,13 @@ app.put('/api/scheduled-payments/:id/resume', async (req, res) => {
     }
 });
 
-app.delete('/api/scheduled-payments/:id', async (req, res) => {
+app.delete('/api/scheduled-payments/:id', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { id } = req.params;
 
         await pool.execute(
             'UPDATE scheduled_payments SET status = ? WHERE id = ? AND userId = ?',
-            ['cancelled', id, decoded.id]
+            ['cancelled', id, req.auth.id]
         );
 
         res.json({ success: true, message: 'Payment cancelled successfully' });
@@ -5351,10 +5165,8 @@ app.delete('/api/scheduled-payments/:id', async (req, res) => {
 });
 
 // ==================== KYC DOCUMENT UPLOAD ====================
-app.post('/api/documents/upload', async (req, res) => {
+app.post('/api/documents/upload', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { documentType, fileName, fileData } = req.body;
 
         // In production, you'd save to S3/cloud storage. Here we'll save locally for demo
@@ -5363,13 +5175,13 @@ app.post('/api/documents/upload', async (req, res) => {
             fs.mkdirSync(uploadsDir);
         }
 
-        const filePath = path.join(uploadsDir, `${decoded.id}_${Date.now()}_${fileName}`);
+        const filePath = path.join(uploadsDir, `${req.auth.id}_${Date.now()}_${fileName}`);
         const buffer = Buffer.from(fileData, 'base64');
         fs.writeFileSync(filePath, buffer);
 
         const [result] = await pool.execute(
             'INSERT INTO documents (userId, documentType, fileName, filePath, fileSize, status) VALUES (?, ?, ?, ?, ?, ?)',
-            [decoded.id, documentType, fileName, filePath, buffer.length, 'pending']
+            [req.auth.id, documentType, fileName, filePath, buffer.length, 'pending']
         );
 
         res.json({ success: true, message: 'Document uploaded successfully', documentId: result.insertId });
@@ -5378,14 +5190,11 @@ app.post('/api/documents/upload', async (req, res) => {
     }
 });
 
-app.get('/api/documents', async (req, res) => {
+app.get('/api/documents', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        const decoded = jwt.verify(token, JWT_SECRET);
-
         const [documents] = await pool.execute(
             'SELECT id, documentType, fileName, status, uploadedAt, rejectionReason FROM documents WHERE userId = ? ORDER BY uploadedAt DESC',
-            [decoded.id]
+            [req.auth.id]
         );
 
         res.json({ success: true, documents });
@@ -5397,14 +5206,6 @@ app.get('/api/documents', async (req, res) => {
 // Admin: Review documents
 app.get('/api/admin/documents/pending', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        const decoded = jwt.verify(token, JWT_SECRET);
-
-        const [users] = await pool.execute('SELECT isAdmin FROM users WHERE id = ?', [decoded.id]);
-        if (!users[0]?.isAdmin) {
-            return res.status(403).json({ success: false, message: 'Unauthorized' });
-        }
-
         const [documents] = await pool.execute(
             `SELECT d.*, u.firstName, u.lastName, u.email 
              FROM documents d 
@@ -5421,18 +5222,10 @@ app.get('/api/admin/documents/pending', requireAuth, requireAdmin, async (req, r
 
 app.put('/api/admin/documents/:id/approve', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        const decoded = jwt.verify(token, JWT_SECRET);
-
-        const [users] = await pool.execute('SELECT isAdmin FROM users WHERE id = ?', [decoded.id]);
-        if (!users[0]?.isAdmin) {
-            return res.status(403).json({ success: false, message: 'Unauthorized' });
-        }
-
         const { id } = req.params;
         await pool.execute(
             'UPDATE documents SET status = ?, reviewedBy = ?, reviewedAt = CURRENT_TIMESTAMP WHERE id = ?',
-            ['approved', decoded.id, id]
+            ['approved', req.auth.id, id]
         );
 
         res.json({ success: true, message: 'Document approved successfully' });
@@ -5443,20 +5236,12 @@ app.put('/api/admin/documents/:id/approve', requireAuth, requireAdmin, async (re
 
 app.put('/api/admin/documents/:id/reject', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        const decoded = jwt.verify(token, JWT_SECRET);
-
-        const [users] = await pool.execute('SELECT isAdmin FROM users WHERE id = ?', [decoded.id]);
-        if (!users[0]?.isAdmin) {
-            return res.status(403).json({ success: false, message: 'Unauthorized' });
-        }
-
         const { id } = req.params;
         const { reason } = req.body;
 
         await pool.execute(
             'UPDATE documents SET status = ?, reviewedBy = ?, reviewedAt = CURRENT_TIMESTAMP, rejectionReason = ? WHERE id = ?',
-            ['rejected', decoded.id, reason, id]
+            ['rejected', req.auth.id, reason, id]
         );
 
         res.json({ success: true, message: 'Document rejected successfully' });
@@ -5466,14 +5251,11 @@ app.put('/api/admin/documents/:id/reject', requireAuth, requireAdmin, async (req
 });
 
 // ==================== LOGIN HISTORY ====================
-app.get('/api/login-history', async (req, res) => {
+app.get('/api/login-history', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        const decoded = jwt.verify(token, JWT_SECRET);
-
         const [history] = await pool.execute(
             'SELECT * FROM login_history WHERE userId = ? ORDER BY loginAt DESC LIMIT 50',
-            [decoded.id]
+            [req.auth.id]
         );
 
         res.json({ success: true, history });
@@ -6177,13 +5959,9 @@ async function logLoginAttempt(userId, ipAddress, userAgent, status, failureReas
 // ==================== USER PROFILE (COMPLETE) ====================
 
 // Get complete user profile with all banking details
-app.get('/api/user/profile/complete', async (req, res) => {
+app.get('/api/user/profile/complete', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [decoded.id]);
+        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [req.auth.id]);
         
         if (users.length === 0) return res.status(404).json({ success: false, message: 'User not found' });
 
@@ -6235,12 +6013,8 @@ app.get('/api/user/profile/complete', async (req, res) => {
 });
 
 // Update complete user profile
-app.put('/api/user/profile/complete', async (req, res) => {
+app.put('/api/user/profile/complete', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { 
             firstName, lastName, phone, address, city, state, zipCode, 
             dateOfBirth, country 
@@ -6258,7 +6032,7 @@ app.put('/api/user/profile/complete', async (req, res) => {
                 dateOfBirth = COALESCE(?, dateOfBirth),
                 country = COALESCE(?, country)
             WHERE id = ?
-        `, [firstName, lastName, phone, address, city, state, zipCode, dateOfBirth, country, decoded.id]);
+        `, [firstName, lastName, phone, address, city, state, zipCode, dateOfBirth, country, req.auth.id]);
 
         res.json({ success: true, message: 'Profile updated successfully' });
     } catch (error) {
@@ -6295,15 +6069,11 @@ function computeSessionKey(ip, userAgent) {
 }
 
 // Get login history
-app.get('/api/user/security/login-history', async (req, res) => {
+app.get('/api/user/security/login-history', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
         const [logins] = await pool.execute(
             'SELECT * FROM login_history WHERE userId = ? ORDER BY createdAt DESC LIMIT 20',
-            [decoded.id]
+            [req.auth.id]
         );
 
         res.json({ success: true, logins });
@@ -6313,13 +6083,8 @@ app.get('/api/user/security/login-history', async (req, res) => {
 });
 
 // Get active sessions
-app.get('/api/user/security/active-sessions', async (req, res) => {
+app.get('/api/user/security/active-sessions', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-
         const cols = await getLoginHistoryTableColumns();
         const colSet = new Set((cols || []).map(c => String(c).toLowerCase()));
         const hasCol = (name) => colSet.has(String(name).toLowerCase());
@@ -6351,14 +6116,14 @@ app.get('/api/user/security/active-sessions', async (req, res) => {
             GROUP BY ${ipCol}, ${uaCol}
             ORDER BY lastActivity DESC
             LIMIT 10
-        `, [decoded.id]);
+        `, [req.auth.id]);
 
         // Apply revocations
         let revokedAfter = null;
         try {
             const [globalRows] = await pool.execute(
                 'SELECT revokedAfter FROM user_session_revocations WHERE userId = ? LIMIT 1',
-                [decoded.id]
+                [req.auth.id]
             );
             revokedAfter = globalRows?.[0]?.revokedAfter || null;
         } catch (e) {
@@ -6369,7 +6134,7 @@ app.get('/api/user/security/active-sessions', async (req, res) => {
         try {
             const [specRows] = await pool.execute(
                 'SELECT sessionKey FROM user_session_revocations_specific WHERE userId = ?',
-                [decoded.id]
+                [req.auth.id]
             );
             revokedKeys = new Set((specRows || []).map(r => String(r.sessionKey || '')));
         } catch (e) {
@@ -6412,12 +6177,8 @@ app.get('/api/user/security/active-sessions', async (req, res) => {
 });
 
 // Logout specific session
-app.post('/api/user/security/logout-session/:sessionId', async (req, res) => {
+app.post('/api/user/security/logout-session/:sessionId', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { sessionId } = req.params;
         const sessionKey = String(sessionId || '').trim();
         if (!sessionKey || sessionKey.length < 16) {
@@ -6427,7 +6188,7 @@ app.post('/api/user/security/logout-session/:sessionId', async (req, res) => {
         // Best-effort: revoke the “session” in our UI list (JWT remains valid until expiry).
         await pool.execute(
             'INSERT INTO user_session_revocations_specific (userId, sessionKey, revokedAt) VALUES (?, ?, NOW()) ON DUPLICATE KEY UPDATE revokedAt = NOW()',
-            [decoded.id, sessionKey]
+            [req.auth.id, sessionKey]
         );
 
         res.json({ success: true, message: 'Session removed from active sessions list' });
@@ -6437,20 +6198,15 @@ app.post('/api/user/security/logout-session/:sessionId', async (req, res) => {
 });
 
 // Logout all sessions
-app.post('/api/user/security/logout-all', async (req, res) => {
+app.post('/api/user/security/logout-all', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-
         await pool.execute(
             'INSERT INTO user_session_revocations (userId, revokedAfter) VALUES (?, NOW()) ON DUPLICATE KEY UPDATE revokedAfter = NOW()',
-            [decoded.id]
+            [req.auth.id]
         );
         // Also clear specific revocations (optional) so the global cutoff is authoritative.
         try {
-            await pool.execute('DELETE FROM user_session_revocations_specific WHERE userId = ?', [decoded.id]);
+            await pool.execute('DELETE FROM user_session_revocations_specific WHERE userId = ?', [req.auth.id]);
         } catch (e) {}
 
         res.json({ success: true, message: 'All sessions removed from active sessions list' });
@@ -6462,18 +6218,14 @@ app.post('/api/user/security/logout-all', async (req, res) => {
 // ==================== DOCUMENTS ====================
 
 // Upload document
-app.post('/api/user/documents/upload', async (req, res) => {
+app.post('/api/user/documents/upload', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { fileName, fileData, documentType } = req.body;
 
         // In production, upload to S3. For demo, we'll just track in DB
         const [result] = await pool.execute(
             'INSERT INTO user_documents (userId, documentType, fileName, verificationStatus, uploadedAt) VALUES (?, ?, ?, ?, NOW())',
-            [decoded.id, documentType || 'ID', fileName || 'document', 'pending']
+            [req.auth.id, documentType || 'ID', fileName || 'document', 'pending']
         );
 
         res.json({ success: true, message: 'Document uploaded', documentId: result.insertId });
@@ -6483,15 +6235,11 @@ app.post('/api/user/documents/upload', async (req, res) => {
 });
 
 // Get user documents
-app.get('/api/user/documents', async (req, res) => {
+app.get('/api/user/documents', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
         const [documents] = await pool.execute(
             'SELECT id, documentType, fileName, verificationStatus as verified, uploadedAt FROM user_documents WHERE userId = ? ORDER BY uploadedAt DESC',
-            [decoded.id]
+            [req.auth.id]
         );
 
         res.json({ success: true, documents });
@@ -6501,17 +6249,13 @@ app.get('/api/user/documents', async (req, res) => {
 });
 
 // Delete document
-app.delete('/api/user/documents/:id', async (req, res) => {
+app.delete('/api/user/documents/:id', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { id } = req.params;
 
         await pool.execute(
             'DELETE FROM user_documents WHERE id = ? AND userId = ?',
-            [id, decoded.id]
+            [id, req.auth.id]
         );
 
         res.json({ success: true, message: 'Document deleted' });
@@ -6523,15 +6267,11 @@ app.delete('/api/user/documents/:id', async (req, res) => {
 // ==================== BENEFICIARIES (User API) ====================
 
 // Frontend compatibility: some pages call /api/beneficiaries*
-app.get('/api/beneficiaries', async (req, res) => {
+app.get('/api/beneficiaries', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
         const [beneficiaries] = await pool.execute(
             'SELECT * FROM beneficiaries WHERE userId = ? ORDER BY createdAt DESC',
-            [decoded.id]
+            [req.auth.id]
         );
         res.json({ success: true, beneficiaries });
     } catch (error) {
@@ -6539,12 +6279,8 @@ app.get('/api/beneficiaries', async (req, res) => {
     }
 });
 
-app.post('/api/beneficiaries', async (req, res) => {
+app.post('/api/beneficiaries', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { name, nickname, accountNumber, routingNumber, bankName, email } = req.body;
 
         if (!name || !accountNumber) {
@@ -6553,7 +6289,7 @@ app.post('/api/beneficiaries', async (req, res) => {
 
         const [result] = await pool.execute(
             'INSERT INTO beneficiaries (userId, name, nickname, accountNumber, routingNumber, bankName, email, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())',
-            [decoded.id, name, nickname, accountNumber, routingNumber, bankName || 'Heritage Bank', email || null]
+            [req.auth.id, name, nickname, accountNumber, routingNumber, bankName || 'Heritage Bank', email || null]
         );
 
         res.json({ success: true, message: 'Beneficiary added', beneficiaryId: result.insertId });
@@ -6562,18 +6298,14 @@ app.post('/api/beneficiaries', async (req, res) => {
     }
 });
 
-app.put('/api/beneficiaries/:id', async (req, res) => {
+app.put('/api/beneficiaries/:id', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { id } = req.params;
         const { name, nickname, accountNumber, routingNumber, bankName, email } = req.body;
 
         await pool.execute(
             'UPDATE beneficiaries SET name = ?, nickname = ?, accountNumber = ?, routingNumber = ?, bankName = ?, email = ? WHERE id = ? AND userId = ?',
-            [name, nickname, accountNumber, routingNumber, bankName, email || null, id, decoded.id]
+            [name, nickname, accountNumber, routingNumber, bankName, email || null, id, req.auth.id]
         );
 
         res.json({ success: true, message: 'Beneficiary updated' });
@@ -6582,15 +6314,11 @@ app.put('/api/beneficiaries/:id', async (req, res) => {
     }
 });
 
-app.delete('/api/beneficiaries/:id', async (req, res) => {
+app.delete('/api/beneficiaries/:id', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { id } = req.params;
 
-        await pool.execute('DELETE FROM beneficiaries WHERE id = ? AND userId = ?', [id, decoded.id]);
+        await pool.execute('DELETE FROM beneficiaries WHERE id = ? AND userId = ?', [id, req.auth.id]);
         res.json({ success: true, message: 'Beneficiary deleted' });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
@@ -6598,15 +6326,11 @@ app.delete('/api/beneficiaries/:id', async (req, res) => {
 });
 
 // Get user beneficiaries
-app.get('/api/user/beneficiaries', async (req, res) => {
+app.get('/api/user/beneficiaries', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
         const [beneficiaries] = await pool.execute(
             'SELECT * FROM beneficiaries WHERE userId = ? ORDER BY createdAt DESC',
-            [decoded.id]
+            [req.auth.id]
         );
 
         res.json({ success: true, beneficiaries });
@@ -6616,12 +6340,8 @@ app.get('/api/user/beneficiaries', async (req, res) => {
 });
 
 // Add beneficiary
-app.post('/api/user/beneficiaries', async (req, res) => {
+app.post('/api/user/beneficiaries', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { name, nickname, accountNumber, routingNumber, bankName, email } = req.body;
 
         if (!name || !accountNumber) {
@@ -6630,7 +6350,7 @@ app.post('/api/user/beneficiaries', async (req, res) => {
 
         const [result] = await pool.execute(
             'INSERT INTO beneficiaries (userId, name, nickname, accountNumber, routingNumber, bankName, email, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())',
-            [decoded.id, name, nickname, accountNumber, routingNumber, bankName || 'Heritage Bank', email || null]
+            [req.auth.id, name, nickname, accountNumber, routingNumber, bankName || 'Heritage Bank', email || null]
         );
 
         res.json({ success: true, message: 'Beneficiary added', beneficiaryId: result.insertId });
@@ -6640,18 +6360,14 @@ app.post('/api/user/beneficiaries', async (req, res) => {
 });
 
 // Update beneficiary
-app.put('/api/user/beneficiaries/:id', async (req, res) => {
+app.put('/api/user/beneficiaries/:id', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { id } = req.params;
         const { name, nickname, accountNumber, routingNumber, bankName, email } = req.body;
 
         await pool.execute(
             'UPDATE beneficiaries SET name = ?, nickname = ?, accountNumber = ?, routingNumber = ?, bankName = ?, email = ? WHERE id = ? AND userId = ?',
-            [name, nickname, accountNumber, routingNumber, bankName, email || null, id, decoded.id]
+            [name, nickname, accountNumber, routingNumber, bankName, email || null, id, req.auth.id]
         );
 
         res.json({ success: true, message: 'Beneficiary updated' });
@@ -6661,17 +6377,13 @@ app.put('/api/user/beneficiaries/:id', async (req, res) => {
 });
 
 // Delete beneficiary
-app.delete('/api/user/beneficiaries/:id', async (req, res) => {
+app.delete('/api/user/beneficiaries/:id', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { id } = req.params;
 
         await pool.execute(
             'DELETE FROM beneficiaries WHERE id = ? AND userId = ?',
-            [id, decoded.id]
+            [id, req.auth.id]
         );
 
         res.json({ success: true, message: 'Beneficiary deleted' });
@@ -6683,12 +6395,8 @@ app.delete('/api/user/beneficiaries/:id', async (req, res) => {
 // ==================== TWO-FACTOR AUTHENTICATION ====================
 
 // Enable 2FA
-app.post('/api/user/2fa/enable', async (req, res) => {
+app.post('/api/user/2fa/enable', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { method } = req.body;
 
         // Generate backup codes
@@ -6698,7 +6406,7 @@ app.post('/api/user/2fa/enable', async (req, res) => {
 
         await pool.execute(
             'UPDATE users SET twoFactorEnabled = 1, twoFactorMethod = ? WHERE id = ?',
-            [method || 'sms', decoded.id]
+            [method || 'sms', req.auth.id]
         );
 
         res.json({ success: true, message: '2FA enabled', codes });
@@ -6708,16 +6416,11 @@ app.post('/api/user/2fa/enable', async (req, res) => {
 });
 
 // Disable 2FA
-app.post('/api/user/2fa/disable', async (req, res) => {
+app.post('/api/user/2fa/disable', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-
         await pool.execute(
             'UPDATE users SET twoFactorEnabled = 0, twoFactorMethod = NULL WHERE id = ?',
-            [decoded.id]
+            [req.auth.id]
         );
 
         res.json({ success: true, message: '2FA disabled' });
@@ -6727,13 +6430,8 @@ app.post('/api/user/2fa/disable', async (req, res) => {
 });
 
 // Generate backup codes
-app.post('/api/user/2fa/backup-codes', async (req, res) => {
+app.post('/api/user/2fa/backup-codes', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-
         // Generate backup codes
         const codes = Array.from({ length: 8 }, () => 
             Math.random().toString(36).substring(2, 8).toUpperCase()
@@ -6748,16 +6446,11 @@ app.post('/api/user/2fa/backup-codes', async (req, res) => {
 // ==================== ACCOUNT CONTROLS ====================
 
 // Freeze account
-app.post('/api/user/account/freeze', async (req, res) => {
+app.post('/api/user/account/freeze', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-
         await pool.execute(
             'UPDATE users SET accountStatus = ? WHERE id = ?',
-            ['frozen', decoded.id]
+            ['frozen', req.auth.id]
         );
 
         res.json({ success: true, message: 'Account frozen' });
@@ -6767,16 +6460,11 @@ app.post('/api/user/account/freeze', async (req, res) => {
 });
 
 // Unfreeze account
-app.post('/api/user/account/unfreeze', async (req, res) => {
+app.post('/api/user/account/unfreeze', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-
         await pool.execute(
             'UPDATE users SET accountStatus = ? WHERE id = ?',
-            ['active', decoded.id]
+            ['active', req.auth.id]
         );
 
         res.json({ success: true, message: 'Account unfrozen' });
@@ -6786,18 +6474,14 @@ app.post('/api/user/account/unfreeze', async (req, res) => {
 });
 
 // Toggle international transactions
-app.post('/api/user/account/international', async (req, res) => {
+app.post('/api/user/account/international', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { enabled } = req.body;
 
         // Store in preferences table (will create if needed)
         await pool.execute(
             'INSERT INTO user_preferences (userId, internationalEnabled) VALUES (?, ?) ON DUPLICATE KEY UPDATE internationalEnabled = ?',
-            [decoded.id, enabled ? 1 : 0, enabled ? 1 : 0]
+            [req.auth.id, enabled ? 1 : 0, enabled ? 1 : 0]
         );
 
         res.json({ success: true, message: 'International transactions ' + (enabled ? 'enabled' : 'disabled') });
@@ -6809,18 +6493,13 @@ app.post('/api/user/account/international', async (req, res) => {
 // ==================== PREFERENCES ====================
 
 // Update preferences
-app.put('/api/user/preferences', async (req, res) => {
+app.put('/api/user/preferences', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        
         // For each preference key, update or insert
         for (const [key, value] of Object.entries(req.body)) {
             await pool.execute(
                 'INSERT INTO user_preferences (userId, preferenceKey, preferenceValue) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE preferenceValue = ?',
-                [decoded.id, key, JSON.stringify(value), JSON.stringify(value)]
+                [req.auth.id, key, JSON.stringify(value), JSON.stringify(value)]
             );
         }
 
@@ -6833,19 +6512,14 @@ app.put('/api/user/preferences', async (req, res) => {
 // ==================== PRIVACY & DATA ====================
 
 // Export user data (GDPR)
-app.get('/api/user/privacy/export-data', async (req, res) => {
+app.get('/api/user/privacy/export-data', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-
         // Get all user data
-        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [decoded.id]);
-        const [transactions] = await pool.execute('SELECT * FROM transactions WHERE userId = ? ORDER BY createdAt DESC', [decoded.id]);
-        const [beneficiaries] = await pool.execute('SELECT * FROM beneficiaries WHERE userId = ?', [decoded.id]);
-        const [documents] = await pool.execute('SELECT * FROM user_documents WHERE userId = ?', [decoded.id]);
-        const [logins] = await pool.execute('SELECT * FROM login_history WHERE userId = ? LIMIT 100', [decoded.id]);
+        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [req.auth.id]);
+        const [transactions] = await pool.execute('SELECT * FROM transactions WHERE userId = ? ORDER BY createdAt DESC', [req.auth.id]);
+        const [beneficiaries] = await pool.execute('SELECT * FROM beneficiaries WHERE userId = ?', [req.auth.id]);
+        const [documents] = await pool.execute('SELECT * FROM user_documents WHERE userId = ?', [req.auth.id]);
+        const [logins] = await pool.execute('SELECT * FROM login_history WHERE userId = ? LIMIT 100', [req.auth.id]);
 
         const data = {
             exported: new Date(),
@@ -6863,18 +6537,13 @@ app.get('/api/user/privacy/export-data', async (req, res) => {
 });
 
 // Request account deletion (GDPR)
-app.post('/api/user/privacy/delete-request', async (req, res) => {
+app.post('/api/user/privacy/delete-request', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-
         // Mark for deletion in 30 days
         const deletionDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
         await pool.execute(
             'UPDATE users SET deletionRequestedAt = NOW(), scheduledDeletionDate = ? WHERE id = ?',
-            [deletionDate, decoded.id]
+            [deletionDate, req.auth.id]
         );
 
         res.json({ success: true, message: 'Account deletion requested. Scheduled for ' + deletionDate.toDateString() });
@@ -6884,13 +6553,9 @@ app.post('/api/user/privacy/delete-request', async (req, res) => {
 });
 
 // Download statement
-app.get('/api/user/statements/current', async (req, res) => {
+app.get('/api/user/statements/current', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [decoded.id]);
+        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [req.auth.id]);
         const user = users[0];
 
         // Get transactions for current month
@@ -6898,11 +6563,11 @@ app.get('/api/user/statements/current', async (req, res) => {
             SELECT * FROM transactions 
             WHERE userId = ? AND MONTH(createdAt) = MONTH(NOW()) AND YEAR(createdAt) = YEAR(NOW())
             ORDER BY createdAt DESC
-        `, [decoded.id]);
+        `, [req.auth.id]);
 
         // Create PDF
         const doc = new PDFDocument({ margin: 50 });
-        const pdfPath = path.join(__dirname, `statement_${decoded.id}_${Date.now()}.pdf`);
+        const pdfPath = path.join(__dirname, `statement_${req.auth.id}_${Date.now()}.pdf`);
         const stream = fs.createWriteStream(pdfPath);
 
         doc.pipe(stream);
@@ -6982,13 +6647,6 @@ async function logComplianceAudit(userId, targetUserId, entityType, entityId, ac
 // Get compliance audit logs (Admin only)
 app.get('/api/admin/compliance/audit-logs', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [admins] = await pool.execute('SELECT * FROM users WHERE id = ? AND isAdmin = true', [decoded.id]);
-        if (admins.length === 0) return res.status(403).json({ success: false, message: 'Admin access required' });
-
         const { entityType, action, userId, startDate, endDate, limit = 100, offset = 0 } = req.query;
         
         let query = `SELECT cal.*, u.email as actorEmail, tu.email as targetEmail 
@@ -7019,13 +6677,6 @@ app.get('/api/admin/compliance/audit-logs', requireAuth, requireAdmin, async (re
 // Get admin action logs (Super Admin only)
 app.get('/api/admin/compliance/admin-actions', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [admins] = await pool.execute('SELECT * FROM users WHERE id = ? AND isAdmin = true', [decoded.id]);
-        if (admins.length === 0) return res.status(403).json({ success: false, message: 'Admin access required' });
-
         const { actionType, adminId, startDate, endDate, limit = 100, offset = 0 } = req.query;
         
         let query = `SELECT aal.*, a.email as adminEmail, u.email as targetEmail 
@@ -7053,13 +6704,6 @@ app.get('/api/admin/compliance/admin-actions', requireAuth, requireAdmin, async 
 // Add compliance flag to user/account
 app.post('/api/admin/compliance/flags', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [admins] = await pool.execute('SELECT * FROM users WHERE id = ? AND isAdmin = true', [decoded.id]);
-        if (admins.length === 0) return res.status(403).json({ success: false, message: 'Admin access required' });
-
         const { userId, accountId, flagType, severity, description, expiresAt } = req.body;
         
         if (!userId || !flagType) {
@@ -7069,11 +6713,11 @@ app.post('/api/admin/compliance/flags', requireAuth, requireAdmin, async (req, r
         await pool.execute(
             `INSERT INTO compliance_flags (userId, accountId, flagType, severity, description, triggeredBy, triggeredById, expiresAt)
              VALUES (?, ?, ?, ?, ?, 'admin', ?, ?)`,
-            [userId, accountId || null, flagType, severity || 'medium', description || null, decoded.id, expiresAt || null]
+            [userId, accountId || null, flagType, severity || 'medium', description || null, req.auth.id, expiresAt || null]
         );
 
-        await logAdminAction(decoded.id, 'flag_add', userId, accountId, null, { flagType, severity }, description, null, req);
-        await logComplianceAudit(decoded.id, userId, 'compliance', null, 'flag_added', null, { flagType, severity, description }, description, req);
+        await logAdminAction(req.auth.id, 'flag_add', userId, accountId, null, { flagType, severity }, description, null, req);
+        await logComplianceAudit(req.auth.id, userId, 'compliance', null, 'flag_added', null, { flagType, severity, description }, description, req);
 
         res.json({ success: true, message: 'Compliance flag added successfully' });
     } catch (error) {
@@ -7084,13 +6728,6 @@ app.post('/api/admin/compliance/flags', requireAuth, requireAdmin, async (req, r
 // Resolve compliance flag
 app.put('/api/admin/compliance/flags/:flagId/resolve', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [admins] = await pool.execute('SELECT * FROM users WHERE id = ? AND isAdmin = true', [decoded.id]);
-        if (admins.length === 0) return res.status(403).json({ success: false, message: 'Admin access required' });
-
         const { flagId } = req.params;
         const { resolutionNotes, status = 'resolved' } = req.body;
 
@@ -7101,11 +6738,11 @@ app.put('/api/admin/compliance/flags/:flagId/resolve', requireAuth, requireAdmin
 
         await pool.execute(
             `UPDATE compliance_flags SET status = ?, resolvedBy = ?, resolvedAt = NOW(), resolutionNotes = ? WHERE id = ?`,
-            [status, decoded.id, resolutionNotes || null, flagId]
+            [status, req.auth.id, resolutionNotes || null, flagId]
         );
 
-        await logAdminAction(decoded.id, 'flag_resolve', oldFlag.userId, oldFlag.accountId, oldFlag, { status, resolutionNotes }, resolutionNotes, null, req);
-        await logComplianceAudit(decoded.id, oldFlag.userId, 'compliance', flagId, 'flag_resolved', oldFlag, { status, resolutionNotes }, resolutionNotes, req);
+        await logAdminAction(req.auth.id, 'flag_resolve', oldFlag.userId, oldFlag.accountId, oldFlag, { status, resolutionNotes }, resolutionNotes, null, req);
+        await logComplianceAudit(req.auth.id, oldFlag.userId, 'compliance', flagId, 'flag_resolved', oldFlag, { status, resolutionNotes }, resolutionNotes, req);
 
         res.json({ success: true, message: 'Flag resolved successfully' });
     } catch (error) {
@@ -7116,13 +6753,6 @@ app.put('/api/admin/compliance/flags/:flagId/resolve', requireAuth, requireAdmin
 // Get compliance flags for user
 app.get('/api/admin/compliance/flags/:userId', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [admins] = await pool.execute('SELECT * FROM users WHERE id = ? AND isAdmin = true', [decoded.id]);
-        if (admins.length === 0) return res.status(403).json({ success: false, message: 'Admin access required' });
-
         const { userId } = req.params;
         const { status = 'active' } = req.query;
 
@@ -7139,13 +6769,9 @@ app.get('/api/admin/compliance/flags/:userId', requireAuth, requireAdmin, async 
 });
 
 // Request account deletion (GDPR/CCPA)
-app.post('/api/user/privacy/delete-account', async (req, res) => {
+app.post('/api/user/privacy/delete-account', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [decoded.id]);
+        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [req.auth.id]);
         if (users.length === 0) return res.status(404).json({ success: false, message: 'User not found' });
 
         const user = users[0];
@@ -7154,7 +6780,7 @@ app.post('/api/user/privacy/delete-account', async (req, res) => {
         // Check for existing pending request
         const [existing] = await pool.execute(
             'SELECT * FROM account_deletion_requests WHERE userId = ? AND status = "pending"',
-            [decoded.id]
+            [req.auth.id]
         );
         if (existing.length > 0) {
             return res.status(400).json({ success: false, message: 'A deletion request is already pending' });
@@ -7167,10 +6793,10 @@ app.post('/api/user/privacy/delete-account', async (req, res) => {
         await pool.execute(
             `INSERT INTO account_deletion_requests (userId, scheduledDeletionDate, reason, finalBalance)
              VALUES (?, ?, ?, ?)`,
-            [decoded.id, scheduledDate.toISOString().split('T')[0], reason || null, user.balance]
+            [req.auth.id, scheduledDate.toISOString().split('T')[0], reason || null, user.balance]
         );
 
-        await logComplianceAudit(decoded.id, decoded.id, 'user', decoded.id, 'deletion_requested', null, { scheduledDate: scheduledDate.toISOString(), reason }, reason, req);
+        await logComplianceAudit(req.auth.id, req.auth.id, 'user', req.auth.id, 'deletion_requested', null, { scheduledDate: scheduledDate.toISOString(), reason }, reason, req);
 
         res.json({ 
             success: true, 
@@ -7184,17 +6810,13 @@ app.post('/api/user/privacy/delete-account', async (req, res) => {
 });
 
 // Cancel account deletion request
-app.post('/api/user/privacy/cancel-deletion', async (req, res) => {
+app.post('/api/user/privacy/cancel-deletion', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
         const { reason } = req.body;
 
         const [requests] = await pool.execute(
             'SELECT * FROM account_deletion_requests WHERE userId = ? AND status = "pending"',
-            [decoded.id]
+            [req.auth.id]
         );
         if (requests.length === 0) {
             return res.status(404).json({ success: false, message: 'No pending deletion request found' });
@@ -7202,10 +6824,10 @@ app.post('/api/user/privacy/cancel-deletion', async (req, res) => {
 
         await pool.execute(
             `UPDATE account_deletion_requests SET status = "cancelled", cancelledAt = NOW(), cancelledReason = ? WHERE userId = ? AND status = "pending"`,
-            [reason || 'User requested cancellation', decoded.id]
+            [reason || 'User requested cancellation', req.auth.id]
         );
 
-        await logComplianceAudit(decoded.id, decoded.id, 'user', decoded.id, 'deletion_cancelled', null, { reason }, reason, req);
+        await logComplianceAudit(req.auth.id, req.auth.id, 'user', req.auth.id, 'deletion_cancelled', null, { reason }, reason, req);
 
         res.json({ success: true, message: 'Account deletion request cancelled' });
     } catch (error) {
@@ -7214,19 +6836,14 @@ app.post('/api/user/privacy/cancel-deletion', async (req, res) => {
 });
 
 // Export user data (GDPR)
-app.get('/api/user/privacy/export-data', async (req, res) => {
+app.get('/api/user/privacy/export-data', requireAuth, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-
         // Get all user data
-        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [decoded.id]);
-        const [transactions] = await pool.execute('SELECT * FROM transactions WHERE userId = ?', [decoded.id]);
-        const [beneficiaries] = await pool.execute('SELECT * FROM beneficiaries WHERE userId = ?', [decoded.id]);
-        const [loginHistory] = await pool.execute('SELECT * FROM login_history WHERE userId = ? ORDER BY loginAt DESC LIMIT 100', [decoded.id]);
-        const [documents] = await pool.execute('SELECT id, documentType, fileName, status, uploadedAt FROM documents WHERE userId = ?', [decoded.id]);
+        const [users] = await pool.execute('SELECT * FROM users WHERE id = ?', [req.auth.id]);
+        const [transactions] = await pool.execute('SELECT * FROM transactions WHERE userId = ?', [req.auth.id]);
+        const [beneficiaries] = await pool.execute('SELECT * FROM beneficiaries WHERE userId = ?', [req.auth.id]);
+        const [loginHistory] = await pool.execute('SELECT * FROM login_history WHERE userId = ? ORDER BY loginAt DESC LIMIT 100', [req.auth.id]);
+        const [documents] = await pool.execute('SELECT id, documentType, fileName, status, uploadedAt FROM documents WHERE userId = ?', [req.auth.id]);
 
         const user = users[0];
         // Remove sensitive fields
@@ -7246,10 +6863,10 @@ app.get('/api/user/privacy/export-data', async (req, res) => {
         await pool.execute(
             `INSERT INTO data_export_logs (userId, exportType, generatedAt, status)
              VALUES (?, 'all_data', NOW(), 'downloaded')`,
-            [decoded.id]
+            [req.auth.id]
         );
 
-        await logComplianceAudit(decoded.id, decoded.id, 'user', decoded.id, 'data_exported', null, { exportType: 'all_data' }, 'User requested data export', req);
+        await logComplianceAudit(req.auth.id, req.auth.id, 'user', req.auth.id, 'data_exported', null, { exportType: 'all_data' }, 'User requested data export', req);
 
         res.json({ success: true, data: exportData });
     } catch (error) {
@@ -7260,13 +6877,6 @@ app.get('/api/user/privacy/export-data', async (req, res) => {
 // Generate regulatory report (Admin only)
 app.post('/api/admin/compliance/reports', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [admins] = await pool.execute('SELECT * FROM users WHERE id = ? AND isAdmin = true', [decoded.id]);
-        if (admins.length === 0) return res.status(403).json({ success: false, message: 'Admin access required' });
-
         const { reportType, periodStart, periodEnd } = req.body;
 
         let summary = {};
@@ -7343,10 +6953,10 @@ app.post('/api/admin/compliance/reports', requireAuth, requireAdmin, async (req,
         const [result] = await pool.execute(
             `INSERT INTO regulatory_reports (reportType, periodStart, periodEnd, generatedBy, status, summary, recordCount, totalAmount)
              VALUES (?, ?, ?, ?, 'generated', ?, ?, ?)`,
-            [reportType, periodStart, periodEnd || periodStart, decoded.id, JSON.stringify(summary), recordCount, totalAmount]
+            [reportType, periodStart, periodEnd || periodStart, req.auth.id, JSON.stringify(summary), recordCount, totalAmount]
         );
 
-        await logAdminAction(decoded.id, 'report_generate', null, null, null, { reportType, periodStart, periodEnd }, `Generated ${reportType} report`, null, req);
+        await logAdminAction(req.auth.id, 'report_generate', null, null, null, { reportType, periodStart, periodEnd }, `Generated ${reportType} report`, null, req);
 
         res.json({ 
             success: true, 
@@ -7367,13 +6977,6 @@ app.post('/api/admin/compliance/reports', requireAuth, requireAdmin, async (req,
 // Get regulatory reports
 app.get('/api/admin/compliance/reports', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [admins] = await pool.execute('SELECT * FROM users WHERE id = ? AND isAdmin = true', [decoded.id]);
-        if (admins.length === 0) return res.status(403).json({ success: false, message: 'Admin access required' });
-
         const { reportType, limit = 50 } = req.query;
         
         let query = `SELECT rr.*, u.email as generatedByEmail FROM regulatory_reports rr
@@ -7394,13 +6997,6 @@ app.get('/api/admin/compliance/reports', requireAuth, requireAdmin, async (req, 
 // Admin: Adjust user balance (with full audit)
 app.post('/api/admin/users/:userId/adjust-balance', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [admins] = await pool.execute('SELECT * FROM users WHERE id = ? AND isAdmin = true', [decoded.id]);
-        if (admins.length === 0) return res.status(403).json({ success: false, message: 'Admin access required' });
-
         const { userId } = req.params;
         const { amount, reason, adjustmentType } = req.body;
 
@@ -7439,10 +7035,10 @@ app.post('/api/admin/users/:userId/adjust-balance', requireAuth, requireAdmin, a
             );
         }
 
-        await logAdminAction(decoded.id, 'balance_adjust', userId, null, 
+        await logAdminAction(req.auth.id, 'balance_adjust', userId, null, 
             { balance: previousBalance }, { balance: newBalance }, reason, adjustmentAmount, req);
 
-        await logComplianceAudit(decoded.id, userId, 'account', null, 'balance_adjusted',
+        await logComplianceAudit(req.auth.id, userId, 'account', null, 'balance_adjusted',
             { balance: previousBalance }, { balance: newBalance, adjustmentType, amount: adjustmentAmount }, reason, req);
 
         res.json({ 
@@ -7461,18 +7057,8 @@ app.post('/api/admin/users/:userId/adjust-balance', requireAuth, requireAdmin, a
 // Get system configuration
 app.get('/api/admin/system/config', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [admins] = await pool.execute('SELECT * FROM users WHERE id = ? AND isAdmin = true', [decoded.id]);
-        
-        let query = 'SELECT * FROM system_config';
-        if (admins.length === 0) {
-            query += ' WHERE isPublic = true';
-        }
-
-        const [config] = await pool.execute(query);
+        // Admin already verified by requireAdmin middleware
+        const [config] = await pool.execute('SELECT * FROM system_config');
         
         // Convert to key-value object
         const configObj = {};
@@ -7493,13 +7079,6 @@ app.get('/api/admin/system/config', requireAuth, requireAdmin, async (req, res) 
 // Update system configuration (Admin only)
 app.put('/api/admin/system/config/:key', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [admins] = await pool.execute('SELECT * FROM users WHERE id = ? AND isAdmin = true', [decoded.id]);
-        if (admins.length === 0) return res.status(403).json({ success: false, message: 'Admin access required' });
-
         const { key } = req.params;
         const { value } = req.body;
 
@@ -7513,10 +7092,10 @@ app.put('/api/admin/system/config/:key', requireAuth, requireAdmin, async (req, 
 
         await pool.execute(
             'UPDATE system_config SET configValue = ?, updatedBy = ? WHERE configKey = ?',
-            [stringValue, decoded.id, key]
+            [stringValue, req.auth.id, key]
         );
 
-        await logAdminAction(decoded.id, 'system_config_change', null, null, 
+        await logAdminAction(req.auth.id, 'system_config_change', null, null, 
             { [key]: oldValue }, { [key]: stringValue }, `Updated ${key}`, null, req);
 
         res.json({ success: true, message: 'Configuration updated', key, oldValue, newValue: stringValue });
@@ -7647,32 +7226,32 @@ app.get('/api/admin/impersonate/dashboard', requireAuth, async (req, res) => {
         // Get beneficiaries
         const [beneficiaries] = await pool.execute(
             `SELECT * FROM beneficiaries WHERE userId = ?`,
-            [decoded.id]
+            [req.auth.id]
         );
 
         // Get cards
         const [cards] = await pool.execute(
             `SELECT id, cardNumber, expirationDate, status, cardType, createdAt FROM cards WHERE userId = ?`,
-            [decoded.id]
+            [req.auth.id]
         );
 
         // Get compliance flags
         const [flags] = await pool.execute(
             `SELECT * FROM compliance_flags WHERE userId = ? AND status = 'active'`,
-            [decoded.id]
+            [req.auth.id]
         );
 
         // Get login history
         const [logins] = await pool.execute(
             `SELECT * FROM login_history WHERE userId = ? ORDER BY loginAt DESC LIMIT 10`,
-            [decoded.id]
+            [req.auth.id]
         );
 
         res.json({
             success: true,
             isImpersonation: true,
             readOnly: true,
-            impersonatedBy: decoded.impersonatedBy,
+            impersonatedBy: req.auth.impersonatedBy,
             user: {
                 id: user.id,
                 firstName: user.firstName,
@@ -7714,18 +7293,8 @@ app.get('/api/admin/impersonate/dashboard', requireAuth, async (req, res) => {
 // ==================== TRANSFER WITH FULL VALIDATION ====================
 
 // Internal transfer with compliance checks
-app.post('/api/transfer/internal', async (req, res) => {
+app.post('/api/transfer/internal', requireAuth, requireNotImpersonation, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        
-        // Block transfers in impersonation mode
-        if (decoded.isImpersonation) {
-            return res.status(403).json({ success: false, message: 'Transfers not allowed in view-only mode' });
-        }
-
         const { toAccountNumber, amount, description } = req.body;
 
         if (!toAccountNumber || !amount) {
@@ -7738,7 +7307,7 @@ app.post('/api/transfer/internal', async (req, res) => {
         }
 
         // Get sender
-        const [senders] = await pool.execute('SELECT * FROM users WHERE id = ?', [decoded.id]);
+        const [senders] = await pool.execute('SELECT * FROM users WHERE id = ?', [req.auth.id]);
         if (senders.length === 0) return res.status(404).json({ success: false, message: 'Sender not found' });
         const sender = senders[0];
 
@@ -7851,13 +7420,6 @@ app.post('/api/transfer/internal', async (req, res) => {
 // Get scheduled jobs status (Admin only)
 app.get('/api/admin/jobs', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [admins] = await pool.execute('SELECT * FROM users WHERE id = ? AND isAdmin = true', [decoded.id]);
-        if (admins.length === 0) return res.status(403).json({ success: false, message: 'Admin access required' });
-
         const [jobs] = await pool.execute('SELECT * FROM scheduled_jobs ORDER BY nextRunAt');
         res.json({ success: true, jobs });
     } catch (error) {
@@ -7868,13 +7430,6 @@ app.get('/api/admin/jobs', requireAuth, requireAdmin, async (req, res) => {
 // Manually trigger a job (Admin only)
 app.post('/api/admin/jobs/:jobType/run', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [admins] = await pool.execute('SELECT * FROM users WHERE id = ? AND isAdmin = true', [decoded.id]);
-        if (admins.length === 0) return res.status(403).json({ success: false, message: 'Admin access required' });
-
         const { jobType } = req.params;
         let result = {};
 
@@ -7904,7 +7459,7 @@ app.post('/api/admin/jobs/:jobType/run', requireAuth, requireAdmin, async (req, 
                 return res.status(400).json({ success: false, message: 'Unknown job type' });
         }
 
-        await logAdminAction(decoded.id, 'system_config_change', null, null, null, 
+        await logAdminAction(req.auth.id, 'system_config_change', null, null, null, 
             { jobType, result }, `Manually triggered ${jobType} job`, null, req);
 
         res.json({ success: true, jobType, result });
@@ -7916,13 +7471,6 @@ app.post('/api/admin/jobs/:jobType/run', requireAuth, requireAdmin, async (req, 
 // Toggle job active status
 app.put('/api/admin/jobs/:jobId/toggle', requireAuth, requireAdmin, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        const [admins] = await pool.execute('SELECT * FROM users WHERE id = ? AND isAdmin = true', [decoded.id]);
-        if (admins.length === 0) return res.status(403).json({ success: false, message: 'Admin access required' });
-
         const { jobId } = req.params;
 
         const [jobs] = await pool.execute('SELECT * FROM scheduled_jobs WHERE id = ?', [jobId]);
@@ -7940,22 +7488,13 @@ app.put('/api/admin/jobs/:jobId/toggle', requireAuth, requireAdmin, async (req, 
 // ==================== CARD MANAGEMENT ====================
 
 // Freeze/Unfreeze card
-app.post('/api/cards/:cardId/freeze', async (req, res) => {
+app.post('/api/cards/:cardId/freeze', requireAuth, requireNotImpersonation, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        
-        if (decoded.isImpersonation) {
-            return res.status(403).json({ success: false, message: 'Action not allowed in view-only mode' });
-        }
-
         const { cardId } = req.params;
         const { freeze } = req.body;
 
         // Verify card ownership
-        const [cards] = await pool.execute('SELECT * FROM cards WHERE id = ? AND userId = ?', [cardId, decoded.id]);
+        const [cards] = await pool.execute('SELECT * FROM cards WHERE id = ? AND userId = ?', [cardId, req.auth.id]);
         if (cards.length === 0) return res.status(404).json({ success: false, message: 'Card not found' });
 
         const card = cards[0];
@@ -7966,7 +7505,7 @@ app.post('/api/cards/:cardId/freeze', async (req, res) => {
             [newStatus, freeze ? new Date() : null, cardId]
         );
 
-        await logComplianceAudit(decoded.id, decoded.id, 'card', cardId, 
+        await logComplianceAudit(req.auth.id, req.auth.id, 'card', cardId, 
             freeze ? 'card_frozen' : 'card_unfrozen',
             { status: card.status }, { status: newStatus }, 'User requested', req);
 
@@ -7982,22 +7521,13 @@ app.post('/api/cards/:cardId/freeze', async (req, res) => {
 });
 
 // Update card settings (spending limit, online, international)
-app.put('/api/cards/:cardId/settings', async (req, res) => {
+app.put('/api/cards/:cardId/settings', requireAuth, requireNotImpersonation, async (req, res) => {
     try {
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) return res.status(401).json({ success: false, message: 'No token' });
-
-        const decoded = jwt.verify(token, JWT_SECRET);
-        
-        if (decoded.isImpersonation) {
-            return res.status(403).json({ success: false, message: 'Action not allowed in view-only mode' });
-        }
-
         const { cardId } = req.params;
         const { spendingLimit, onlineEnabled, internationalEnabled } = req.body;
 
         // Verify card ownership
-        const [cards] = await pool.execute('SELECT * FROM cards WHERE id = ? AND userId = ?', [cardId, decoded.id]);
+        const [cards] = await pool.execute('SELECT * FROM cards WHERE id = ? AND userId = ?', [cardId, req.auth.id]);
         if (cards.length === 0) return res.status(404).json({ success: false, message: 'Card not found' });
 
         const card = cards[0];
@@ -8022,7 +7552,7 @@ app.put('/api/cards/:cardId/settings', async (req, res) => {
             await pool.execute(`UPDATE cards SET ${updates.join(', ')} WHERE id = ?`, params);
         }
 
-        await logComplianceAudit(decoded.id, decoded.id, 'card', cardId, 'card_settings_updated',
+        await logComplianceAudit(req.auth.id, req.auth.id, 'card', cardId, 'card_settings_updated',
             { spendingLimit: card.dailyLimit, onlineEnabled: card.onlineEnabled, internationalEnabled: card.internationalEnabled },
             { spendingLimit, onlineEnabled, internationalEnabled },
             'User updated card settings', req);
