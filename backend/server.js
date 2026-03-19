@@ -1083,6 +1083,29 @@ async function initializeDatabase() {
             }
         } catch (migErr) { /* ignore if already migrated or user doesn't exist */ }
 
+        // Check Deposits table (mobile check deposit with images)
+        await connection.execute(`
+            CREATE TABLE IF NOT EXISTS check_deposits (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                userId INT NOT NULL,
+                amount DECIMAL(15,2) NOT NULL,
+                accountType VARCHAR(50) DEFAULT 'checking',
+                checkNumber VARCHAR(20),
+                payer VARCHAR(255),
+                memo VARCHAR(500),
+                frontImage LONGTEXT,
+                backImage LONGTEXT,
+                reference VARCHAR(50),
+                status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
+                rejectionReason VARCHAR(500),
+                reviewedAt TIMESTAMP NULL,
+                reviewedBy INT NULL,
+                createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_cd_user (userId),
+                INDEX idx_cd_status (status)
+            )
+        `);
+
         connection.release();
         DB_READY = true;
         console.log('✅ Database initialized with all tables');
@@ -10331,6 +10354,172 @@ app.post('/api/admin/chat/message', requireAuth, requireAdmin, async (req, res) 
         res.json({ success: true, message: 'Message sent' });
     } catch (error) {
         res.status(500).json({ success: false, message: 'Error sending message' });
+    }
+});
+
+// ==================== MOBILE CHECK DEPOSIT ====================
+
+// User: Submit a check deposit
+app.post('/api/check-deposit', requireAuth, async (req, res) => {
+    try {
+        const decoded = req.auth;
+        const { amount, accountType, checkNumber, payer, memo, frontImage, backImage } = req.body;
+
+        if (!amount || parseFloat(amount) <= 0) {
+            return res.status(400).json({ success: false, message: 'Invalid check amount' });
+        }
+        if (parseFloat(amount) > 50000) {
+            return res.status(400).json({ success: false, message: 'Maximum single check deposit is $50,000' });
+        }
+        if (!frontImage || !backImage) {
+            return res.status(400).json({ success: false, message: 'Both front and back check images are required' });
+        }
+
+        const reference = 'DEP-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
+
+        await pool.execute(
+            `INSERT INTO check_deposits (userId, amount, accountType, checkNumber, payer, memo, frontImage, backImage, reference, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+            [decoded.id, parseFloat(amount), accountType || 'checking', checkNumber || null, payer || null, memo || null, frontImage, backImage, reference]
+        );
+
+        // Log activity
+        try {
+            await pool.execute(
+                'INSERT INTO activity_logs (user_id, action_type, action_details, ip_address) VALUES (?, ?, ?, ?)',
+                [decoded.id, 'CHECK_DEPOSIT_SUBMITTED', `Check deposit of $${parseFloat(amount).toLocaleString()} submitted (Ref: ${reference})`, req.ip || null]
+            );
+        } catch (e) {}
+
+        res.json({ success: true, reference, message: 'Check deposit submitted for review' });
+    } catch (error) {
+        console.error('Check deposit error:', error);
+        res.status(500).json({ success: false, message: 'Error submitting deposit' });
+    }
+});
+
+// User: Get their check deposits
+app.get('/api/check-deposits', requireAuth, async (req, res) => {
+    try {
+        const decoded = req.auth;
+        const [deposits] = await pool.execute(
+            'SELECT id, amount, accountType, checkNumber, payer, memo, reference, status, rejectionReason, createdAt, reviewedAt FROM check_deposits WHERE userId = ? ORDER BY createdAt DESC LIMIT 50',
+            [decoded.id]
+        );
+        res.json({ success: true, deposits });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Error loading deposits' });
+    }
+});
+
+// Admin: Get all pending check deposits
+app.get('/api/admin/check-deposits', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const status = req.query.status || 'pending';
+        const [deposits] = await pool.execute(
+            `SELECT cd.*, u.firstName, u.lastName, u.email, u.accountNumber
+             FROM check_deposits cd
+             JOIN users u ON cd.userId = u.id
+             WHERE cd.status = ?
+             ORDER BY cd.createdAt DESC`,
+            [status]
+        );
+        res.json({ success: true, deposits });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Error loading check deposits' });
+    }
+});
+
+// Admin: Approve a check deposit — credits the user's balance
+app.post('/api/admin/approve-check-deposit/:depositId', requireAuth, requireAdmin, async (req, res) => {
+    const connection = await pool.getConnection();
+    try {
+        const { depositId } = req.params;
+        await connection.beginTransaction();
+
+        const [rows] = await connection.execute(
+            'SELECT * FROM check_deposits WHERE id = ? AND status = ? FOR UPDATE',
+            [depositId, 'pending']
+        );
+        const deposit = rows[0];
+        if (!deposit) {
+            await connection.rollback();
+            return res.status(404).json({ success: false, message: 'Pending deposit not found or already processed' });
+        }
+
+        const amountValue = parseFloat(deposit.amount);
+
+        // Credit user's balance
+        await connection.execute('UPDATE users SET balance = balance + ? WHERE id = ?', [amountValue, deposit.userId]);
+
+        // Update deposit status
+        await connection.execute(
+            'UPDATE check_deposits SET status = ?, reviewedAt = NOW(), reviewedBy = ? WHERE id = ?',
+            ['approved', req.auth.id, depositId]
+        );
+
+        // Create a transaction record for the deposit
+        const txRef = deposit.reference || 'DEP-' + Date.now().toString(36).toUpperCase();
+        await connection.execute(
+            `INSERT INTO transactions (fromUserId, toUserId, amount, type, description, status, reference, createdAt)
+             VALUES (NULL, ?, ?, 'check_deposit', ?, 'completed', ?, NOW())`,
+            [deposit.userId, amountValue, `Mobile Check Deposit${deposit.checkNumber ? ' #' + deposit.checkNumber : ''}${deposit.payer ? ' from ' + deposit.payer : ''}`, txRef]
+        );
+
+        // Log activity
+        try {
+            await connection.execute(
+                'INSERT INTO activity_logs (user_id, action_type, action_details, ip_address) VALUES (?, ?, ?, ?)',
+                [deposit.userId, 'CHECK_DEPOSIT_APPROVED', `Check deposit of $${amountValue.toLocaleString()} approved. Balance credited.`, req.ip || null]
+            );
+        } catch (e) {}
+
+        await connection.commit();
+
+        // Fetch updated user info for response
+        const [users] = await pool.execute('SELECT firstName, lastName, balance FROM users WHERE id = ?', [deposit.userId]);
+        const user = users[0];
+
+        res.json({
+            success: true,
+            message: `Check deposit of $${amountValue.toLocaleString()} approved. ${user ? user.firstName + ' ' + user.lastName + "'s" : 'User'} balance credited. New balance: $${user ? parseFloat(user.balance).toLocaleString() : 'N/A'}`
+        });
+    } catch (error) {
+        try { await connection.rollback(); } catch (e) {}
+        console.error('Approve check deposit error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    } finally {
+        connection.release();
+    }
+});
+
+// Admin: Reject a check deposit
+app.post('/api/admin/reject-check-deposit/:depositId', requireAuth, requireAdmin, async (req, res) => {
+    try {
+        const { depositId } = req.params;
+        const { reason } = req.body;
+
+        const [rows] = await pool.execute('SELECT * FROM check_deposits WHERE id = ? AND status = ?', [depositId, 'pending']);
+        if (!rows[0]) {
+            return res.status(404).json({ success: false, message: 'Pending deposit not found or already processed' });
+        }
+
+        await pool.execute(
+            'UPDATE check_deposits SET status = ?, rejectionReason = ?, reviewedAt = NOW(), reviewedBy = ? WHERE id = ?',
+            ['rejected', reason || 'Rejected by admin', req.auth.id, depositId]
+        );
+
+        // Log activity
+        try {
+            await pool.execute(
+                'INSERT INTO activity_logs (user_id, action_type, action_details, ip_address) VALUES (?, ?, ?, ?)',
+                [rows[0].userId, 'CHECK_DEPOSIT_REJECTED', `Check deposit of $${parseFloat(rows[0].amount).toLocaleString()} rejected. Reason: ${reason || 'Rejected by admin'}`, req.ip || null]
+            );
+        } catch (e) {}
+
+        res.json({ success: true, message: 'Check deposit rejected' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
