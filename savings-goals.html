@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Set and track savings goals to reach your financial targets with Heritage Bank.">
     <title>Savings Goals - Heritage Bank</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -411,7 +412,7 @@
     <script>
         const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
             ? 'http://localhost:3001' 
-            : '';
+            : window.location.origin;
         
         let goals = [];
         let selectedCategory = 'vacation';

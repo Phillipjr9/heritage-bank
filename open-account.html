@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Create a new Heritage Bank account online with quick and simple registration.">
     <title>Open Account - Heritage Bank</title>
     <script>
         // Redirect authenticated users to dashboard, otherwise to enhanced signup
@@ -38,7 +39,7 @@
     <script>
         const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
             ? 'http://localhost:3001' 
-            : '';
+            : window.location.origin;
         document.getElementById('registerForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             try {

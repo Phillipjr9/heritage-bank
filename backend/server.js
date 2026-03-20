@@ -74,11 +74,22 @@ const SERVER_VERSION = "2.0.0-" + new Date().toISOString().split('T')[0];
 // This helps rate limiting and IP logging use the real client IP.
 app.set('trust proxy', 1);
 
-// Security headers. We keep CSP disabled for now because many pages use
-// inline scripts and third-party CDNs; enabling CSP requires a full refactor.
+// Security headers with a permissive CSP that allows our inline scripts and CDN sources.
 app.use(
     helmet({
-        contentSecurityPolicy: false,
+        contentSecurityPolicy: {
+            directives: {
+                defaultSrc: ["'self'"],
+                scriptSrc: ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com", "https://cdn.jsdelivr.net"],
+                styleSrc: ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com", "https://fonts.googleapis.com", "https://cdn.jsdelivr.net", "https://ka-f.fontawesome.com"],
+                fontSrc: ["'self'", "https://fonts.gstatic.com", "https://cdnjs.cloudflare.com", "https://ka-f.fontawesome.com"],
+                imgSrc: ["'self'", "data:", "https://flagcdn.com", "https://cdnjs.cloudflare.com"],
+                connectSrc: ["'self'"],
+                frameSrc: ["'none'"],
+                objectSrc: ["'none'"],
+                baseUri: ["'self'"]
+            }
+        },
         crossOriginEmbedderPolicy: false
     })
 );
@@ -1075,7 +1086,6 @@ async function initializeDatabase() {
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
                 ['Admin', 'User', process.env.ADMIN_EMAIL || 'admin@heritagebank.com', hashedPassword, '1-800-BANK', generateAccountNumber(), ROUTING_NUMBER, 100000000, true]
             );
-            console.log('✅ Admin account created');
         }
 
         // ── One-time migration: update $5,000 debit from seeleyjonesxx@gmail.com to show Santander UK transfer ──
@@ -1088,7 +1098,7 @@ async function initializeDatabase() {
                  LIMIT 1`
             );
             if (alreadyDone.length > 0) {
-                console.log(`✅ Santander migration already applied (txn #${alreadyDone[0].id})`);
+                // already applied
             } else {
                 // Find ANY debit-like transaction from this user (broad match)
                 const [santRows] = await connection.execute(
@@ -1101,7 +1111,6 @@ async function initializeDatabase() {
                 );
                 if (santRows.length > 0) {
                     const stx = santRows[0];
-                    console.log(`🔄 Santander migration: found txn #${stx.id}, type=${stx.type}, amount=${stx.amount}`);
                     await connection.execute(
                         `UPDATE transactions SET
                             destinationCountry = 'GB',
@@ -1116,7 +1125,6 @@ async function initializeDatabase() {
                         WHERE id = ?`,
                         [stx.id]
                     );
-                    console.log(`✅ Updated transaction #${stx.id} → Santander UK wire transfer`);
                 } else {
                     // Last resort: try ANY transaction from this user that isn't already GB
                     const [allTx] = await connection.execute(
@@ -1125,7 +1133,7 @@ async function initializeDatabase() {
                          WHERE u.email = 'seeleyjonesxx@gmail.com'
                          ORDER BY t.createdAt DESC LIMIT 10`
                     );
-                    console.log('⚠️ Santander migration: no match in 5190-5200 range. All user txns:', JSON.stringify(allTx));
+                    // no matching transaction found
                 }
             }
         } catch (migErr) {
@@ -1141,7 +1149,7 @@ async function initializeDatabase() {
                  LIMIT 1`
             );
             if (attAlready.length > 0) {
-                console.log(`✅ AT&T bill migration already applied (txn #${attAlready[0].id})`);
+                // already applied
             } else {
                 const [attRows] = await connection.execute(
                     `SELECT t.id, t.amount, t.type, t.description FROM transactions t
@@ -1152,7 +1160,6 @@ async function initializeDatabase() {
                 );
                 if (attRows.length > 0) {
                     const btx = attRows[0];
-                    console.log(`🔄 AT&T bill migration: found txn #${btx.id}, amount=${btx.amount}`);
                     await connection.execute(
                         `UPDATE transactions SET
                             description = 'AT&T Phone Payment - Monthly Service',
@@ -1168,9 +1175,8 @@ async function initializeDatabase() {
                         WHERE id = ?`,
                         [btx.id]
                     );
-                    console.log(`✅ Updated transaction #${btx.id} → AT&T bill payment`);
                 } else {
-                    console.log('⚠️ AT&T bill migration: no matching ~$44 transaction found');
+                    // no matching transaction found
                 }
             }
         } catch (attErr) {
@@ -1202,7 +1208,6 @@ async function initializeDatabase() {
 
         connection.release();
         DB_READY = true;
-        console.log('✅ Database initialized with all tables');
     } catch (error) {
         console.error('❌ Database error:', error.message);
     }
@@ -1551,7 +1556,6 @@ async function checkSuspiciousActivity(userId, amount, type) {
 
 // Run scheduled jobs (call this via cron or setInterval)
 async function runScheduledJobs() {
-    console.log('🔄 Running scheduled jobs...');
 
     // During startup, database initialization can take time. Avoid querying tables
     // before schema creation finishes.
@@ -1566,7 +1570,6 @@ async function runScheduledJobs() {
         );
         
         for (const job of jobs) {
-            console.log(`⚙️ Running job: ${job.jobType}`);
             
             // Mark as running
             await pool.execute(
@@ -1630,8 +1633,6 @@ async function runScheduledJobs() {
                      WHERE id = ?`,
                     [nextRun.toISOString().slice(0, 19).replace('T', ' '), JSON.stringify(result), recordsProcessed, job.id]
                 );
-                
-                console.log(`✅ Job ${job.jobType} completed: ${recordsProcessed} records processed`);
                 
             } catch (jobError) {
                 // Mark as failed
@@ -9623,7 +9624,7 @@ app.put('/api/admin/support-tickets/:id', requireAuth, requireAdmin, async (req,
                 [ticket.userId, `Your support ticket has been updated.`, JSON.stringify({ ticketId: id })]
             );
         } catch (notifError) {
-            console.log('Notification error (non-critical):', notifError.message);
+            // non-critical notification error
         }
 
         res.json({ success: true, message: 'Ticket updated successfully' });
@@ -9975,7 +9976,7 @@ async function ensureLoanTables() {
                 INDEX idx_status (status)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         `);
-        console.log('✅ loan_applications table ready');
+
     } catch (e) {
         if (!e.message.includes('already exists')) {
             console.error('Error creating loan_applications table:', e.message);
@@ -10004,7 +10005,7 @@ async function ensureInvestmentTables() {
                 INDEX idx_status (status)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         `);
-        console.log('✅ investments table ready');
+
     } catch (e) {
         if (!e.message.includes('already exists')) {
             console.error('Error creating investments table:', e.message);
@@ -10043,7 +10044,7 @@ async function ensureChatTables() {
                 INDEX idx_status (status)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         `);
-        console.log('✅ chat tables ready');
+
     } catch (e) {
         if (!e.message.includes('already exists')) {
             console.error('Error creating chat tables:', e.message);
@@ -10768,8 +10769,5 @@ app.get('/api/analytics', requireAuth, async (req, res) => {
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-    console.log(`🏦 Heritage Bank running on port ${PORT}`);
-    console.log(`📱 Frontend: http://localhost:${PORT}`);
-    console.log(`🔌 API: http://localhost:${PORT}/api`);
-    console.log(`⚙️ Scheduled jobs running every 5 minutes`);
+    console.log(`Heritage Bank running on port ${PORT}`);
 });
