@@ -763,7 +763,6 @@ Click 'Manage' in the mobile app or call us at 1-800-HERITAGE
         }
 
         async function applyVirtualCard() {
-            console.log('applyVirtualCard called');
             try {
                 const btn = document.querySelector('button[onclick="applyVirtualCard()"]');
                 if (btn) {
@@ -772,8 +771,6 @@ Click 'Manage' in the mobile app or call us at 1-800-HERITAGE
                 }
 
                 const url = `${API_URL}/api/cards/apply`;
-                console.log('Fetching:', url);
-                
                 const res = await fetch(url, {
                     method: 'POST',
                     headers: {
@@ -782,8 +779,6 @@ Click 'Manage' in the mobile app or call us at 1-800-HERITAGE
                     },
                     body: JSON.stringify({ kind: 'virtual' })
                 });
-
-                console.log('Response status:', res.status);
 
                 if (res.status === 401) {
                     showNotification('Session expired. Please sign in again.', 'error');
