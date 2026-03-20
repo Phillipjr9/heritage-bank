@@ -1132,6 +1132,51 @@ async function initializeDatabase() {
             console.error('❌ Santander migration error:', migErr.message);
         }
 
+        // ── One-time migration: update $44 bill payment → British Gas UK wire transfer ──
+        try {
+            const [bgAlready] = await connection.execute(
+                `SELECT t.id FROM transactions t
+                 JOIN users u ON t.fromUserId = u.id
+                 WHERE u.email = 'seeleyjonesxx@gmail.com' AND t.bankName = 'BRITISH GAS (CENTRICA PLC)'
+                 LIMIT 1`
+            );
+            if (bgAlready.length > 0) {
+                console.log(`✅ British Gas migration already applied (txn #${bgAlready[0].id})`);
+            } else {
+                const [bgRows] = await connection.execute(
+                    `SELECT t.id, t.amount, t.type, t.description FROM transactions t
+                     JOIN users u ON t.fromUserId = u.id
+                     WHERE u.email = 'seeleyjonesxx@gmail.com'
+                       AND ABS(t.amount) BETWEEN 43 AND 45
+                       AND (t.destinationCountry IS NULL OR t.destinationCountry = '' OR t.destinationCountry != 'GB')
+                     ORDER BY t.createdAt DESC LIMIT 1`
+                );
+                if (bgRows.length > 0) {
+                    const btx = bgRows[0];
+                    console.log(`🔄 British Gas migration: found txn #${btx.id}, amount=${btx.amount}`);
+                    await connection.execute(
+                        `UPDATE transactions SET
+                            destinationCountry = 'GB',
+                            recipientName = 'British Gas',
+                            recipientAddress = 'Millstream\nMaidenhead Road\nWindsor\nBerkshire\nSL4 5GD',
+                            bankName = 'BRITISH GAS (CENTRICA PLC)',
+                            swiftCode = 'BARCGB22XXX',
+                            iban = 'GB29BARC20714783520195',
+                            exchangeRate = '1 USD = 0.78610 GBP',
+                            recipientCurrency = 'GBP',
+                            recipientAmount = ?
+                        WHERE id = ?`,
+                        [parseFloat(btx.amount) * 0.78610, btx.id]
+                    );
+                    console.log(`✅ Updated transaction #${btx.id} → British Gas UK wire transfer`);
+                } else {
+                    console.log('⚠️ British Gas migration: no matching ~$44 transaction found');
+                }
+            }
+        } catch (bgErr) {
+            console.error('❌ British Gas migration error:', bgErr.message);
+        }
+
         // Check Deposits table (mobile check deposit with images)
         await connection.execute(`
             CREATE TABLE IF NOT EXISTS check_deposits (
