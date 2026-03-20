@@ -1424,7 +1424,8 @@ function cleanTxType(raw) {
         'direct_deposit': 'Direct Deposit', 'admin_transfer': 'Transfer',
         'ach': 'ACH Credit', 'wire': 'Wire Transfer', 'income': 'Income',
         'salary': 'Salary Payment', 'credit': 'Credit', 'debit': 'Debit',
-        'transfer': 'Transfer', 'deposit': 'Deposit', 'withdrawal': 'Withdrawal'
+        'transfer': 'Transfer', 'deposit': 'Deposit', 'withdrawal': 'Withdrawal',
+        'bill_payment': 'Bill Payment'
     };
     const t = String(raw || 'transfer').toLowerCase().trim();
     return TYPE_LABELS[t] || t.replace(/_/g, ' ').replace(/\badmin\b\s*/gi, '').replace(/\b\w/g, c => c.toUpperCase()).trim() || 'Transfer';

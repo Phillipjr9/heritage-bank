@@ -1146,7 +1146,8 @@
             const statusClass = (tx.status || 'completed').toLowerCase();
             const statusLabel = statusClass.charAt(0).toUpperCase() + statusClass.slice(1);
 
-            let typeLabel = (tx.type || 'Transfer').replace(/_/g, ' ').replace(/\badmin\b\s*/gi, '').replace(/\b\w/g, c => c.toUpperCase()).trim() || 'Transfer';
+            const TYPE_MAP = { 'direct_deposit': 'Direct Deposit', 'admin_transfer': 'Transfer', 'admin_debit': 'Debit', 'admin_credit': 'Credit', 'wire_transfer': 'Wire Transfer', 'bank_transfer': 'Bank Transfer', 'bill_payment': 'Bill Payment', 'credit': 'Credit', 'debit': 'Debit', 'deposit': 'Deposit', 'transfer': 'Transfer', 'withdrawal': 'Withdrawal' };
+            const typeLabel = TYPE_MAP[(tx.type || '').toLowerCase()] || (tx.type || 'Transfer').replace(/_/g, ' ').replace(/\badmin\b\s*/gi, '').replace(/\b\w/g, c => c.toUpperCase()).trim() || 'Transfer';
 
             const fromDisplay = formatNameAcct(tx.fromFirstName, tx.fromLastName, tx.fromAccountNumber);
             let toDisplay = formatNameAcct(tx.toFirstName, tx.toLastName, tx.toAccountNumber);

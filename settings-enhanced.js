@@ -1315,10 +1315,7 @@ function confirmCloseAccount() {
 
 function showAlert(message, type) {
     const alert = document.getElementById('alertBox');
-    if (!alert) {
-        console.log(message, type);
-        return;
-    }
+    if (!alert) return;
     
     alert.textContent = message;
     alert.className = `alert alert-${type}`;
