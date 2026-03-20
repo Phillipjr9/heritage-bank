@@ -5324,7 +5324,6 @@ app.get('/api/transactions/:id/receipt', async (req, res) => {
             if (rateMatch) numericRate = parseFloat(rateMatch[1] || rateMatch[0]);
         }
         if (!numericRate && isUkTransfer && !wireRecipientAmount) numericRate = 0.79;
-        const computedRecipientAmount = wireRecipientAmount || (numericRate ? txAmount * numericRate : null);
         const CURRENCY_SYMBOLS = { GBP: '\u00a3', EUR: '\u20ac', JPY: '\u00a5', CNY: '\u00a5', INR: '\u20b9', BRL: 'R$', KRW: '\u20a9', AED: 'AED', NGN: '\u20a6', GHS: '\u20b5', CAD: 'C$', MXN: 'MX$', AUD: 'A$', CHF: 'CHF', PHP: '\u20b1', JMD: 'J$' };
         const CURRENCY_NAMES = { GBP: 'British Pound Sterling', EUR: 'Euro', CAD: 'Canadian Dollar', MXN: 'Mexican Peso', JPY: 'Japanese Yen', CNY: 'Chinese Yuan', INR: 'Indian Rupee', AUD: 'Australian Dollar', BRL: 'Brazilian Real', AED: 'UAE Dirham', NGN: 'Nigerian Naira', GHS: 'Ghanaian Cedi', PHP: 'Philippine Peso', JMD: 'Jamaican Dollar', KRW: 'South Korean Won', CHF: 'Swiss Franc' };
         const COUNTRY_NAMES = { US: 'United States', GB: 'United Kingdom', CA: 'Canada', MX: 'Mexico', DE: 'Germany', FR: 'France', ES: 'Spain', IT: 'Italy', CH: 'Switzerland', NG: 'Nigeria', GH: 'Ghana', IN: 'India', CN: 'China', JP: 'Japan', AU: 'Australia', BR: 'Brazil', AE: 'United Arab Emirates', PH: 'Philippines', JM: 'Jamaica', KR: 'South Korea' };
@@ -5335,6 +5334,9 @@ app.get('/api/transactions/:id/receipt', async (req, res) => {
         const txAmount = parseFloat(transaction.amount);
         const txFee = parseFloat(transaction.fee) || 0;
         const totalDeducted = txAmount + txFee;
+
+        // Compute recipient amount (needs txAmount)
+        const computedRecipientAmount = wireRecipientAmount || (numericRate ? txAmount * numericRate : null);
 
         // ── Amount highlight box (always in USD – Heritage Bank is a US bank) ──
         curY += 50;
