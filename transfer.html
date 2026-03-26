@@ -219,6 +219,97 @@
             margin-bottom: 12px;
         }
 
+        /* ── Bank Logo in Receipt ── */
+        .receipt-bank-logo-row {
+            display: flex; align-items: center; justify-content: center;
+            gap: 10px; margin-bottom: 14px;
+        }
+        .receipt-bank-logo-row img {
+            width: 36px; height: 36px; border-radius: 8px; object-fit: contain;
+            border: 1px solid #e0e0e0; background: white; padding: 2px;
+        }
+        .receipt-bank-logo-row .bank-name-label {
+            font-size: 1rem; font-weight: 600; color: #1a472a;
+        }
+
+        /* ── Transfer Complete Animation ── */
+        .transfer-complete-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(26,71,42,0.92);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 99999; opacity: 0; pointer-events: none;
+            transition: opacity 0.4s;
+        }
+        .transfer-complete-overlay.active { opacity: 1; pointer-events: all; }
+        .tc-check-circle {
+            width: 100px; height: 100px; border-radius: 50%;
+            background: rgba(255,255,255,0.15);
+            display: flex; align-items: center; justify-content: center;
+            margin-bottom: 24px;
+            animation: tcPulse 0.6s ease-out;
+        }
+        .tc-check-circle .tc-check-inner {
+            width: 74px; height: 74px; border-radius: 50%;
+            background: #28a745;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 0 30px rgba(40,167,69,0.5);
+        }
+        .tc-check-circle .tc-check-inner i {
+            font-size: 36px; color: white;
+            animation: tcCheckPop 0.5s ease 0.3s both;
+        }
+        .tc-amount-display {
+            font-size: 2.4rem; font-weight: 700; color: white;
+            margin-bottom: 8px;
+            animation: tcFadeUp 0.5s ease 0.4s both;
+        }
+        .tc-label {
+            font-size: 1rem; color: rgba(255,255,255,0.8);
+            margin-bottom: 6px;
+            animation: tcFadeUp 0.5s ease 0.5s both;
+        }
+        .tc-recipient {
+            font-size: 1.1rem; color: #d4af37; font-weight: 600;
+            margin-bottom: 4px;
+            animation: tcFadeUp 0.5s ease 0.6s both;
+        }
+        .tc-bank-info {
+            display: flex; align-items: center; gap: 8px;
+            margin-bottom: 20px;
+            animation: tcFadeUp 0.5s ease 0.65s both;
+        }
+        .tc-bank-info img {
+            width: 24px; height: 24px; border-radius: 6px; object-fit: contain;
+            border: 1px solid rgba(255,255,255,0.3); background: white; padding: 1px;
+        }
+        .tc-bank-info span { color: rgba(255,255,255,0.7); font-size: 0.9rem; }
+        .tc-confetti {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; overflow: hidden;
+        }
+        .tc-confetti-piece {
+            position: absolute; width: 8px; height: 8px; border-radius: 2px;
+            animation: tcConfettiFall linear forwards;
+        }
+        @keyframes tcPulse {
+            0% { transform: scale(0); opacity: 0; }
+            60% { transform: scale(1.15); }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        @keyframes tcCheckPop {
+            0% { transform: scale(0) rotate(-45deg); opacity: 0; }
+            60% { transform: scale(1.2) rotate(5deg); }
+            100% { transform: scale(1) rotate(0deg); opacity: 1; }
+        }
+        @keyframes tcFadeUp {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        @keyframes tcConfettiFall {
+            0% { transform: translateY(-10px) rotate(0deg); opacity: 1; }
+            100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+        }
+
         /* ── Currency Conversion ── */
         .currency-selector {
             display: flex; gap: 8px; margin-bottom: 12px;
@@ -708,6 +799,21 @@
         </div>
     </div>
 
+    <!-- Transfer Complete Animation Overlay -->
+    <div class="transfer-complete-overlay" id="tcOverlay">
+        <div class="tc-confetti" id="tcConfetti"></div>
+        <div class="tc-check-circle">
+            <div class="tc-check-inner"><i class="fas fa-check"></i></div>
+        </div>
+        <div class="tc-label">Transfer Complete</div>
+        <div class="tc-amount-display" id="tcAmount">$0.00</div>
+        <div class="tc-recipient" id="tcRecipient">Recipient</div>
+        <div class="tc-bank-info" id="tcBankInfo">
+            <img id="tcBankLogo" src="" alt="" style="display:none;">
+            <span id="tcBankName"></span>
+        </div>
+    </div>
+
     <!-- Receipt Modal -->
     <div class="receipt-overlay" id="receiptOverlay">
         <div class="receipt-card" id="receiptCard">
@@ -728,6 +834,10 @@
                     <div class="receipt-conversion-label">Recipient Receives</div>
                     <div class="receipt-conversion-amount" id="receiptRecvAmount">$0.00</div>
                     <div class="receipt-conversion-rate" id="receiptExRate">Rate: 1 USD = 0.79 GBP</div>
+                </div>
+                <div class="receipt-bank-logo-row" id="receiptBankLogoRow" style="display:none;">
+                    <img id="receiptBankLogo" src="" alt="">
+                    <span class="bank-name-label" id="receiptBankLabel"></span>
                 </div>
                 <div class="receipt-stamp" id="receiptStamp">SUCCESSFUL</div>
                 <hr class="receipt-divider">
@@ -843,6 +953,25 @@
             { name: 'Navy Federal', routing: '256074974', logo: 'https://logo.clearbit.com/navyfederal.org' },
             { name: 'SoFi', routing: '084006470', logo: 'https://logo.clearbit.com/sofi.com' },
             { name: 'Chime', routing: '031101279', logo: 'https://logo.clearbit.com/chime.com' },
+            // Virtual Banks & Fintech
+            { name: 'Venmo', routing: '031101279', logo: 'https://logo.clearbit.com/venmo.com' },
+            { name: 'PayPal', routing: '031101279', logo: 'https://logo.clearbit.com/paypal.com' },
+            { name: 'Cash App', routing: '073923033', logo: 'https://logo.clearbit.com/cash.app' },
+            { name: 'Zelle', routing: '021000021', logo: 'https://logo.clearbit.com/zellepay.com' },
+            { name: 'Varo Bank', routing: '091311229', logo: 'https://logo.clearbit.com/varomoney.com' },
+            { name: 'Current', routing: '021214891', logo: 'https://logo.clearbit.com/current.com' },
+            { name: 'Dave', routing: '091311229', logo: 'https://logo.clearbit.com/dave.com' },
+            { name: 'MoneyLion', routing: '031101279', logo: 'https://logo.clearbit.com/moneylion.com' },
+            { name: 'Aspiration', routing: '021214891', logo: 'https://logo.clearbit.com/aspiration.com' },
+            { name: 'N26', routing: '021214891', logo: 'https://logo.clearbit.com/n26.com' },
+            { name: 'Revolut US', routing: '084009519', logo: 'https://logo.clearbit.com/revolut.com' },
+            { name: 'Wise', routing: '026073150', logo: 'https://logo.clearbit.com/wise.com' },
+            { name: 'Mercury', routing: '091311229', logo: 'https://logo.clearbit.com/mercury.com' },
+            { name: 'Greenlight', routing: '061120084', logo: 'https://logo.clearbit.com/greenlight.com' },
+            { name: 'GO2bank', routing: '124303120', logo: 'https://logo.clearbit.com/go2bank.com' },
+            { name: 'Netspend', routing: '073972181', logo: 'https://logo.clearbit.com/netspend.com' },
+            { name: 'Apple Cash', routing: '021214891', logo: 'https://logo.clearbit.com/apple.com' },
+            { name: 'Google Pay', routing: '021214891', logo: 'https://logo.clearbit.com/pay.google.com' },
         ];
 
         function renderBankSelector() {
@@ -1193,6 +1322,7 @@
                         amount: amount,
                         to: recipientDisplay,
                         bank: bankDisplay,
+                        bankLogo: (transferType === 'usbank' && selectedUsBank) ? selectedUsBank.logo : (transferType === 'ukbank' && selectedUkBank) ? selectedUkBank.logo : null,
                         reference: data.reference || 'N/A',
                         description: document.getElementById('description').value || body.description || 'Money transfer',
                         transactionId: data.transactionId,
@@ -1242,12 +1372,65 @@
         });
 
         // ── Receipt Modal Functions ──
+        function showTransferCompleteAnimation(details, onDone) {
+            const overlay = document.getElementById('tcOverlay');
+            document.getElementById('tcAmount').textContent = '$' + details.amount.toLocaleString(undefined, {minimumFractionDigits: 2});
+            document.getElementById('tcRecipient').textContent = details.to;
+
+            const bankLogoEl = document.getElementById('tcBankLogo');
+            const bankNameEl = document.getElementById('tcBankName');
+            if (details.bankLogo) {
+                bankLogoEl.src = details.bankLogo;
+                bankLogoEl.style.display = 'block';
+                bankNameEl.textContent = details.bank;
+            } else {
+                bankLogoEl.style.display = 'none';
+                bankNameEl.textContent = details.bank;
+            }
+
+            // Create confetti
+            const confettiContainer = document.getElementById('tcConfetti');
+            confettiContainer.innerHTML = '';
+            const colors = ['#d4af37', '#28a745', '#ffffff', '#ff6b6b', '#4ecdc4', '#45b7d1', '#f9ca24'];
+            for (let i = 0; i < 40; i++) {
+                const piece = document.createElement('div');
+                piece.className = 'tc-confetti-piece';
+                piece.style.left = Math.random() * 100 + '%';
+                piece.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+                piece.style.animationDuration = (Math.random() * 2 + 1.5) + 's';
+                piece.style.animationDelay = Math.random() * 0.8 + 's';
+                piece.style.width = (Math.random() * 6 + 4) + 'px';
+                piece.style.height = (Math.random() * 6 + 4) + 'px';
+                confettiContainer.appendChild(piece);
+            }
+
+            overlay.classList.add('active');
+
+            setTimeout(() => {
+                overlay.classList.remove('active');
+                if (onDone) onDone();
+            }, 2800);
+        }
+
         function showReceiptModal(details) {
             const now = new Date();
             document.getElementById('receiptAmount').textContent = '$' + details.amount.toLocaleString(undefined, {minimumFractionDigits: 2});
             document.getElementById('receiptTotal').textContent = '$' + details.amount.toLocaleString(undefined, {minimumFractionDigits: 2});
             document.getElementById('receiptTo').textContent = details.to;
             document.getElementById('receiptBank').textContent = details.bank;
+
+            // Show bank logo in receipt
+            const logoRow = document.getElementById('receiptBankLogoRow');
+            const logoImg = document.getElementById('receiptBankLogo');
+            const logoLabel = document.getElementById('receiptBankLabel');
+            if (details.bankLogo) {
+                logoImg.src = details.bankLogo;
+                logoImg.alt = details.bank;
+                logoLabel.textContent = details.bank;
+                logoRow.style.display = 'flex';
+            } else {
+                logoRow.style.display = 'none';
+            }
 
             // Update stamp and status based on pending flag
             const stampEl = document.getElementById('receiptStamp');
@@ -1294,6 +1477,14 @@
             }
 
             document.getElementById('receiptOverlay').classList.add('active');
+
+            // Show transfer complete animation first (skip for pending)
+            if (!details.pending) {
+                document.getElementById('receiptOverlay').classList.remove('active');
+                showTransferCompleteAnimation(details, () => {
+                    document.getElementById('receiptOverlay').classList.add('active');
+                });
+            }
         }
 
         function closeReceipt() {

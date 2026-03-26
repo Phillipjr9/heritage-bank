@@ -5377,6 +5377,9 @@ app.get('/api/transactions/:id/receipt', async (req, res) => {
 
         // Parse UK bank transfer details (legacy description-based) + new DB columns
         const ukBankMatch = (transaction.description || '').match(/UK Bank Transfer to ([^|]+)\s*\|\s*Recipient:\s*([^|]+)\s*\|\s*Account:\s*(\d+)\s*\|\s*Sort Code:\s*([\d-]+)/);
+        // Parse US Wire/ACH transfer details from description
+        const usWireMatch = (transaction.description || '').match(/US (?:WIRE|ACH) Transfer to ([^\s]+(?:\s+[^\s]+)*?) at ([^\s]+(?:\s+[^\s]+)*?) \(Routing:\s*([\d]+)\)/i);
+
         const UK_BANK_COLORS = {
             'Santander':  { primary: '#ec0000', accent: '#ffffff', text: 'Santander UK', swift: 'ABBYGB2LXXX' },
             'SANTANDER':  { primary: '#ec0000', accent: '#ffffff', text: 'Santander UK', swift: 'ABBYGB2LXXX' },
@@ -5392,6 +5395,49 @@ app.get('/api/transactions/:id/receipt', async (req, res) => {
             'Revolut':    { primary: '#0075eb', accent: '#ffffff', text: 'Revolut', swift: 'REVOGB21XXX' },
         };
 
+        const US_BANK_COLORS = {
+            'Chase':          { primary: '#117ACA', accent: '#ffffff', text: 'JPMorgan Chase', logo: 'https://logo.clearbit.com/chase.com' },
+            'Bank of America':{ primary: '#012169', accent: '#ffffff', text: 'Bank of America', logo: 'https://logo.clearbit.com/bankofamerica.com' },
+            'Wells Fargo':    { primary: '#D71E28', accent: '#ffffff', text: 'Wells Fargo', logo: 'https://logo.clearbit.com/wellsfargo.com' },
+            'Citibank':       { primary: '#003B70', accent: '#ffffff', text: 'Citibank', logo: 'https://logo.clearbit.com/citibank.com' },
+            'Capital One':    { primary: '#004977', accent: '#ffffff', text: 'Capital One', logo: 'https://logo.clearbit.com/capitalone.com' },
+            'PNC Bank':       { primary: '#F58025', accent: '#ffffff', text: 'PNC Bank', logo: 'https://logo.clearbit.com/pnc.com' },
+            'US Bank':        { primary: '#D52B1E', accent: '#ffffff', text: 'US Bank', logo: 'https://logo.clearbit.com/usbank.com' },
+            'TD Bank':        { primary: '#34A853', accent: '#ffffff', text: 'TD Bank', logo: 'https://logo.clearbit.com/td.com' },
+            'Truist':         { primary: '#510C76', accent: '#ffffff', text: 'Truist Financial', logo: 'https://logo.clearbit.com/truist.com' },
+            'Goldman Sachs':  { primary: '#7399C6', accent: '#ffffff', text: 'Goldman Sachs', logo: 'https://logo.clearbit.com/goldmansachs.com' },
+            'Morgan Stanley': { primary: '#002B59', accent: '#ffffff', text: 'Morgan Stanley', logo: 'https://logo.clearbit.com/morganstanley.com' },
+            'Ally Bank':      { primary: '#6C2D82', accent: '#ffffff', text: 'Ally Bank', logo: 'https://logo.clearbit.com/ally.com' },
+            'Discover':       { primary: '#FF6600', accent: '#ffffff', text: 'Discover Bank', logo: 'https://logo.clearbit.com/discover.com' },
+            'Charles Schwab': { primary: '#00A0DF', accent: '#ffffff', text: 'Charles Schwab', logo: 'https://logo.clearbit.com/schwab.com' },
+            'SoFi':           { primary: '#00B4D8', accent: '#ffffff', text: 'SoFi', logo: 'https://logo.clearbit.com/sofi.com' },
+            'Chime':          { primary: '#1EC677', accent: '#ffffff', text: 'Chime', logo: 'https://logo.clearbit.com/chime.com' },
+            'Venmo':          { primary: '#3D95CE', accent: '#ffffff', text: 'Venmo', logo: 'https://logo.clearbit.com/venmo.com' },
+            'PayPal':         { primary: '#003087', accent: '#ffffff', text: 'PayPal', logo: 'https://logo.clearbit.com/paypal.com' },
+            'Cash App':       { primary: '#00C244', accent: '#ffffff', text: 'Cash App', logo: 'https://logo.clearbit.com/cash.app' },
+            'Zelle':          { primary: '#6D1ED4', accent: '#ffffff', text: 'Zelle', logo: 'https://logo.clearbit.com/zellepay.com' },
+            'Varo':           { primary: '#1A1A2E', accent: '#ffffff', text: 'Varo Bank', logo: 'https://logo.clearbit.com/varomoney.com' },
+            'Current':        { primary: '#6C5CE7', accent: '#ffffff', text: 'Current', logo: 'https://logo.clearbit.com/current.com' },
+            'Revolut':        { primary: '#0075EB', accent: '#ffffff', text: 'Revolut US', logo: 'https://logo.clearbit.com/revolut.com' },
+            'Wise':           { primary: '#9FE870', accent: '#163300', text: 'Wise', logo: 'https://logo.clearbit.com/wise.com' },
+            'Mercury':        { primary: '#1C1C1C', accent: '#ffffff', text: 'Mercury', logo: 'https://logo.clearbit.com/mercury.com' },
+            'N26':            { primary: '#36A18B', accent: '#ffffff', text: 'N26', logo: 'https://logo.clearbit.com/n26.com' },
+            'Apple Cash':     { primary: '#000000', accent: '#ffffff', text: 'Apple Cash', logo: 'https://logo.clearbit.com/apple.com' },
+            'Google Pay':     { primary: '#4285F4', accent: '#ffffff', text: 'Google Pay', logo: 'https://logo.clearbit.com/pay.google.com' },
+            'Navy Federal':   { primary: '#003366', accent: '#ffffff', text: 'Navy Federal Credit Union', logo: 'https://logo.clearbit.com/navyfederal.org' },
+            'USAA':           { primary: '#1B3A5C', accent: '#ffffff', text: 'USAA', logo: 'https://logo.clearbit.com/usaa.com' },
+            'Regions':        { primary: '#007A3E', accent: '#ffffff', text: 'Regions Bank', logo: 'https://logo.clearbit.com/regions.com' },
+            'KeyBank':        { primary: '#D52B1E', accent: '#ffffff', text: 'KeyBank', logo: 'https://logo.clearbit.com/key.com' },
+            'Huntington':     { primary: '#007A33', accent: '#ffffff', text: 'Huntington Bank', logo: 'https://logo.clearbit.com/huntington.com' },
+            'BMO':            { primary: '#0079C1', accent: '#ffffff', text: 'BMO Harris', logo: 'https://logo.clearbit.com/bmo.com' },
+            'Dave':           { primary: '#00D632', accent: '#ffffff', text: 'Dave', logo: 'https://logo.clearbit.com/dave.com' },
+            'MoneyLion':      { primary: '#FF5722', accent: '#ffffff', text: 'MoneyLion', logo: 'https://logo.clearbit.com/moneylion.com' },
+            'Aspiration':     { primary: '#5FC25F', accent: '#ffffff', text: 'Aspiration', logo: 'https://logo.clearbit.com/aspiration.com' },
+            'GO2bank':        { primary: '#00A651', accent: '#ffffff', text: 'GO2bank', logo: 'https://logo.clearbit.com/go2bank.com' },
+            'Netspend':       { primary: '#FF6600', accent: '#ffffff', text: 'Netspend', logo: 'https://logo.clearbit.com/netspend.com' },
+            'Greenlight':     { primary: '#00C853', accent: '#ffffff', text: 'Greenlight', logo: 'https://logo.clearbit.com/greenlight.com' },
+        };
+
         // Determine bill payment
         const isBillPayment = (transaction.type || '').toLowerCase() === 'bill_payment';
         const billLastFour = transaction.fromAccountNumber ? String(transaction.fromAccountNumber).slice(-4) : '7890';
@@ -5399,15 +5445,18 @@ app.get('/api/transactions/:id/receipt', async (req, res) => {
 
         // Determine international transfer from DB columns OR legacy description
         const isUkTransfer = !isBillPayment && ((transaction.destinationCountry && transaction.destinationCountry !== 'US') || !!ukBankMatch);
+        // Determine US wire/ACH transfer
+        const isUsWireTransfer = !isBillPayment && !isUkTransfer && (transaction.destinationCountry === 'US' || !!usWireMatch);
 
         // Resolve wire details: prefer DB columns, fall back to description regex
-        const wireRecipientName = transaction.recipientName || (ukBankMatch ? ukBankMatch[2].trim() : null);
+        const wireRecipientName = transaction.recipientName || (ukBankMatch ? ukBankMatch[2].trim() : null) || (usWireMatch ? usWireMatch[1].trim() : null);
         const wireRecipientAddress = transaction.recipientAddress || null;
-        const wireBankNameRaw = transaction.bankName || (ukBankMatch ? ukBankMatch[1].trim() : null);
+        const wireBankNameRaw = transaction.bankName || (ukBankMatch ? ukBankMatch[1].trim() : null) || (usWireMatch ? usWireMatch[2].trim() : null);
         const wireSwiftCode = transaction.swiftCode || null;
         const wireIban = transaction.iban || null;
         const wireSortCode = ukBankMatch ? ukBankMatch[4].trim() : null;
         const wireAcctNum = ukBankMatch ? ukBankMatch[3].trim() : null;
+        const usRoutingNum = usWireMatch ? usWireMatch[3].trim() : null;
         const wireExchangeRate = transaction.exchangeRate || null;
         const wireRecipientCurrency = transaction.recipientCurrency || (isUkTransfer ? 'GBP' : null);
         const wireRecipientAmount = transaction.recipientAmount ? parseFloat(transaction.recipientAmount) : null;
@@ -5421,7 +5470,16 @@ app.get('/api/transactions/:id/receipt', async (req, res) => {
             }
             return { primary: '#333333', accent: '#ffffff', text: name, swift: wireSwiftCode || 'N/A' };
         }
+        function findUsBankStyle(name) {
+            if (!name) return null;
+            const upper = name.toUpperCase();
+            for (const [key, style] of Object.entries(US_BANK_COLORS)) {
+                if (upper.includes(key.toUpperCase())) return style;
+            }
+            return { primary: '#333333', accent: '#ffffff', text: name, logo: null };
+        }
         const ukBankStyle = findBankStyle(wireBankNameRaw) || (ukBankMatch ? (UK_BANK_COLORS[ukBankMatch[1].trim()] || { primary: '#333333', accent: '#ffffff', text: ukBankMatch[1].trim(), swift: 'N/A' }) : null);
+        const usBankStyle = isUsWireTransfer ? findUsBankStyle(wireBankNameRaw) : null;
 
         // Exchange rate number for computations
         let numericRate = null;
@@ -5518,13 +5576,15 @@ app.get('/api/transactions/:id/receipt', async (req, res) => {
             ? (transaction.description || `Bill Payment - ${billerName}`)
             : isUkTransfer
             ? `International Wire Transfer — Heritage Bank, USA to ${destCountryName}${ukBankStyle ? ' — ' + ukBankStyle.text : ''}`
+            : isUsWireTransfer
+            ? `US Wire/ACH Transfer — Heritage Bank to ${usBankStyle ? usBankStyle.text : (wireBankNameRaw || 'External Bank')}`
             : (cleanDescription(transaction.description) || 'Domestic Fund Transfer');
 
         detailRow('Transaction ID', `TXN-${String(id).padStart(8, '0')}`);
-        detailRow('Transaction Type', isBillPayment ? 'Bill Payment' : isUkTransfer ? `International Wire Transfer (USD \u2192 ${wireRecipientCurrency || 'GBP'})` : 'Domestic Transfer (USA)');
+        detailRow('Transaction Type', isBillPayment ? 'Bill Payment' : isUkTransfer ? `International Wire Transfer (USD \u2192 ${wireRecipientCurrency || 'GBP'})` : isUsWireTransfer ? 'US Domestic Wire/ACH Transfer' : 'Domestic Transfer (USA)');
         detailRow('Description', receiptDesc);
         detailRow('Reference Number', transaction.reference || 'N/A');
-        detailRow('Payment Method', isBillPayment ? `Virtual Debit Card ****${billLastFour}` : isUkTransfer ? 'SWIFT International Wire' : 'Bank Transfer (USA)');
+        detailRow('Payment Method', isBillPayment ? `Virtual Debit Card ****${billLastFour}` : isUkTransfer ? 'SWIFT International Wire' : isUsWireTransfer ? 'ACH/Fedwire' : 'Bank Transfer (USA)');
         detailRow('Origin', 'Heritage Bank — United States of America');
         // Always show fee row
         const feeDisplay = txFee > 0 ? `$${txFee.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '$0.00 (Waived)';
@@ -5534,6 +5594,12 @@ app.get('/api/transactions/:id/receipt', async (req, res) => {
         if (isUkTransfer) {
             detailRow('Destination Country', destCountryName);
             detailRow('Processing Channel', isUkTransfer && (transaction.destinationCountry === 'GB' || !transaction.destinationCountry) ? 'UK Faster Payments Service (FPS)' : 'SWIFT Network');
+        }
+        if (isUsWireTransfer) {
+            detailRow('Destination', 'United States — Domestic');
+            // Parse transfer method from description
+            const isWireMethod = (transaction.description || '').toUpperCase().includes('WIRE');
+            detailRow('Processing Channel', isWireMethod ? 'Fedwire (Same-Day)' : 'ACH Network (1-3 Business Days)');
         }
 
         // ── Sender / Payment Details ──
@@ -5594,6 +5660,29 @@ app.get('/api/transactions/:id/receipt', async (req, res) => {
             const recvCurLabel = wireRecipientCurrency || 'GBP';
             const recvCurName = CURRENCY_NAMES[recvCurLabel] || recvCurLabel;
             detailRow('Receiving Currency', `${recvCurLabel} (${recvCurName})`);
+        } else if (isUsWireTransfer && wireRecipientName) {
+            curY = curY + (rowI * rowH) + 8;
+            rowI = 0;
+
+            // Recipient bank branded header for US wire
+            const brandStyle = usBankStyle || { primary: '#333333', accent: '#ffffff', text: wireBankNameRaw || 'External US Bank', logo: null };
+            doc.roundedRect(marginL, curY, contentW, 28, 4).fill(brandStyle.primary);
+            doc.fontSize(10).fillColor(brandStyle.accent).text('Recipient Details', marginL + 12, curY + 4);
+            doc.fontSize(8).fillColor(brandStyle.accent).text(brandStyle.text, pageW - marginR - 180, curY + 5, { width: 165, align: 'right' });
+            doc.fontSize(7).fillColor(brandStyle.accent).text('US Domestic Bank Account', marginL + 12, curY + 17);
+            curY += 32;
+
+            detailRow('Recipient Name', wireRecipientName);
+            if (wireRecipientAddress) detailRow('Recipient Address', wireRecipientAddress);
+            // Parse account number from description if available
+            const usAcctFromDesc = (transaction.description || '').match(/\baccount\b/i) ? null : null;
+            detailRow('Bank Name', (usBankStyle ? usBankStyle.text : wireBankNameRaw) || 'N/A');
+            if (usRoutingNum) detailRow('Routing Number', usRoutingNum);
+            detailRow('Bank Country', 'United States of America');
+            const isWireMethod2 = (transaction.description || '').toUpperCase().includes('WIRE');
+            detailRow('Payment Network', isWireMethod2 ? 'Fedwire Funds Service' : 'ACH Network');
+            detailRow('Receiving Currency', 'USD (US Dollar)');
+            detailRow('Amount Received', `$${txAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`);
         } else if (transaction.toUserId || transaction.toFirstName) {
             curY = curY + (rowI * rowH) + 8;
             rowI = 0;
