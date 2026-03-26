@@ -262,31 +262,48 @@
             font-size: 36px; color: white;
             animation: tcCheckPop 0.5s ease 0.3s both;
         }
-        .tc-amount-display {
-            font-size: 2.4rem; font-weight: 700; color: white;
-            margin-bottom: 8px;
+        .tc-congrats {
+            font-size: 1.6rem; font-weight: 700; color: #d4af37;
+            margin-bottom: 4px;
+            animation: tcFadeUp 0.5s ease 0.35s both;
+        }
+        .tc-message {
+            font-size: 0.95rem; color: rgba(255,255,255,0.85);
+            margin-bottom: 16px;
             animation: tcFadeUp 0.5s ease 0.4s both;
         }
-        .tc-label {
-            font-size: 1rem; color: rgba(255,255,255,0.8);
-            margin-bottom: 6px;
-            animation: tcFadeUp 0.5s ease 0.5s both;
+        .tc-amount-display {
+            font-size: 2.4rem; font-weight: 700; color: white;
+            margin-bottom: 18px;
+            animation: tcFadeUp 0.5s ease 0.45s both;
         }
-        .tc-recipient {
-            font-size: 1.1rem; color: #d4af37; font-weight: 600;
-            margin-bottom: 4px;
-            animation: tcFadeUp 0.5s ease 0.6s both;
+        .tc-detail-card {
+            background: rgba(255,255,255,0.1); border-radius: 14px;
+            padding: 16px 24px; min-width: 260px; max-width: 340px;
+            backdrop-filter: blur(8px);
+            animation: tcFadeUp 0.5s ease 0.55s both;
         }
-        .tc-bank-info {
-            display: flex; align-items: center; gap: 8px;
-            margin-bottom: 20px;
-            animation: tcFadeUp 0.5s ease 0.65s both;
+        .tc-detail-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 8px 0;
         }
-        .tc-bank-info img {
-            width: 24px; height: 24px; border-radius: 6px; object-fit: contain;
+        .tc-detail-row + .tc-detail-row {
+            border-top: 1px solid rgba(255,255,255,0.12);
+        }
+        .tc-detail-label {
+            font-size: 0.85rem; color: rgba(255,255,255,0.6);
+        }
+        .tc-detail-value {
+            font-size: 0.95rem; color: white; font-weight: 600;
+        }
+        .tc-bank-val {
+            display: flex; align-items: center; gap: 6px;
+        }
+        .tc-bank-val img {
+            width: 20px; height: 20px; border-radius: 4px; object-fit: contain;
             border: 1px solid rgba(255,255,255,0.3); background: white; padding: 1px;
         }
-        .tc-bank-info span { color: rgba(255,255,255,0.7); font-size: 0.9rem; }
+        .tc-bank-val span { color: white; font-size: 0.95rem; }
         .tc-confetti {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             pointer-events: none; overflow: hidden;
@@ -809,12 +826,25 @@
         <div class="tc-check-circle">
             <div class="tc-check-inner"><i class="fas fa-check"></i></div>
         </div>
-        <div class="tc-label">Transfer Complete</div>
+        <div class="tc-congrats">Congratulations!</div>
+        <div class="tc-message">Your transfer has been sent successfully</div>
         <div class="tc-amount-display" id="tcAmount">$0.00</div>
-        <div class="tc-recipient" id="tcRecipient">Recipient</div>
-        <div class="tc-bank-info" id="tcBankInfo">
-            <img id="tcBankLogo" src="" alt="" style="display:none;">
-            <span id="tcBankName"></span>
+        <div class="tc-detail-card">
+            <div class="tc-detail-row">
+                <span class="tc-detail-label">Sent to</span>
+                <span class="tc-detail-value" id="tcRecipient">Recipient</span>
+            </div>
+            <div class="tc-detail-row">
+                <span class="tc-detail-label">Account</span>
+                <span class="tc-detail-value" id="tcAccountMask">****0000</span>
+            </div>
+            <div class="tc-detail-row" id="tcBankRow">
+                <span class="tc-detail-label">Bank</span>
+                <span class="tc-detail-value tc-bank-val">
+                    <img id="tcBankLogo" src="" alt="" style="display:none;">
+                    <span id="tcBankName"></span>
+                </span>
+            </div>
         </div>
     </div>
 
@@ -1322,10 +1352,23 @@
                     }
 
                     // Show receipt modal — pending or completed
+                    // Determine account number for display
+                    let acctDisplay = '';
+                    if (transferType === 'usbank') {
+                        acctDisplay = document.getElementById('usAccountNumber').value;
+                    } else if (transferType === 'ukbank') {
+                        acctDisplay = document.getElementById('ukAccountNumber').value;
+                    } else if (transferType === 'account') {
+                        acctDisplay = document.getElementById('toAccountNumber').value;
+                    } else if (transferType === 'email') {
+                        acctDisplay = document.getElementById('toEmail').value;
+                    }
+
                     showReceiptModal({
                         amount: amount,
                         to: recipientDisplay,
                         bank: bankDisplay,
+                        accountNumber: acctDisplay,
                         bankLogo: (transferType === 'usbank' && selectedUsBank) ? selectedUsBank.logo : (transferType === 'ukbank' && selectedUkBank) ? selectedUkBank.logo : null,
                         reference: data.reference || 'N/A',
                         description: document.getElementById('description').value || body.description || 'Money transfer',
@@ -1381,15 +1424,28 @@
             document.getElementById('tcAmount').textContent = '$' + details.amount.toLocaleString(undefined, {minimumFractionDigits: 2});
             document.getElementById('tcRecipient').textContent = details.to;
 
+            // Show last 4 digits of account number
+            const acctEl = document.getElementById('tcAccountMask');
+            if (details.accountNumber && details.accountNumber.length >= 4) {
+                acctEl.textContent = '****' + details.accountNumber.slice(-4);
+            } else {
+                acctEl.textContent = details.accountNumber || '****';
+            }
+
             const bankLogoEl = document.getElementById('tcBankLogo');
             const bankNameEl = document.getElementById('tcBankName');
-            if (details.bankLogo) {
-                bankLogoEl.src = details.bankLogo;
-                bankLogoEl.style.display = 'block';
+            const bankRow = document.getElementById('tcBankRow');
+            if (details.bank && details.bank !== 'Heritage Bank') {
+                bankRow.style.display = 'flex';
                 bankNameEl.textContent = details.bank;
+                if (details.bankLogo) {
+                    bankLogoEl.src = details.bankLogo;
+                    bankLogoEl.style.display = 'inline-block';
+                } else {
+                    bankLogoEl.style.display = 'none';
+                }
             } else {
-                bankLogoEl.style.display = 'none';
-                bankNameEl.textContent = details.bank;
+                bankRow.style.display = 'none';
             }
 
             // Create confetti
@@ -1410,10 +1466,14 @@
 
             overlay.classList.add('active');
 
-            setTimeout(() => {
+            // Dismiss on tap/click, or auto after 5s
+            const dismiss = () => {
                 overlay.classList.remove('active');
+                overlay.removeEventListener('click', dismiss);
                 if (onDone) onDone();
-            }, 2800);
+            };
+            overlay.addEventListener('click', dismiss);
+            setTimeout(dismiss, 5000);
         }
 
         function showReceiptModal(details) {
