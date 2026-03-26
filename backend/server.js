@@ -4459,7 +4459,7 @@ app.post('/api/admin/reject-transfer/:transferId', requireAuth, requireAdmin, as
         try {
             await pool.execute(
                 'INSERT INTO activity_logs (user_id, action_type, action_details, ip_address) VALUES (?, ?, ?, ?)',
-                [pendingTransfer.fromUserId, 'TRANSFER_REJECTED', `Transfer request of $${parseFloat(pendingTransfer.amount).toLocaleString()} rejected. Reason: ${reason || 'Not specified'}`, req.ip]
+                [pendingTransfer.fromUserId, 'TRANSFER_REJECTED', `Transfer request of $${parseFloat(pendingTransfer.amount).toLocaleString()} rejected. Reason: ${(reason || 'Not specified').replace(/[\r\n]/g, ' ').slice(0, 500)}`, req.ip]
             );
         } catch (e) {}
 
@@ -4642,7 +4642,7 @@ app.post('/api/admin/deny-transaction/:transactionId', requireAuth, requireAdmin
         try {
             await pool.execute(
                 'INSERT INTO activity_logs (user_id, action_type, action_details, ip_address) VALUES (?, ?, ?, ?)',
-                [txRows[0].fromUserId, 'TRANSFER_DENIED', `Transfer of $${parseFloat(txRows[0].amount).toLocaleString()} denied. Reason: ${denyReason}`, req.ip || null]
+                [txRows[0].fromUserId, 'TRANSFER_DENIED', `Transfer of $${parseFloat(txRows[0].amount).toLocaleString()} denied. Reason: ${(denyReason || '').replace(/[\r\n]/g, ' ').slice(0, 500)}`, req.ip || null]
             );
         } catch (e) {}
 
@@ -5423,8 +5423,10 @@ app.get('/api/statements/download', async (req, res) => {
             }));
 
             await csvWriter.writeRecords(records);
+            const csvCleanup = setTimeout(() => { try { fs.unlinkSync(csvPath); } catch(e) {} }, 60000);
             res.download(csvPath, `statement_${user.accountNumber}.csv`, () => {
-                fs.unlinkSync(csvPath);
+                clearTimeout(csvCleanup);
+                try { fs.unlinkSync(csvPath); } catch(e) {}
             });
         } else {
             // PDF Format – Professional Heritage Bank Statement
@@ -5587,8 +5589,10 @@ app.get('/api/statements/download', async (req, res) => {
             doc.end();
 
             stream.on('finish', () => {
+                const pdfCleanup = setTimeout(() => { try { fs.unlinkSync(pdfPath); } catch(e) {} }, 60000);
                 res.download(pdfPath, `statement_${user.accountNumber}.pdf`, () => {
-                    fs.unlinkSync(pdfPath);
+                    clearTimeout(pdfCleanup);
+                    try { fs.unlinkSync(pdfPath); } catch(e) {}
                 });
             });
         }
@@ -6040,7 +6044,9 @@ app.get('/api/transactions/:id/receipt', async (req, res) => {
         doc.end();
 
         stream.on('finish', () => {
+            const receiptCleanup = setTimeout(() => { try { fs.unlinkSync(pdfPath); } catch(e) {} }, 60000);
             res.download(pdfPath, `Heritage_Bank_Receipt_${transaction.reference || id}.pdf`, () => {
+                clearTimeout(receiptCleanup);
                 try { fs.unlinkSync(pdfPath); } catch (e) {}
             });
         });
@@ -6649,7 +6655,8 @@ app.post('/api/documents/upload', async (req, res) => {
             fs.mkdirSync(uploadsDir);
         }
 
-        const filePath = path.join(uploadsDir, `${decoded.id}_${Date.now()}_${fileName}`);
+        const sanitizedFileName = path.basename(fileName).replace(/[^\w\s.-]/g, '').slice(0, 100);
+        const filePath = path.join(uploadsDir, `${decoded.id}_${Date.now()}_${sanitizedFileName}`);
         const buffer = Buffer.from(fileData, 'base64');
         fs.writeFileSync(filePath, buffer);
 
@@ -11416,7 +11423,7 @@ app.post('/api/admin/reject-check-deposit/:depositId', requireAuth, requireAdmin
         try {
             await pool.execute(
                 'INSERT INTO activity_logs (user_id, action_type, action_details, ip_address) VALUES (?, ?, ?, ?)',
-                [rows[0].userId, 'CHECK_DEPOSIT_REJECTED', `Check deposit of $${parseFloat(rows[0].amount).toLocaleString()} rejected. Reason: ${reason || 'Rejected by admin'}`, req.ip || null]
+                [rows[0].userId, 'CHECK_DEPOSIT_REJECTED', `Check deposit of $${parseFloat(rows[0].amount).toLocaleString()} rejected. Reason: ${(reason || 'Rejected by admin').replace(/[\r\n]/g, ' ').slice(0, 500)}`, req.ip || null]
             );
         } catch (e) {}
 

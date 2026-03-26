@@ -511,7 +511,7 @@
                             <i class="fas ${statusIcon}"></i> ${status ? status.toUpperCase() : 'UNKNOWN'}
                         </div>
                         <div>
-                            <button class="btn btn-small" onclick="showCardMenu(${card.id}, '${kindLabel.toLowerCase()}', '${status}')">
+                            <button class="btn btn-small" onclick="showCardMenu(${parseInt(card.id)}, '${escapeHtml(kindLabel.toLowerCase())}', '${escapeHtml(status)}')">
                                 <i class="fas fa-cog"></i> Manage
                             </button>
                         </div>
