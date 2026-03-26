@@ -349,6 +349,11 @@
         let currentBalance = 0;
         let selectedBiller = null;
         let billers = [];
+
+        function escapeHtml(str) {
+            if (str == null) return '';
+            return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+        }
         
         const billerIcons = {
             'Utilities': 'fa-bolt',
@@ -414,9 +419,9 @@
         function displayBillers(list) {
             const grid = document.getElementById('billersGrid');
             grid.innerHTML = list.map(b => `
-                <div class="biller-card" onclick="selectBiller(${b.id}, '${b.name}', '${b.category}')" id="biller-${b.id}">
+                <div class="biller-card" onclick="selectBiller(${parseInt(b.id)}, '${escapeHtml(b.name)}', '${escapeHtml(b.category)}')" id="biller-${parseInt(b.id)}">
                     <i class="fas ${billerIcons[b.category] || 'fa-building'}"></i>
-                    <h4>${b.name}</h4>
+                    <h4>${escapeHtml(b.name)}</h4>
                 </div>
             `).join('');
         }
