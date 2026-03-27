@@ -198,7 +198,7 @@
                         localStorage.setItem('rememberMe', 'true');
                     }
                     localStorage.setItem('token', data.token);
-                    const safeUser = { id: data.user.id, firstName: data.user.firstName, lastName: data.user.lastName, email: data.user.email, accountNumber: data.user.accountNumber, accountType: data.user.accountType };
+                    const safeUser = { id: data.user.id, firstName: data.user.firstName, lastName: data.user.lastName, email: data.user.email, accountNumber: data.user.accountNumber, accountType: data.user.accountType, isAdmin: !!data.user.isAdmin };
                     localStorage.setItem('user', JSON.stringify(safeUser));
                     
                     // Show success
