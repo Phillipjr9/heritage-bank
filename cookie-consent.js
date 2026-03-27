@@ -24,7 +24,7 @@
             'background:#1a472a;color:#fff;' +
             'padding:16px 20px;z-index:10000;' +
             'box-shadow:0 -2px 10px rgba(0,0,0,.3);' +
-            'font-family:"Segoe UI",Tahoma,Geneva,Verdana,sans-serif;' +
+            'font-family:"Inter","Segoe UI",Tahoma,Geneva,Verdana,sans-serif;' +
             'font-size:14px;line-height:1.5' +
         '}' +
         '.cookie-consent-inner{' +
