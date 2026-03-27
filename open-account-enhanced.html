@@ -20,6 +20,9 @@
         body { font-family: 'Inter', 'Segoe UI', sans-serif; background: linear-gradient(135deg, #1a472a 0%, #2d5f3f 100%); min-height: 100vh; padding: 40px 20px; }
         .signup-container { max-width: 900px; margin: 0 auto; background: white; border-radius: 20px; padding: 50px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
         .signup-header { text-align: center; margin-bottom: 40px; }
+        .signup-logo { margin-bottom: 18px; }
+        .signup-logo a { display: inline-block; }
+        .signup-logo img { height: 72px; }
         .signup-header h1 { color: #1a472a; font-size: 32px; margin-bottom: 10px; }
         .signup-header p { color: #64748b; }
         .progress-steps { display: flex; justify-content: space-between; margin-bottom: 40px; position: relative; }
@@ -97,7 +100,10 @@
 <body>
     <div class="signup-container">
         <div class="signup-header">
-            <h1><i class="fas fa-landmark"></i> Heritage Bank</h1>
+            <div class="signup-logo">
+                <a href="index.html"><img src="./assets/logo.png" alt="Heritage Bank"></a>
+            </div>
+            <h1>Heritage Bank</h1>
             <p>Open Your New Account in Minutes</p>
         </div>
 

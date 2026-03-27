@@ -26,7 +26,9 @@
             -webkit-backdrop-filter: blur(10px);
             backdrop-filter: blur(10px);
         }
-        .logo { font-size: 24px; font-weight: 700; color: #ffd700; }
+        .logo { font-size: 24px; font-weight: 700; color: #ffd700; display: flex; align-items: center; gap: 12px; }
+        .logo img { height: 40px; border-radius: 8px; }
+        .logo a { display: flex; align-items: center; gap: 12px; text-decoration: none; color: #ffd700; }
         .header-right { display: flex; align-items: center; gap: 20px; }
         .admin-info { text-align: right; }
         .admin-info .name { color: #ffd700; font-weight: 600; }
@@ -311,7 +313,7 @@
 </head>
 <body>
     <div class="header">
-        <div class="logo"><i class="fas fa-university"></i> Heritage Bank Admin</div>
+        <div class="logo"><a href="admin.html"><img src="./assets/logo.png" alt="Heritage Bank"> Heritage Bank Admin</a></div>
         <div class="header-right">
             <div class="admin-info">
                 <div class="name" id="headerAdminName">Loading...</div>
