@@ -72,10 +72,19 @@ function validateCurrentStep() {
         const firstName = document.getElementById('firstName').value.trim();
         const lastName = document.getElementById('lastName').value.trim();
         const dob = document.getElementById('dateOfBirth').value;
+        const ssn = document.getElementById('ssn').value.trim();
         
         if (!firstName || !lastName) {
             showAlert('Please fill in all required fields', 'danger');
             return false;
+        }
+        
+        if (ssn) {
+            const ssnDigits = ssn.replace(/\D/g, '');
+            if (ssnDigits.length !== 9) {
+                showAlert('SSN must be exactly 9 digits', 'danger');
+                return false;
+            }
         }
         
         if (dob) {
@@ -107,6 +116,12 @@ function validateCurrentStep() {
         
         if (zipCode.length !== 5 || !/^\d+$/.test(zipCode)) {
             showAlert('Please enter a valid 5-digit ZIP code', 'danger');
+            return false;
+        }
+        
+        const phoneDigits = phone.replace(/\D/g, '');
+        if (phoneDigits.length !== 10) {
+            showAlert('Please enter a valid 10-digit US phone number', 'danger');
             return false;
         }
     }
