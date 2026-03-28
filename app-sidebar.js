@@ -5,6 +5,7 @@
         'dashboard.html':    { label: 'Dashboard',      icon: 'fa-th-large',          section: 'main' },
         'transfer.html':     { label: 'Transfer',       icon: 'fa-paper-plane',       section: 'main' },
         'pay-bills.html':    { label: 'Pay Bills',      icon: 'fa-file-invoice-dollar',section: 'main' },
+        'bulk-payments.html':{ label: 'Bulk Payments',  icon: 'fa-money-check-alt',   section: 'main' },
         'mobile-deposit.html':{ label: 'Mobile Deposit', icon: 'fa-camera',            section: 'main' },
         'transactions.html': { label: 'Transactions',   icon: 'fa-exchange-alt',      section: 'main' },
         'cards.html':        { label: 'Cards',          icon: 'fa-credit-card',       section: 'products' },

@@ -13,6 +13,9 @@ const fs = require('fs');
 const https = require('https');
 const http = require('http');
 const createCsvWriter = require('csv-writer').createObjectCsvWriter;
+const { XMLParser } = require('fast-xml-parser');
+const multer = require('multer');
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB max
 let nodemailer = null;
 
 // WebAuthn: lazy-loaded ESM module, in-memory challenge store
@@ -1564,6 +1567,50 @@ async function initializeDatabase() {
                 createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 INDEX idx_tl_sender (sender_account_id),
                 INDEX idx_tl_receiver (receiver_account_id)
+            )
+        `);
+
+        // Bulk payment batches table
+        await connection.execute(`
+            CREATE TABLE IF NOT EXISTS payment_batches (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                userId INT NOT NULL,
+                fileName VARCHAR(255),
+                messageId VARCHAR(100),
+                totalPayments INT DEFAULT 0,
+                totalAmount DECIMAL(15,2) DEFAULT 0,
+                currency VARCHAR(3) DEFAULT 'USD',
+                processedCount INT DEFAULT 0,
+                failedCount INT DEFAULT 0,
+                status ENUM('pending','processing','completed','failed','cancelled') DEFAULT 'pending',
+                uploadedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completedAt TIMESTAMP NULL,
+                INDEX idx_pb_user (userId),
+                INDEX idx_pb_status (status),
+                FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+            )
+        `);
+
+        // Bulk payment items table
+        await connection.execute(`
+            CREATE TABLE IF NOT EXISTS batch_payment_items (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                batchId INT NOT NULL,
+                endToEndId VARCHAR(100),
+                recipientName VARCHAR(255),
+                recipientAccount VARCHAR(50),
+                bankName VARCHAR(255),
+                bic VARCHAR(20),
+                amount DECIMAL(15,2) NOT NULL,
+                currency VARCHAR(3) DEFAULT 'USD',
+                description VARCHAR(255),
+                status ENUM('pending','completed','failed') DEFAULT 'pending',
+                errorMessage TEXT NULL,
+                reference VARCHAR(50) NULL,
+                executedAt TIMESTAMP NULL,
+                INDEX idx_bpi_batch (batchId),
+                INDEX idx_bpi_status (status),
+                FOREIGN KEY (batchId) REFERENCES payment_batches(id) ON DELETE CASCADE
             )
         `);
 
@@ -12675,6 +12722,454 @@ app.get('/api/admin/newsletter-subscribers', requireAuth, requireAdmin, async (r
     } catch (error) {
         res.status(500).json({ success: false, message: 'Error fetching subscribers' });
     }
+});
+
+// ==================== BULK PAYMENTS / pain.001 ====================
+
+// Rate limit for bulk payment operations
+app.use('/api/bulk-payments', financialLimiter);
+
+// Helper: Parse pain.001 XML and extract payment instructions
+function parsePain001(xmlString) {
+    const parser = new XMLParser({
+        ignoreAttributes: false,
+        attributeNamePrefix: '@_',
+        removeNSPrefix: true,
+        isArray: (name) => ['CdtTrfTxInf', 'PmtInf'].includes(name)
+    });
+    const doc = parser.parse(xmlString);
+
+    // Navigate to root: CstmrCdtTrfInitn
+    const root = doc.Document?.CstmrCdtTrfInitn || doc.CstmrCdtTrfInitn;
+    if (!root) throw new Error('Invalid pain.001 XML: missing CstmrCdtTrfInitn root element');
+
+    const grpHdr = root.GrpHdr;
+    if (!grpHdr) throw new Error('Invalid pain.001 XML: missing GrpHdr');
+
+    const messageId = grpHdr.MsgId || '';
+    const numberOfTransactions = parseInt(grpHdr.NbOfTxs) || 0;
+    const controlSum = parseFloat(grpHdr.CtrlSum) || 0;
+
+    const pmtInfs = root.PmtInf || [];
+    const payments = [];
+
+    for (const pmtInf of pmtInfs) {
+        const debtorName = pmtInf.Dbtr?.Nm || '';
+        const debtorAccount = pmtInf.DbtrAcct?.Id?.IBAN || pmtInf.DbtrAcct?.Id?.Othr?.Id || '';
+        const txns = pmtInf.CdtTrfTxInf || [];
+
+        for (const txn of txns) {
+            const endToEndId = txn.PmtId?.EndToEndId || '';
+            const amount = parseFloat(txn.Amt?.InstdAmt?.['#text'] || txn.Amt?.InstdAmt || 0);
+            const currency = txn.Amt?.InstdAmt?.['@_Ccy'] || 'USD';
+            const creditorName = txn.Cdtr?.Nm || '';
+            const creditorAccount = txn.CdtrAcct?.Id?.IBAN || txn.CdtrAcct?.Id?.Othr?.Id || '';
+            const creditorBIC = txn.CdtrAgt?.FinInstnId?.BIC || txn.CdtrAgt?.FinInstnId?.BICFI || '';
+            const creditorBankName = txn.CdtrAgt?.FinInstnId?.Nm || '';
+            const remittanceInfo = txn.RmtInf?.Ustrd || '';
+
+            if (amount <= 0) continue;
+
+            payments.push({
+                endToEndId,
+                recipientName: creditorName,
+                recipientAccount: creditorAccount,
+                bankName: creditorBankName,
+                bic: creditorBIC,
+                amount,
+                currency,
+                description: typeof remittanceInfo === 'string' ? remittanceInfo : (Array.isArray(remittanceInfo) ? remittanceInfo.join(' ') : '')
+            });
+        }
+    }
+
+    return { messageId, numberOfTransactions, controlSum, payments };
+}
+
+// Upload & parse pain.001 XML file
+app.post('/api/bulk-payments/upload', requireAuth, requireNotImpersonation, upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: 'No file uploaded' });
+        }
+
+        const xmlString = req.file.buffer.toString('utf-8');
+
+        // Basic XML validation — reject anything that looks like it has script injection
+        if (/<script/i.test(xmlString) || /javascript:/i.test(xmlString)) {
+            return res.status(400).json({ success: false, message: 'Invalid file content' });
+        }
+
+        let parsed;
+        try {
+            parsed = parsePain001(xmlString);
+        } catch (parseError) {
+            return res.status(400).json({ success: false, message: parseError.message });
+        }
+
+        if (parsed.payments.length === 0) {
+            return res.status(400).json({ success: false, message: 'No valid payment instructions found in the file' });
+        }
+
+        // Limit batch size
+        if (parsed.payments.length > 500) {
+            return res.status(400).json({ success: false, message: 'Batch size exceeds maximum of 500 payments' });
+        }
+
+        const totalAmount = parsed.payments.reduce((sum, p) => sum + p.amount, 0);
+
+        // Check sender balance
+        const [users] = await pool.execute('SELECT balance FROM users WHERE id = ?', [req.auth.id]);
+        if (!users.length) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+        const userBalance = parseFloat(users[0].balance);
+
+        // Create batch record
+        const [batchResult] = await pool.execute(
+            `INSERT INTO payment_batches (userId, fileName, messageId, totalPayments, totalAmount, currency, status)
+             VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
+            [req.auth.id, sanitizeTextInput(req.file.originalname || 'upload.xml'), parsed.messageId, parsed.payments.length, totalAmount, parsed.payments[0]?.currency || 'USD']
+        );
+        const batchId = batchResult.insertId;
+
+        // Insert payment items
+        for (const p of parsed.payments) {
+            await pool.execute(
+                `INSERT INTO batch_payment_items (batchId, endToEndId, recipientName, recipientAccount, bankName, bic, amount, currency, description, status)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+                [batchId, p.endToEndId, p.recipientName, p.recipientAccount, p.bankName, p.bic, p.amount, p.currency || 'USD', p.description]
+            );
+        }
+
+        res.json({
+            success: true,
+            batch: {
+                id: batchId,
+                fileName: req.file.originalname,
+                messageId: parsed.messageId,
+                totalPayments: parsed.payments.length,
+                totalAmount,
+                currency: parsed.payments[0]?.currency || 'USD',
+                status: 'pending',
+                sufficientFunds: userBalance >= totalAmount
+            },
+            payments: parsed.payments.map((p, i) => ({
+                index: i + 1,
+                recipientName: p.recipientName,
+                recipientAccount: p.recipientAccount,
+                bankName: p.bankName,
+                amount: p.amount,
+                currency: p.currency,
+                description: p.description
+            }))
+        });
+    } catch (error) {
+        console.error('Bulk payment upload error:', error);
+        res.status(500).json({ success: false, message: 'Error processing file' });
+    }
+});
+
+// Execute a pending batch
+app.post('/api/bulk-payments/:batchId/execute', requireAuth, requireNotImpersonation, async (req, res) => {
+    const batchId = parseInt(req.params.batchId);
+    if (!Number.isFinite(batchId)) {
+        return res.status(400).json({ success: false, message: 'Invalid batch ID' });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+
+        // Lock and verify batch
+        const [batches] = await connection.execute(
+            'SELECT * FROM payment_batches WHERE id = ? AND userId = ? FOR UPDATE',
+            [batchId, req.auth.id]
+        );
+        if (!batches.length) {
+            await connection.rollback();
+            return res.status(404).json({ success: false, message: 'Batch not found' });
+        }
+        const batch = batches[0];
+        if (batch.status !== 'pending') {
+            await connection.rollback();
+            return res.status(400).json({ success: false, message: `Batch is already ${batch.status}` });
+        }
+
+        // Lock sender balance
+        const [senders] = await connection.execute('SELECT * FROM users WHERE id = ? FOR UPDATE', [req.auth.id]);
+        const sender = senders[0];
+        if (!sender) {
+            await connection.rollback();
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+        if (sender.accountStatus && sender.accountStatus !== 'active') {
+            await connection.rollback();
+            return res.status(403).json({ success: false, message: `Account is ${sender.accountStatus}. Transfers not allowed.` });
+        }
+
+        // Check total balance needed
+        const [items] = await connection.execute(
+            'SELECT * FROM batch_payment_items WHERE batchId = ? AND status = ?',
+            [batchId, 'pending']
+        );
+        const totalNeeded = items.reduce((sum, item) => sum + parseFloat(item.amount), 0);
+        let senderBalance = parseFloat(sender.balance);
+
+        if (senderBalance < totalNeeded) {
+            await connection.rollback();
+            return res.status(400).json({
+                success: false,
+                message: `Insufficient funds. Need $${totalNeeded.toFixed(2)}, available $${senderBalance.toFixed(2)}`
+            });
+        }
+
+        // Check transaction limits
+        const limitCheck = await checkTransactionLimits(sender.id, totalNeeded, 'transfer');
+        if (!limitCheck.allowed) {
+            await connection.rollback();
+            return res.status(400).json({ success: false, message: limitCheck.reason });
+        }
+
+        // Mark batch as processing
+        await connection.execute('UPDATE payment_batches SET status = ? WHERE id = ?', ['processing', batchId]);
+
+        let processedCount = 0;
+        let failedCount = 0;
+
+        for (const item of items) {
+            const itemAmount = parseFloat(item.amount);
+            const reference = 'BLK' + Date.now().toString(36).toUpperCase() + processedCount;
+
+            try {
+                // Check remaining balance
+                if (senderBalance < itemAmount) {
+                    await connection.execute(
+                        'UPDATE batch_payment_items SET status = ?, errorMessage = ? WHERE id = ?',
+                        ['failed', 'Insufficient funds remaining in batch', item.id]
+                    );
+                    failedCount++;
+                    continue;
+                }
+
+                // Deduct from sender
+                await connection.execute('UPDATE users SET balance = balance - ? WHERE id = ?', [itemAmount, sender.id]);
+                senderBalance -= itemAmount;
+
+                // Record transaction
+                await connection.execute(
+                    `INSERT INTO transactions (fromUserId, toUserId, amount, fee, type, status, description, reference, recipientName, bankName)
+                     VALUES (?, NULL, ?, 0, 'transfer', 'completed', ?, ?, ?, ?)`,
+                    [sender.id, itemAmount, item.description || 'Bulk Payment', reference, item.recipientName, item.bankName]
+                );
+
+                // Mark item completed
+                await connection.execute(
+                    'UPDATE batch_payment_items SET status = ?, reference = ?, executedAt = NOW() WHERE id = ?',
+                    ['completed', reference, item.id]
+                );
+                processedCount++;
+
+            } catch (itemError) {
+                await connection.execute(
+                    'UPDATE batch_payment_items SET status = ?, errorMessage = ? WHERE id = ?',
+                    ['failed', 'Processing error', item.id]
+                );
+                failedCount++;
+            }
+        }
+
+        // Update batch status
+        const batchStatus = failedCount === items.length ? 'failed' : 'completed';
+        await connection.execute(
+            'UPDATE payment_batches SET status = ?, processedCount = ?, failedCount = ?, completedAt = NOW() WHERE id = ?',
+            [batchStatus, processedCount, failedCount, batchId]
+        );
+
+        await connection.commit();
+
+        // Sync balance
+        await syncBankAccountBalance(sender.id);
+
+        // Update spent limits
+        try { await updateSpentLimits(sender.id, totalNeeded - items.filter(i => i.status === 'failed').reduce((s, i) => s + parseFloat(i.amount), 0)); } catch (e) {}
+
+        // Create notification
+        try {
+            await createNotification(
+                sender.id, 'transfer',
+                'Bulk Payment Processed',
+                `Batch of ${processedCount} payments totaling $${(totalNeeded).toLocaleString()} has been processed. ${failedCount > 0 ? failedCount + ' failed.' : ''}`,
+                { batchId, processedCount, failedCount }
+            );
+        } catch (e) {}
+
+        // Log activity
+        try {
+            await pool.execute(
+                'INSERT INTO activity_logs (user_id, action_type, action_details, ip_address) VALUES (?, ?, ?, ?)',
+                [sender.id, 'BULK_PAYMENT', `Batch #${batchId}: ${processedCount} payments processed, ${failedCount} failed, total $${totalNeeded.toFixed(2)}`, req.ip || null]
+            );
+        } catch (e) {}
+
+        res.json({
+            success: true,
+            message: `Batch processed: ${processedCount} completed, ${failedCount} failed`,
+            batch: {
+                id: batchId,
+                status: batchStatus,
+                processedCount,
+                failedCount,
+                totalAmount: totalNeeded
+            }
+        });
+
+    } catch (error) {
+        await connection.rollback();
+        console.error('Bulk payment execution error:', error);
+        res.status(500).json({ success: false, message: 'Error processing batch' });
+    } finally {
+        connection.release();
+    }
+});
+
+// List user's payment batches
+app.get('/api/bulk-payments', requireAuth, async (req, res) => {
+    try {
+        const [batches] = await pool.execute(
+            `SELECT id, fileName, messageId, totalPayments, totalAmount, currency, processedCount, failedCount, status, uploadedAt, completedAt
+             FROM payment_batches WHERE userId = ? ORDER BY uploadedAt DESC LIMIT 50`,
+            [req.auth.id]
+        );
+        res.json({ success: true, batches });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Error fetching batches' });
+    }
+});
+
+// Get batch details with items
+app.get('/api/bulk-payments/:batchId', requireAuth, async (req, res) => {
+    const batchId = parseInt(req.params.batchId);
+    if (!Number.isFinite(batchId)) {
+        return res.status(400).json({ success: false, message: 'Invalid batch ID' });
+    }
+    try {
+        const [batches] = await pool.execute(
+            'SELECT * FROM payment_batches WHERE id = ? AND userId = ?',
+            [batchId, req.auth.id]
+        );
+        if (!batches.length) {
+            return res.status(404).json({ success: false, message: 'Batch not found' });
+        }
+        const [items] = await pool.execute(
+            'SELECT * FROM batch_payment_items WHERE batchId = ? ORDER BY id',
+            [batchId]
+        );
+        res.json({ success: true, batch: batches[0], items });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Error fetching batch details' });
+    }
+});
+
+// Cancel a pending batch
+app.delete('/api/bulk-payments/:batchId', requireAuth, async (req, res) => {
+    const batchId = parseInt(req.params.batchId);
+    if (!Number.isFinite(batchId)) {
+        return res.status(400).json({ success: false, message: 'Invalid batch ID' });
+    }
+    try {
+        const [result] = await pool.execute(
+            "UPDATE payment_batches SET status = 'cancelled' WHERE id = ? AND userId = ? AND status = 'pending'",
+            [batchId, req.auth.id]
+        );
+        if (result.affectedRows === 0) {
+            return res.status(400).json({ success: false, message: 'Batch not found or cannot be cancelled' });
+        }
+        await pool.execute(
+            "UPDATE batch_payment_items SET status = 'failed', errorMessage = 'Batch cancelled' WHERE batchId = ? AND status = 'pending'",
+            [batchId]
+        );
+        res.json({ success: true, message: 'Batch cancelled' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Error cancelling batch' });
+    }
+});
+
+// Download pain.001 sample template
+app.get('/api/bulk-payments/template/sample', requireAuth, (req, res) => {
+    const sampleXml = `<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.03">
+  <CstmrCdtTrfInitn>
+    <GrpHdr>
+      <MsgId>MSG-001</MsgId>
+      <CreDtTm>${new Date().toISOString()}</CreDtTm>
+      <NbOfTxs>2</NbOfTxs>
+      <CtrlSum>1500.00</CtrlSum>
+    </GrpHdr>
+    <PmtInf>
+      <PmtInfId>PMT-001</PmtInfId>
+      <PmtMtd>TRF</PmtMtd>
+      <NbOfTxs>2</NbOfTxs>
+      <CtrlSum>1500.00</CtrlSum>
+      <Dbtr>
+        <Nm>Your Company Name</Nm>
+      </Dbtr>
+      <DbtrAcct>
+        <Id><Othr><Id>YOUR_ACCOUNT_NUMBER</Id></Othr></Id>
+      </DbtrAcct>
+      <CdtTrfTxInf>
+        <PmtId>
+          <EndToEndId>PAY-001</EndToEndId>
+        </PmtId>
+        <Amt>
+          <InstdAmt Ccy="USD">1000.00</InstdAmt>
+        </Amt>
+        <Cdtr>
+          <Nm>John Smith</Nm>
+        </Cdtr>
+        <CdtrAcct>
+          <Id><Othr><Id>1234567890</Id></Othr></Id>
+        </CdtrAcct>
+        <CdtrAgt>
+          <FinInstnId>
+            <Nm>Chase Bank</Nm>
+            <BIC>CHASUS33</BIC>
+          </FinInstnId>
+        </CdtrAgt>
+        <RmtInf>
+          <Ustrd>Invoice 1001 payment</Ustrd>
+        </RmtInf>
+      </CdtTrfTxInf>
+      <CdtTrfTxInf>
+        <PmtId>
+          <EndToEndId>PAY-002</EndToEndId>
+        </PmtId>
+        <Amt>
+          <InstdAmt Ccy="USD">500.00</InstdAmt>
+        </Amt>
+        <Cdtr>
+          <Nm>Jane Doe</Nm>
+        </Cdtr>
+        <CdtrAcct>
+          <Id><Othr><Id>0987654321</Id></Othr></Id>
+        </CdtrAcct>
+        <CdtrAgt>
+          <FinInstnId>
+            <Nm>Bank of America</Nm>
+            <BIC>BOFAUS3N</BIC>
+          </FinInstnId>
+        </CdtrAgt>
+        <RmtInf>
+          <Ustrd>Vendor payment Q1</Ustrd>
+        </RmtInf>
+      </CdtTrfTxInf>
+    </PmtInf>
+  </CstmrCdtTrfInitn>
+</Document>`;
+
+    res.setHeader('Content-Type', 'application/xml');
+    res.setHeader('Content-Disposition', 'attachment; filename="pain001-sample.xml"');
+    res.send(sampleXml);
 });
 
 // Serve index.html for root and any unmatched routes (SPA support)
