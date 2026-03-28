@@ -12602,5 +12602,18 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
     console.log(`Heritage Bank running on port ${PORT}`);
+
+    // Keep-alive: Prevent Render free-tier from sleeping after 15 min of inactivity.
+    // Pings own /api/build-info every 13 minutes (lightweight, no auth needed).
+    if (process.env.NODE_ENV === 'production' || process.env.RENDER) {
+        const keepAliveUrl = (process.env.APP_BASE_URL || process.env.PRODUCTION_ORIGIN || `http://localhost:${PORT}`) + '/api/build-info';
+        const KEEP_ALIVE_INTERVAL = 13 * 60 * 1000; // 13 minutes
+        setInterval(() => {
+            fetch(keepAliveUrl)
+                .then(r => console.log(`[keep-alive] pinged ${r.status}`))
+                .catch(err => console.warn('[keep-alive] ping failed:', err.message));
+        }, KEEP_ALIVE_INTERVAL);
+        console.log(`[keep-alive] will ping ${keepAliveUrl} every 13 min`);
+    }
 });
 
