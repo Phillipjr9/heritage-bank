@@ -3496,7 +3496,7 @@ app.post('/api/auth/webauthn/register-options', requireAuth, async (req, res) =>
         // Get existing credentials to exclude
         const [existing] = await pool.execute('SELECT credentialId, transports FROM webauthn_credentials WHERE userId = ?', [user.id]);
         const excludeCredentials = existing.map(c => ({
-            id: Buffer.from(c.credentialId, 'base64url'),
+            id: c.credentialId,
             type: 'public-key',
             transports: c.transports ? JSON.parse(c.transports) : ['internal']
         }));
@@ -3557,7 +3557,8 @@ app.post('/api/auth/webauthn/register-verify', requireAuth, async (req, res) => 
         }
 
         const { credential } = verification.registrationInfo;
-        const credIdBase64 = Buffer.from(credential.id).toString('base64url');
+        // v10: credential.id is already a Base64URLString
+        const credIdBase64 = typeof credential.id === 'string' ? credential.id : Buffer.from(credential.id).toString('base64url');
         const pubKeyBase64 = Buffer.from(credential.publicKey).toString('base64url');
         const transports = attestationResponse.response?.transports || ['internal'];
 
@@ -3591,7 +3592,7 @@ app.post('/api/auth/webauthn/login-options', async (req, res) => {
         if (!creds.length) return res.status(400).json({ success: false, message: 'No biometric credentials registered', noBiometric: true });
 
         const allowCredentials = creds.map(c => ({
-            id: Buffer.from(c.credentialId, 'base64url'),
+            id: c.credentialId,
             type: 'public-key',
             transports: c.transports ? JSON.parse(c.transports) : ['internal']
         }));
