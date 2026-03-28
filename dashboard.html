@@ -30,7 +30,6 @@
         body.dark-mode { background: #0f172a; color: #e2e8f0; }
         body.dark-mode .sidebar { background: #0b1a10; }
         body.dark-mode .main-content { background: #1e293b; }
-        body.dark-mode .right-panel { background: #0f172a; border-color: #334155; }
         body.dark-mode .card { background: #1e293b; border-color: #334155; }
         body.dark-mode .metric-card { background: #1e293b; border-color: #334155; }
         body.dark-mode .metric-card.primary { background: linear-gradient(135deg, #0d2818, #1a472a); border-color: transparent; }
@@ -84,10 +83,10 @@
         body.dark-mode .session-warning-content p { color: #94a3b8; }
         .session-timer { font-size: 2rem; font-weight: 700; color: #dc3545; margin-bottom: 20px; }
 
-        /* ===== THREE-COLUMN LAYOUT ===== */
+        /* ===== TWO-COLUMN LAYOUT ===== */
         .dashboard {
             display: grid;
-            grid-template-columns: 272px 1fr 320px;
+            grid-template-columns: 272px 1fr;
             min-height: 100vh;
         }
 
@@ -615,95 +614,6 @@
         .txn-btn-close-modal { background:#f1f5f9; color:#475569; }
         .txn-btn-close-modal:hover { background:#e2e8f0; }
 
-        /* ===== RIGHT PANEL ===== */
-        .right-panel {
-            padding: 32px 24px;
-            border-left: 1px solid #e2e8f0;
-            overflow-y: auto;
-            height: 100vh;
-            position: sticky;
-            top: 0;
-        }
-
-        .profile-card {
-            text-align: center;
-            padding: 28px 24px;
-            background: linear-gradient(135deg, #1a472a 0%, #2d6b45 100%);
-            color: white;
-            border: none;
-        }
-        .profile-avatar {
-            width: 64px;
-            height: 64px;
-            border-radius: 50%;
-            background: rgba(255,255,255,0.15);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto 14px;
-            font-size: 1.5rem;
-            color: white;
-        }
-        .profile-name { font-size: 1.1rem; font-weight: 700; margin-bottom: 4px; color: white; }
-        .profile-member { font-size: 0.8rem; color: rgba(255,255,255,0.7); }
-
-        .panel-title {
-            font-size: 0.85rem;
-            font-weight: 600;
-            color: #0f2b1a;
-            margin-bottom: 16px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .panel-title i { color: #d4af37; }
-
-        .quick-action-item {
-            display: flex;
-            align-items: center;
-            padding: 12px;
-            border-radius: 12px;
-            cursor: pointer;
-            transition: all 0.2s;
-            text-decoration: none;
-            color: inherit;
-            margin-bottom: 6px;
-            background: #f8fafc;
-        }
-        .quick-action-item:hover { background: #f1f5f9; }
-        .qa-icon {
-            width: 38px;
-            height: 38px;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-right: 12px;
-            font-size: 0.9rem;
-            flex-shrink: 0;
-        }
-        .qa-icon.send { background: #ecfdf5; color: #059669; }
-        .qa-icon.deposit { background: #eff6ff; color: #3b82f6; }
-        .qa-icon.bills { background: #fef3c7; color: #d97706; }
-        .qa-icon.invest { background: #f5f3ff; color: #7c3aed; }
-        .qa-icon.cards { background: #fce7f3; color: #db2777; }
-        .qa-icon.statements { background: #f0fdf4; color: #16a34a; }
-        .quick-action-item span { font-size: 0.88rem; font-weight: 500; flex: 1; }
-        .qa-arrow { color: #cbd5e1; font-size: 0.75rem; }
-
-        .summary-stat {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 14px 0;
-            border-bottom: 1px solid #f1f5f9;
-        }
-        .summary-stat:last-child { border-bottom: none; }
-        .summary-stat-label { font-size: 0.85rem; color: #64748b; font-weight: 500; }
-        .summary-stat-value { font-size: 0.95rem; font-weight: 700; color: #0f2b1a; }
-        .summary-mono { font-family: monospace; font-size: 0.88rem; }
-        .status-dot { font-size: 0.5rem; vertical-align: middle; margin-right: 4px; }
-
         /* ===== ACTIVITY (legacy support) ===== */
         .activity-card { background: white; padding: 25px; border-radius: 16px; border: 1px solid #e2e8f0; }
         .activity-item { display: flex; align-items: flex-start; padding: 12px 0; border-bottom: 1px solid #f1f5f9; }
@@ -738,8 +648,6 @@
 
         /* ===== RESPONSIVE ===== */
         @media (max-width: 1200px) {
-            .dashboard { grid-template-columns: 272px 1fr; }
-            .right-panel { display: none; }
             .logout-btn { display: block; }
         }
 
@@ -907,6 +815,13 @@
                         </div>
                     </div>
                     <div class="info-item">
+                        <label>Routing Number</label>
+                        <div class="info-value-row">
+                            <strong id="routingNumber">091238946</strong>
+                            <button class="icon-btn" onclick="copyToClipboard('routingNumber')" title="Copy routing number"><i class="fas fa-copy"></i></button>
+                        </div>
+                    </div>
+                    <div class="info-item">
                         <label>SWIFT Code</label>
                         <div class="info-value-row">
                             <strong id="swiftCode">HERBANKUS</strong>
@@ -967,69 +882,6 @@
                 </div>
             </div>
         </main>
-
-        <!-- RIGHT PANEL -->
-        <aside class="right-panel">
-            <div class="card profile-card">
-                <div class="profile-avatar"><i class="fas fa-user"></i></div>
-                <h3 class="profile-name" id="rightPanelName">User</h3>
-                <span class="profile-member">Heritage Bank Member</span>
-            </div>
-
-            <div class="card">
-                <h4 class="panel-title"><i class="fas fa-bolt"></i> Quick Access</h4>
-                <a href="transfer.html" class="quick-action-item">
-                    <div class="qa-icon send"><i class="fas fa-paper-plane"></i></div>
-                    <span>Send Money</span>
-                    <i class="fas fa-chevron-right qa-arrow"></i>
-                </a>
-                <a href="mobile-deposit.html" class="quick-action-item">
-                    <div class="qa-icon deposit"><i class="fas fa-camera"></i></div>
-                    <span>Deposit Check</span>
-                    <i class="fas fa-chevron-right qa-arrow"></i>
-                </a>
-                <a href="pay-bills.html" class="quick-action-item">
-                    <div class="qa-icon bills"><i class="fas fa-file-invoice-dollar"></i></div>
-                    <span>Pay Bills</span>
-                    <i class="fas fa-chevron-right qa-arrow"></i>
-                </a>
-                <a href="investment.html" class="quick-action-item">
-                    <div class="qa-icon invest"><i class="fas fa-chart-line"></i></div>
-                    <span>Investments</span>
-                    <i class="fas fa-chevron-right qa-arrow"></i>
-                </a>
-                <a href="cards.html" class="quick-action-item">
-                    <div class="qa-icon cards"><i class="fas fa-credit-card"></i></div>
-                    <span>My Cards</span>
-                    <i class="fas fa-chevron-right qa-arrow"></i>
-                </a>
-                <a href="statements.html" class="quick-action-item">
-                    <div class="qa-icon statements"><i class="fas fa-file-invoice"></i></div>
-                    <span>Statements</span>
-                    <i class="fas fa-chevron-right qa-arrow"></i>
-                </a>
-            </div>
-
-            <div class="card">
-                <h4 class="panel-title"><i class="fas fa-chart-bar"></i> Account Summary</h4>
-                <div class="summary-stat">
-                    <span class="summary-stat-label">Account Type</span>
-                    <span class="summary-stat-value" id="summaryAcctType">Savings</span>
-                </div>
-                <div class="summary-stat">
-                    <span class="summary-stat-label">Currency</span>
-                    <span class="summary-stat-value">USD ($)</span>
-                </div>
-                <div class="summary-stat">
-                    <span class="summary-stat-label">Account #</span>
-                    <span class="summary-stat-value summary-mono" id="summaryAcctNum">****</span>
-                </div>
-                <div class="summary-stat">
-                    <span class="summary-stat-label">Status</span>
-                    <span class="summary-stat-value status-active"><i class="fas fa-circle status-dot"></i> Active</span>
-                </div>
-            </div>
-        </aside>
     </div>
 
     <!-- Session Timeout Warning Modal -->
@@ -1132,8 +984,6 @@
                 if (data.success && data.user) {
                     userId = data.user.id;
                     document.getElementById('userName').textContent = data.user.firstName || 'User';
-                    var rpn = document.getElementById('rightPanelName');
-                    if (rpn) rpn.textContent = data.user.firstName || 'User';
 
                     // Sidebar avatar
                     var sNameEl = document.getElementById('sidebarUserName');
@@ -1153,14 +1003,12 @@
                     document.getElementById('accountNumber').textContent = data.user.accountNumber ? ('****' + data.user.accountNumber.slice(-4)) : '-';
                     document.getElementById('accountNumber').dataset.full = data.user.accountNumber || '';
                     document.getElementById('accountNumber').dataset.masked = 'true';
-                    var summaryAcctNum = document.getElementById('summaryAcctNum');
-                    if (summaryAcctNum) summaryAcctNum.textContent = data.user.accountNumber ? ('****' + data.user.accountNumber.slice(-4)) : '-';
+                    var routingEl = document.getElementById('routingNumber');
+                    if (routingEl && data.user.routingNumber) routingEl.textContent = data.user.routingNumber;
                     var swiftEl = document.getElementById('swiftCode');
                     if (swiftEl && data.user.swiftCode) swiftEl.textContent = data.user.swiftCode;
                     document.getElementById('accountType').textContent = (data.user.accountType || 'Savings') + ' Account';
                     document.getElementById('accType').textContent = data.user.accountType || 'Savings';
-                    var sat = document.getElementById('summaryAcctType');
-                    if (sat) sat.textContent = data.user.accountType || 'Savings';
                     
                     // Load savings goals from API to calculate progress
                     const balance = data.user.balance || 0;
