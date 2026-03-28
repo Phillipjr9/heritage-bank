@@ -151,9 +151,27 @@ app.use(
                 upgradeInsecureRequests: []
             }
         },
-        crossOriginEmbedderPolicy: false
+        crossOriginEmbedderPolicy: false,
+        // Strict Transport Security: force HTTPS for 1 year, include subdomains
+        hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+        // Prevent MIME-type sniffing
+        noSniff: true,
+        // Clickjacking protection
+        frameguard: { action: 'deny' },
+        // Disable X-Powered-By (already default in helmet, explicit for clarity)
+        hidePoweredBy: true,
+        // Don't leak referrer to third-party origins
+        referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
     })
 );
+
+// Permissions-Policy: restrict powerful browser features
+app.use((req, res, next) => {
+    res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=(), payment=(self), usb=(), magnetometer=(), gyroscope=(), accelerometer=()');
+    // Prevent page from being embedded in iframes (defense-in-depth with frameguard)
+    res.setHeader('X-Frame-Options', 'DENY');
+    next();
+});
 
 // Basic API rate limiting (helps against brute force + abuse)
 const apiLimiter = rateLimit({
@@ -250,10 +268,18 @@ app.use(bodyParser.urlencoded({ extended: true, limit: '1mb' }));
 // multipart/form-data, or text/plain, so requiring application/json ensures
 // a CORS preflight is triggered. Combined with JWT Bearer auth (not cookies),
 // this prevents CSRF attacks even if CORS is misconfigured.
+// Multipart/form-data is allowed ONLY for known file-upload endpoints (bulk payments, profile image).
+const MULTIPART_UPLOAD_PATHS = ['/api/bulk-payments/upload', '/api/user/profile-image', '/api/user/check-deposit'];
 app.use('/api', (req, res, next) => {
     if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
         const contentType = req.headers['content-type'] || '';
-        if (!contentType.includes('application/json')) {
+        const isMultipart = contentType.includes('multipart/form-data');
+        const isJson = contentType.includes('application/json');
+        // Allow multipart only for whitelisted upload endpoints
+        if (isMultipart && MULTIPART_UPLOAD_PATHS.some(p => req.path === p)) {
+            return next();
+        }
+        if (!isJson) {
             return res.status(415).json({
                 success: false,
                 message: 'Content-Type must be application/json'
@@ -1333,7 +1359,7 @@ async function initializeDatabase() {
         );
 
         if (adminCheck.length === 0 && process.env.ADMIN_PASSWORD) {
-            const hashedPassword = await bcrypt.hash(process.env.ADMIN_PASSWORD, 10);
+            const hashedPassword = await bcrypt.hash(process.env.ADMIN_PASSWORD, 12);
             await connection.execute(
                 `INSERT INTO users (firstName, lastName, email, password, phone, accountNumber, routingNumber, balance, accountStatus, isAdmin) 
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
@@ -2479,18 +2505,18 @@ app.post('/api/auth/apply', async (req, res) => {
             return res.status(400).json({ success: false, message: 'Minimum initial deposit is $50.00' });
         }
         
-        // Check if email already exists
+        // Check if email already exists — use generic message to prevent account enumeration
         const [existingUsers] = await pool.execute('SELECT id FROM users WHERE email = ?', [email]);
         if (existingUsers.length > 0) {
-            return res.status(400).json({ success: false, message: 'Email already registered' });
+            return res.status(400).json({ success: false, message: 'Unable to process this application. Please contact support if you need assistance.' });
         }
         
         const [existingApps] = await pool.execute('SELECT id FROM pending_signups WHERE email = ? AND status = "pending"', [email]);
         if (existingApps.length > 0) {
-            return res.status(400).json({ success: false, message: 'Application already pending for this email' });
+            return res.status(400).json({ success: false, message: 'Unable to process this application. Please contact support if you need assistance.' });
         }
         
-        const hashedPassword = await bcrypt.hash(password, 10);
+        const hashedPassword = await bcrypt.hash(password, 12);
         
         await pool.execute(
             `INSERT INTO pending_signups (
@@ -2989,7 +3015,7 @@ app.post('/api/cards/apply', requireAuth, async (req, res) => {
             const expiryDate = generateExpiryDate();
             const cvv = generateCVV();
             // PCI DSS: CVV must never be stored — shown to user once, then discarded
-            const hashedPin = await bcrypt.hash(pinStr, 10);
+            const hashedPin = await bcrypt.hash(pinStr, 12);
             const cardNumberMasked = `****-****-****-${cardNumber.slice(-4)}`;
             const encryptedCardNumber = encryptCardNumber(cardNumber);
 
@@ -3498,6 +3524,17 @@ app.put('/api/admin/settings/:key', requireAuth, requireAdmin, async (req, res) 
     }
 });
 
+// Security.txt - RFC 9116 compliance
+app.get('/.well-known/security.txt', (req, res) => {
+    res.type('text/plain').send(
+`Contact: mailto:security@heritagebankonline.com
+Expires: 2026-12-31T23:59:00.000Z
+Preferred-Languages: en
+Canonical: https://heritagebankonline.com/.well-known/security.txt
+Policy: https://heritagebankonline.com/security.html`
+    );
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
     res.json({
@@ -3532,23 +3569,20 @@ app.post('/api/auth/login', async (req, res) => {
         );
         
         if (users.length === 0) {
+            // Timing-safe: still run bcrypt to prevent timing-based user enumeration
+            await bcrypt.compare(password || '', '$2a$10$invalidhashpaddingtopreventsideeffects');
             return res.status(401).json({ success: false, message: 'Invalid credentials' });
         }
 
         const user = users[0];
         
-        // Check if account is frozen or suspended
-        if (user.accountStatus === 'frozen' || user.accountStatus === 'suspended') {
-            return res.status(403).json({ 
+        // Check if account is frozen or suspended — use same generic message to prevent enumeration
+        if (user.accountStatus === 'frozen' || user.accountStatus === 'suspended' || user.accountStatus === 'closed') {
+            // Still verify password to prevent timing attack, then return generic message
+            await bcrypt.compare(password, user.password);
+            return res.status(401).json({ 
                 success: false, 
-                message: `Account is ${user.accountStatus}. Please contact support.` 
-            });
-        }
-        
-        if (user.accountStatus === 'closed') {
-            return res.status(403).json({ 
-                success: false, 
-                message: 'Account is closed. Please contact support.' 
+                message: 'Invalid credentials' 
             });
         }
         
@@ -3979,13 +4013,13 @@ app.post('/api/auth/register', async (req, res) => {
             return res.status(400).json({ success: false, message: 'Minimum initial deposit is $50.00' });
         }
         
-        // Check if email already exists
-        const [existingUsers] = await pool.execute('SELECT * FROM users WHERE email = ?', [email]);
+        // Check if email already exists — generic message to prevent account enumeration
+        const [existingUsers] = await pool.execute('SELECT id FROM users WHERE email = ?', [email]);
         if (existingUsers.length > 0) {
-            return res.status(400).json({ success: false, message: 'Email already registered' });
+            return res.status(400).json({ success: false, message: 'Unable to create account. Please contact support if you need assistance.' });
         }
         
-        const hashedPassword = await bcrypt.hash(password, 10);
+        const hashedPassword = await bcrypt.hash(password, 12);
         const accountNumber = generateAccountNumber();
         const emailVerifyToken = crypto.randomBytes(32).toString('hex');
 
@@ -4257,13 +4291,13 @@ app.post('/api/admin/create-user', requireAuth, requireAdmin, async (req, res) =
             });
         }
         
-        // Check if email already exists
+        // Check if email already exists — generic message to prevent account enumeration
         const [existing] = await pool.execute('SELECT id FROM users WHERE email = ?', [email]);
         if (existing.length > 0) {
-            return res.status(400).json({ success: false, message: 'Email already registered' });
+            return res.status(400).json({ success: false, message: 'Unable to create account. Please contact support if you need assistance.' });
         }
         
-        const hashedPassword = await bcrypt.hash(password, 10);
+        const hashedPassword = await bcrypt.hash(password, 12);
         const accountNumber = generateAccountNumber();
         const balance = (initialBalance !== undefined && initialBalance !== null && initialBalance !== '')
             ? parseFloat(initialBalance)
@@ -4384,7 +4418,7 @@ app.post('/api/auth/change-password', requireAuth, requireNotImpersonation, asyn
             return res.status(401).json({ success: false, message: 'Current password is incorrect' });
         }
 
-        const hashedPassword = await bcrypt.hash(newPasswordStr, 10);
+        const hashedPassword = await bcrypt.hash(newPasswordStr, 12);
         try {
             await pool.execute('UPDATE users SET password = ?, forcePasswordChange = 0 WHERE id = ?', [hashedPassword, req.auth.id]);
         } catch (e) {
@@ -7287,7 +7321,7 @@ app.put('/api/cards/:id/change-pin', requireAuth, async (req, res) => {
             return res.status(400).json({ success: false, message: 'Current PIN is incorrect' });
         }
 
-        const hashedPin = await bcrypt.hash(newPin, 10);
+        const hashedPin = await bcrypt.hash(newPin, 12);
         await pool.execute('UPDATE cards SET pin = ? WHERE id = ?', [hashedPin, id]);
 
         res.json({ success: true, message: 'PIN changed successfully' });
@@ -7638,7 +7672,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
             return res.status(400).json({ success: false, message: 'Password must contain at least one special character' });
         }
 
-        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        const hashedPassword = await bcrypt.hash(newPassword, 12);
         
         await pool.execute(
             'UPDATE users SET password = ?, resetToken = NULL, resetTokenExpiry = NULL WHERE email = ?',
@@ -10209,7 +10243,7 @@ app.post('/api/user/transaction-pin', requireAuth, async (req, res) => {
             }
         }
 
-        const hashedPin = await bcrypt.hash(pin, 10);
+        const hashedPin = await bcrypt.hash(pin, 12);
         await pool.execute('UPDATE users SET transactionPin = ? WHERE id = ?', [hashedPin, req.auth.id]);
         
         res.json({ success: true, message: 'Transaction PIN updated successfully' });
