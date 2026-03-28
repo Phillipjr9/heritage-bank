@@ -802,7 +802,7 @@
             <div class="sidebar-user-avatar" id="sidebarUserAvatar">
                 <div class="sidebar-avatar-circle">
                     <i class="fas fa-user" id="sidebarUserAvatarIcon"></i>
-                    <img id="sidebarUserAvatarImg" src="" alt="" class="initially-hidden">
+                    <img id="sidebarUserAvatarImg" src="" alt="User avatar" class="initially-hidden">
                 </div>
                 <span class="sidebar-user-name" id="sidebarUserName"></span>
             </div>
@@ -1175,6 +1175,7 @@
                 }
             } catch (e) {
                 console.error('Dashboard load error:', e);
+                showAlertToast('Connection Error', 'Could not load your account data. Please refresh the page.');
             }
         }
 

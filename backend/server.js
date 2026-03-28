@@ -189,6 +189,15 @@ const financialLimiter = rateLimit({
     message: { success: false, message: 'Too many financial requests. Please try again later.' }
 });
 
+// Rate limiter for PIN verification (prevent brute-force of 4-digit PIN)
+const pinLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { success: false, message: 'Too many PIN attempts. Please try again later.' }
+});
+
 app.use('/api/', apiLimiter);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
@@ -208,6 +217,7 @@ app.use('/api/user/loan', financialLimiter);
 app.use('/api/auth/apply', authLimiter);
 app.use('/api/auth/forgot-password', forgotPasswordLimiter);
 app.use('/api/auth/reset-password', resetPasswordLimiter);
+app.use('/api/user/verify-transaction-pin', pinLimiter);
 
 // CORS � restrict to our own origins in production
 const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
@@ -4320,6 +4330,11 @@ app.post('/api/auth/change-password', requireAuth, requireNotImpersonation, asyn
             await pool.execute('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, req.auth.id]);
         }
 
+        // Invalidate current session so user must re-login with new password
+        if (req.token) {
+            tokenBlacklist.add(req.token);
+        }
+
         try {
             await pool.execute(
                 'INSERT INTO activity_logs (user_id, action_type, action_details, ip_address) VALUES (?, ?, ?, ?)',
@@ -4327,7 +4342,7 @@ app.post('/api/auth/change-password', requireAuth, requireNotImpersonation, asyn
             );
         } catch (e) {}
 
-        res.json({ success: true, message: 'Password changed successfully' });
+        res.json({ success: true, message: 'Password changed successfully. Please sign in again.', requireReauth: true });
     } catch (error) {
         console.error('Server error:', error); res.status(500).json({ success: false, message: 'An internal error occurred. Please try again later.' });
     }
@@ -4693,15 +4708,19 @@ app.post('/api/admin/debit-account', requireAuth, requireAdmin, async (req, res)
         const previousBalance = parseFloat(user.balance);
 
         const totalDeducted = amountValue + feeValue;
-        if (!forceDebit && previousBalance < totalDeducted) {
+        if (previousBalance < totalDeducted) {
             await connection.rollback();
             return res.status(400).json({
                 success: false,
-                message: `Insufficient balance. Current: $${previousBalance.toLocaleString()}, Debit: $${totalDeducted.toLocaleString()}. Use force debit to allow negative balance.`
+                message: `Insufficient balance. Current: $${previousBalance.toLocaleString()}, Debit: $${totalDeducted.toLocaleString()}.`
             });
         }
 
         const newBalance = previousBalance - totalDeducted;
+        if (newBalance < 0) {
+            await connection.rollback();
+            return res.status(400).json({ success: false, message: 'Debit would result in negative balance' });
+        }
         await connection.execute('UPDATE users SET balance = ? WHERE id = ?', [newBalance, user.id]);
 
         const reference = 'DBT' + Date.now().toString(36).toUpperCase();
@@ -10390,8 +10409,11 @@ app.put('/api/user/savings-goals/:goalId', requireAuth, async (req, res) => {
             newCurrentAmount += parseFloat(addAmount);
         }
         if (withdrawAmount) {
-            newCurrentAmount -= parseFloat(withdrawAmount);
-            if (newCurrentAmount < 0) newCurrentAmount = 0;
+            const withdrawValue = parseFloat(withdrawAmount);
+            if (withdrawValue > newCurrentAmount) {
+                return res.status(400).json({ success: false, message: `Cannot withdraw more than current goal balance ($${newCurrentAmount.toFixed(2)})` });
+            }
+            newCurrentAmount -= withdrawValue;
         }
 
         const updates = ['currentAmount = ?'];
@@ -11212,6 +11234,7 @@ async function ensureRetirementTables() {
                 apy DECIMAL(5,2) NOT NULL,
                 annual_limit DECIMAL(15,2) NOT NULL DEFAULT 7000,
                 contributed_this_year DECIMAL(15,2) NOT NULL DEFAULT 0,
+                contribution_year INT NOT NULL DEFAULT (YEAR(CURDATE())),
                 beneficiary VARCHAR(200),
                 target_retirement_age INT DEFAULT 65,
                 status ENUM('active', 'closed', 'withdrawn') DEFAULT 'active',
@@ -11221,6 +11244,8 @@ async function ensureRetirementTables() {
                 INDEX idx_status (status)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         `);
+        // Add contribution_year column for existing tables
+        await pool.execute(`ALTER TABLE retirement_accounts ADD COLUMN IF NOT EXISTS contribution_year INT NOT NULL DEFAULT (YEAR(CURDATE()))`).catch(() => {});
     } catch (e) {
         if (!e.message.includes('already exists')) {
             console.error('Error creating retirement_accounts table:', e.message);
@@ -11504,6 +11529,11 @@ app.put('/api/admin/loans/:id/approve', requireAuth, requireAdmin, async (req, r
 
         const app = apps[0];
         const rate = parseFloat(interestRate) || parseFloat(app.interest_rate);
+
+        // Validate interest rate range (0.01% to 36% APR)
+        if (!Number.isFinite(rate) || rate < 0.01 || rate > 36) {
+            return res.status(400).json({ success: false, message: 'Interest rate must be between 0.01% and 36%' });
+        }
 
         // Recalculate monthly payment with new rate if provided
         const monthlyRate = rate / 100 / 12;
@@ -11838,28 +11868,37 @@ app.post('/api/retirement/contribute', requireAuth, async (req, res) => {
 
         // Check if user already has this account type
         const [existing] = await pool.execute(
-            'SELECT id, total_balance, contributed_this_year FROM retirement_accounts WHERE user_id = ? AND account_type = ? AND status = ?',
+            'SELECT id, total_balance, contributed_this_year, contribution_year FROM retirement_accounts WHERE user_id = ? AND account_type = ? AND status = ?',
             [userId, productInfo.type, 'active']
         );
 
         let accountId;
         if (existing.length > 0) {
+            // Auto-reset contribution counter on new calendar year
+            const currentYear = new Date().getUTCFullYear();
+            let priorContrib = parseFloat(existing[0].contributed_this_year);
+            if ((existing[0].contribution_year || 0) < currentYear) {
+                await pool.execute('UPDATE retirement_accounts SET contributed_this_year = 0, contribution_year = ? WHERE id = ?', [currentYear, existing[0].id]);
+                priorContrib = 0;
+            }
+
             // Add to existing account
-            const yearContrib = parseFloat(existing[0].contributed_this_year) + contribution;
+            const yearContrib = priorContrib + contribution;
             if (yearContrib > productInfo.annualLimit) {
-                return res.status(400).json({ success: false, message: `Annual contribution limit for ${product} is $${productInfo.annualLimit.toLocaleString()}. You've contributed $${parseFloat(existing[0].contributed_this_year).toLocaleString()} this year.` });
+                return res.status(400).json({ success: false, message: `Annual contribution limit for ${product} is $${productInfo.annualLimit.toLocaleString()}. You've contributed $${priorContrib.toLocaleString()} this year.` });
             }
             await pool.execute(
-                'UPDATE retirement_accounts SET total_balance = total_balance + ?, contributed_this_year = contributed_this_year + ?, beneficiary = COALESCE(?, beneficiary), target_retirement_age = COALESCE(?, target_retirement_age) WHERE id = ?',
-                [contribution, contribution, beneficiary || null, targetAge || null, existing[0].id]
+                'UPDATE retirement_accounts SET total_balance = total_balance + ?, contributed_this_year = contributed_this_year + ?, contribution_year = ?, beneficiary = COALESCE(?, beneficiary), target_retirement_age = COALESCE(?, target_retirement_age) WHERE id = ?',
+                [contribution, contribution, currentYear, beneficiary || null, targetAge || null, existing[0].id]
             );
             accountId = existing[0].id;
         } else {
             // Create new retirement account
+            const currentYear = new Date().getUTCFullYear();
             const [result] = await pool.execute(`
-                INSERT INTO retirement_accounts (user_id, account_type, account_name, contribution, total_balance, apy, annual_limit, contributed_this_year, beneficiary, target_retirement_age)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `, [userId, productInfo.type, product, contribution, contribution, productInfo.apy, productInfo.annualLimit, contribution, beneficiary || null, targetAge || 65]);
+                INSERT INTO retirement_accounts (user_id, account_type, account_name, contribution, total_balance, apy, annual_limit, contributed_this_year, contribution_year, beneficiary, target_retirement_age)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `, [userId, productInfo.type, product, contribution, contribution, productInfo.apy, productInfo.annualLimit, contribution, currentYear, beneficiary || null, targetAge || 65]);
             accountId = result.insertId;
         }
 
@@ -12179,6 +12218,18 @@ app.post('/api/check-deposit', requireAuth, async (req, res) => {
         }
         if (!frontImage || !backImage) {
             return res.status(400).json({ success: false, message: 'Both front and back check images are required' });
+        }
+
+        // Validate check images (Base64 data URI, max 5MB each)
+        const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB
+        const validImagePattern = /^data:image\/(jpeg|jpg|png|gif|webp);base64,/i;
+        for (const [label, img] of [['Front', frontImage], ['Back', backImage]]) {
+            if (typeof img !== 'string' || !validImagePattern.test(img)) {
+                return res.status(400).json({ success: false, message: `${label} image must be a valid image (JPEG, PNG, GIF, or WebP)` });
+            }
+            if (img.length > MAX_IMAGE_SIZE) {
+                return res.status(400).json({ success: false, message: `${label} image exceeds 5MB limit` });
+            }
         }
 
         const reference = 'DEP-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
