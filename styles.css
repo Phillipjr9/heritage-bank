@@ -2993,17 +2993,17 @@ h1, h2, h3, h4, h5, h6, p, span, td, th, li, a, label, input, textarea, select {
 }
 .phone-avatar {
     width: 30px; height: 30px; border-radius: 50%;
-    background: linear-gradient(135deg, #1a472a, #2d6b45);
+    background: linear-gradient(135deg, #6366f1, #818cf8);
     color: white; display: flex; align-items: center; justify-content: center;
     font-size: 0.6rem; font-weight: 800; flex-shrink: 0;
 }
 .phone-greeting { color: #94a3b8; font-size: 0.55rem; line-height: 1.2; }
-.phone-user-name { color: #1e293b; font-size: 0.75rem; font-weight: 700; }
-.phone-bell { margin-left: auto; color: #94a3b8; font-size: 0.78rem; }
+.phone-user-name { color: #334155; font-size: 0.75rem; font-weight: 700; }
+.phone-bell { margin-left: auto; color: #cbd5e1; font-size: 0.78rem; }
 
 /* Balance Card */
 .phone-balance-card {
-    background: linear-gradient(135deg, #1a472a, #245a36);
+    background: linear-gradient(135deg, #2d6b45 0%, #4a9e6e 60%, #6bc28b 100%);
     border: none;
     border-radius: 14px;
     padding: 14px 16px;
@@ -3011,18 +3011,18 @@ h1, h2, h3, h4, h5, h6, p, span, td, th, li, a, label, input, textarea, select {
     text-align: center;
     position: relative;
     overflow: hidden;
-    box-shadow: 0 4px 16px rgba(26,71,42,0.25);
+    box-shadow: 0 6px 20px rgba(74,158,110,0.3);
 }
 .phone-balance-card::before {
     content: '';
     position: absolute;
-    top: -30%; right: -20%;
-    width: 80px; height: 80px;
-    background: radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%);
+    top: -40%; right: -25%;
+    width: 100px; height: 100px;
+    background: radial-gradient(circle, rgba(255,255,255,0.15) 0%, transparent 70%);
     border-radius: 50%;
 }
 .phone-balance-label {
-    color: rgba(255,255,255,0.65); font-size: 0.58rem;
+    color: rgba(255,255,255,0.75); font-size: 0.58rem;
     text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;
     position: relative;
 }
@@ -3031,7 +3031,7 @@ h1, h2, h3, h4, h5, h6, p, span, td, th, li, a, label, input, textarea, select {
     letter-spacing: -0.02em; position: relative;
 }
 .phone-balance-change {
-    color: rgba(255,255,255,0.7); font-size: 0.55rem; margin-top: 2px;
+    color: rgba(255,255,255,0.8); font-size: 0.55rem; margin-top: 2px;
     display: flex; align-items: center; justify-content: center; gap: 3px;
     position: relative;
 }
@@ -3043,13 +3043,13 @@ h1, h2, h3, h4, h5, h6, p, span, td, th, li, a, label, input, textarea, select {
 .phone-actions { display: flex; gap: 8px; margin-bottom: 12px; justify-content: center; }
 .phone-actions span {
     display: flex; flex-direction: column; align-items: center;
-    gap: 5px; color: #64748b; font-size: 0.55rem;
+    gap: 5px; color: #94a3b8; font-size: 0.55rem;
 }
 .phone-actions span i {
     width: 36px; height: 36px; background: white;
-    border-radius: 10px; display: flex; align-items: center; justify-content: center;
-    font-size: 0.85rem; color: #1a472a;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    border-radius: 12px; display: flex; align-items: center; justify-content: center;
+    font-size: 0.85rem; color: #4a9e6e;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
 }
 
 /* Section Title */
@@ -3065,9 +3065,9 @@ h1, h2, h3, h4, h5, h6, p, span, td, th, li, a, label, input, textarea, select {
 }
 .phone-txn {
     display: flex; align-items: center; gap: 8px;
-    padding: 7px 8px; background: white;
-    border-radius: 10px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    padding: 8px 10px; background: white;
+    border-radius: 12px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.04);
 }
 .phone-txn-icon {
     width: 28px; height: 28px; border-radius: 8px;
@@ -3078,11 +3078,11 @@ h1, h2, h3, h4, h5, h6, p, span, td, th, li, a, label, input, textarea, select {
 .phone-txn-icon-green { background: #ecfdf5; color: #059669; }
 .phone-txn-icon-blue { background: #eff6ff; color: #3b82f6; }
 .phone-txn-info { flex: 1; display: flex; flex-direction: column; }
-.phone-txn-name { color: #1e293b; font-size: 0.65rem; font-weight: 600; }
-.phone-txn-date { color: #94a3b8; font-size: 0.52rem; }
+.phone-txn-name { color: #334155; font-size: 0.65rem; font-weight: 600; }
+.phone-txn-date { color: #b0bec5; font-size: 0.52rem; }
 .phone-txn-amount { font-size: 0.65rem; font-weight: 700; }
-.phone-txn-debit { color: #dc2626; }
-.phone-txn-credit { color: #059669; }
+.phone-txn-debit { color: #e57373; }
+.phone-txn-credit { color: #4caf50; }
 
 /* Bottom Nav */
 .phone-bottom-nav {
@@ -3095,7 +3095,7 @@ h1, h2, h3, h4, h5, h6, p, span, td, th, li, a, label, input, textarea, select {
     gap: 2px; color: #cbd5e1; font-size: 0.45rem;
 }
 .phone-nav-item i { font-size: 0.7rem; }
-.phone-nav-item.active { color: #1a472a; }
+.phone-nav-item.active { color: #4a9e6e; }
 
 /* ===== Trust Partners Bar ===== */
 .trust-partners {
