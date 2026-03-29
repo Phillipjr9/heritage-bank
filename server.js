@@ -497,7 +497,7 @@ Heritage Bank
 
 // Favicon route
 app.get('/favicon.ico', (req, res) => {
-    res.sendFile(path.join(__dirname, 'assets', 'favicon.svg'));
+    res.sendFile(path.join(__dirname, 'assets', 'logo.png'));
 });
 
 // Health check

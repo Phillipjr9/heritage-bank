@@ -12,7 +12,7 @@ const STATIC_ASSETS = [
   '/app-sidebar.js',
   '/loading.css',
   '/cookie-consent.js',
-  '/assets/favicon.svg',
+  '/assets/logo.png',
   '/404.html',
   '/dashboard-page.css',
   '/open-account-enhanced.css',
