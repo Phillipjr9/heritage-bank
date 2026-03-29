@@ -78,7 +78,7 @@ h1, h2, h3, h4, h5, h6, p, span, td, th, li, a, label, input, textarea, select {
 }
 
 .logo-section .logo {
-    height: 120px;
+    height: 240px;
     filter: brightness(0) invert(1);
 }
 
@@ -435,11 +435,15 @@ h1, h2, h3, h4, h5, h6, p, span, td, th, li, a, label, input, textarea, select {
 }
 
 .card-3d-number {
-    font-size: 1.15rem;
+    font-size: 1.05rem;
     color: rgba(255,255,255,0.85);
-    letter-spacing: 0.15em;
+    letter-spacing: 0.1em;
     font-weight: 500;
     font-family: 'Courier New', monospace;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
 }
 
 .card-3d-bottom {
@@ -1762,7 +1766,7 @@ h1, h2, h3, h4, h5, h6, p, span, td, th, li, a, label, input, textarea, select {
 }
 
 .footer-logo {
-    height: 65px;
+    height: 130px;
     margin-bottom: 15px;
     filter: brightness(0) invert(1);
 }

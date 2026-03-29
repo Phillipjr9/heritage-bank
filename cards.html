@@ -695,6 +695,8 @@
         }
 
         function showCardMenu(cardId, cardType, status) {
+            // Remove any existing modal first
+            closeModal('cardMenuModal');
             const menuHTML = `
                 <div class="modal" id="cardMenuModal">
                     <div class="modal-content" style="max-width: 500px;">
@@ -817,11 +819,15 @@
                 const statusClass = card.status === 'active' ? 'status-active' : card.status === 'frozen' ? 'status-frozen' : 'status-blocked';
                 
                 closeModal('cardMenuModal');
+                closeModal('cardDetailsModal');
                 
                 const toggleBtn = fullNumber ? `
                     <button id="toggleCardNumBtn" onclick="toggleCardNumber()" style="background:none;border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px;margin-top:6px;display:inline-flex;align-items:center;gap:5px;">
                         <i class="fas fa-eye" id="toggleCardIcon"></i> <span id="toggleCardLabel">Show</span>
-                    </button>` : '';
+                    </button>` : `
+                    <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:6px;">
+                        <i class="fas fa-lock"></i> Full card number unavailable. Contact support if needed.
+                    </div>`;
 
                 const detailsHTML = `
                     <div class="modal" id="cardDetailsModal">
@@ -910,7 +916,7 @@
             try {
                 const res = await fetch(`${API_URL}/api/cards/${cardId}/freeze`, {
                     method: 'PUT',
-                    headers: { 'Authorization': `Bearer ${token}` }
+                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
                 });
                 
                 const data = await res.json();
@@ -919,10 +925,11 @@
                     closeModal('cardMenuModal');
                     loadUserCards();
                 } else {
-                    showNotification('Error: ' + data.message, 'error');
+                    showNotification('Error: ' + (data.message || 'Could not freeze card'), 'error');
                 }
             } catch (err) {
-                showNotification('Error freezing card', 'error');
+                console.error('Freeze error:', err);
+                showNotification('Error freezing card. Please try again.', 'error');
             }
         }
 
@@ -932,8 +939,14 @@
             try {
                 const res = await fetch(`${API_URL}/api/cards/${cardId}/unfreeze`, {
                     method: 'PUT',
-                    headers: { 'Authorization': `Bearer ${token}` }
+                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
                 });
+                
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    showNotification('Error: ' + (data.message || 'Could not unfreeze card. Status: ' + res.status), 'error');
+                    return;
+                }
                 
                 const data = await res.json();
                 if (data.success) {
@@ -941,10 +954,11 @@
                     closeModal('cardMenuModal');
                     loadUserCards();
                 } else {
-                    showNotification('Error: ' + data.message, 'error');
+                    showNotification('Error: ' + (data.message || 'Could not unfreeze card'), 'error');
                 }
             } catch (err) {
-                showNotification('Error unfreezing card', 'error');
+                console.error('Unfreeze error:', err);
+                showNotification('Error unfreezing card. Please try again.', 'error');
             }
         }
 
