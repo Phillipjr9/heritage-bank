@@ -631,7 +631,15 @@ function encryptCardNumber(cardNumber) {
 
 function decryptCardNumber(encryptedData) {
     try {
-        const [ivHex, encrypted, tagHex] = encryptedData.split(':');
+        if (!encryptedData) return null;
+        // Check if data is in encrypted format (iv:ciphertext:tag)
+        const parts = encryptedData.split(':');
+        if (parts.length !== 3) {
+            // Not encrypted — might be plain text card number (legacy)
+            if (/^\d{13,19}$/.test(encryptedData)) return encryptedData;
+            return null;
+        }
+        const [ivHex, encrypted, tagHex] = parts;
         const iv = Buffer.from(ivHex, 'hex');
         const tag = Buffer.from(tagHex, 'hex');
         const decipher = crypto.createDecipheriv('aes-256-gcm', CARD_KEY_BUFFER, iv);
@@ -640,7 +648,8 @@ function decryptCardNumber(encryptedData) {
         decrypted += decipher.final('utf8');
         return decrypted;
     } catch (e) {
-        return null; // Return null if decryption fails (old unencrypted data)
+        console.error('Card decryption failed:', e.message);
+        return null; // Return null if decryption fails
     }
 }
 
@@ -13206,11 +13215,18 @@ app.get('/api/bulk-payments/template/sample', requireAuth, (req, res) => {
     res.send(sampleXml);
 });
 
-// Serve index.html for root and any unmatched routes (SPA support)
+// Serve index.html for root and known pages; 404 for everything else
 app.get('*', (req, res) => {
-    if (!req.path.startsWith('/api')) {
-        res.sendFile(path.join(__dirname, '..', 'index.html'));
+    if (req.path.startsWith('/api/')) {
+        return res.status(404).json({ success: false, message: 'Endpoint not found' });
     }
+    // Check if the requested file exists before defaulting to index.html
+    const requestedFile = path.join(__dirname, '..', req.path);
+    if (req.path === '/' || fs.existsSync(requestedFile)) {
+        return res.sendFile(path.join(__dirname, '..', req.path === '/' ? 'index.html' : req.path));
+    }
+    // Unknown page — serve 404
+    res.status(404).sendFile(path.join(__dirname, '..', '404.html'));
 });
 
 // ==================== ROUTE ALIASES (frontend compatibility) ====================
@@ -13239,7 +13255,12 @@ app.get('/api/analytics', requireAuth, async (req, res) => {
     app.handle(req, res);
 });
 
-// Global Express error handler � catches unhandled errors in route handlers
+// Catch-all for unmatched API routes (POST/PUT/DELETE/PATCH)
+app.all('/api/*', (req, res) => {
+    res.status(404).json({ success: false, message: 'Endpoint not found' });
+});
+
+// Global Express error handler — catches unhandled errors in route handlers
 app.use((err, req, res, next) => {
     console.error(`[ERROR] ${req.method} ${req.originalUrl}:`, err.stack || err.message || err);
     if (res.headersSent) return next(err);
