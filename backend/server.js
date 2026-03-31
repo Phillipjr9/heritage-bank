@@ -68,9 +68,9 @@ try {
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 // -- Configurable constants (override via environment variables) --
-const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || 'demo-support@example.com';
-const SUPPORT_PHONE = process.env.SUPPORT_PHONE || '1-800-DEMO';
-const BANK_WEBSITE = process.env.BANK_WEBSITE || 'demo.example.com';
+const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || 'support@heritagebank.com';
+const SUPPORT_PHONE = process.env.SUPPORT_PHONE || '1-800-HERITAGE';
+const BANK_WEBSITE = process.env.BANK_WEBSITE || 'heritagebank-ku1y.onrender.com';
 const ADMIN_INITIAL_BALANCE = parseFloat(process.env.ADMIN_INITIAL_BALANCE || '1000000');
 const SAVINGS_APY = parseFloat(process.env.SAVINGS_APY || '0.0425');
 const CHECKING_APY_PCT = process.env.CHECKING_APY_PCT || '0.01';
@@ -278,78 +278,8 @@ app.use((req, res, next) => {
     next();
 });
 
-// Demo disclaimer banner — injected into every HTML response so Google Safe Browsing
-// does not flag the site as phishing.  Also injects <meta name="robots" content="noindex">
-// to prevent search-engine indexing.
-const DEMO_BANNER_HEAD = `<meta name="robots" content="noindex, nofollow"><style>.demo-banner{position:fixed;bottom:0;left:0;right:0;background:#b91c1c;color:#fff;text-align:center;padding:10px 16px;font-size:14px;font-family:'Inter',sans-serif;z-index:999999;box-shadow:0 -2px 8px rgba(0,0,0,.25);letter-spacing:.2px}.demo-banner a{color:#fde68a;text-decoration:underline}</style>`;
-const DEMO_BANNER_BODY = `<div class="demo-banner">&#9888;&#65039; <strong>DEMO PROJECT</strong> &mdash; This is a student portfolio project, NOT a real bank. No real money or financial services are involved.</div>`;
-
-function sendHTMLWithBanner(res, filePath) {
-    require('fs').readFile(filePath, 'utf8', (err, html) => {
-        if (err) return res.status(404).send('Not found');
-        setNoStoreHeaders(res);
-        if (html.includes('</head>')) html = html.replace('</head>', DEMO_BANNER_HEAD + '</head>');
-        if (html.includes('</body>')) html = html.replace('</body>', DEMO_BANNER_BODY + '</body>');
-        res.type('html').send(html);
-    });
-}
-
-// "Latest" HTML endpoints to bypass stale cached /admin.html and /dashboard.html
-// in environments where a CDN ignores querystrings and/or caches HTML too aggressively.
-app.get(['/admin-new', '/admin-latest'], (req, res) => {
-    sendHTMLWithBanner(res, path.join(__dirname, '..', 'admin.html'));
-});
-
-app.get(['/dashboard-new', '/dashboard-latest'], (req, res) => {
-    sendHTMLWithBanner(res, path.join(__dirname, '..', 'dashboard.html'));
-});
-
-// Serve static files, but intercept HTML to inject the demo banner
-app.use((req, res, next) => {
-    const staticRoot = path.join(__dirname, '..');
-    const ext = path.extname(req.path).toLowerCase();
-
-    // For non-HTML assets, serve normally
-    if (ext && ext !== '.html' && ext !== '.htm') {
-        return express.static(staticRoot)(req, res, next);
-    }
-
-    // For HTML requests, read the file, inject banner, and send
-    let filePath;
-    if (ext === '.html' || ext === '.htm') {
-        filePath = path.join(staticRoot, req.path);
-    } else {
-        // Try index.html for bare paths
-        filePath = path.join(staticRoot, req.path, 'index.html');
-        if (!require('fs').existsSync(filePath)) {
-            filePath = path.join(staticRoot, req.path + '.html');
-            if (!require('fs').existsSync(filePath)) {
-                return express.static(staticRoot)(req, res, next);
-            }
-        }
-    }
-
-    // Security: prevent path traversal
-    const resolved = path.resolve(filePath);
-    if (!resolved.startsWith(path.resolve(staticRoot))) {
-        return next();
-    }
-
-    require('fs').readFile(resolved, 'utf8', (err, html) => {
-        if (err) {
-            return express.static(staticRoot)(req, res, next);
-        }
-        setNoStoreHeaders(res);
-        // Inject demo banner
-        if (html.includes('</head>')) {
-            html = html.replace('</head>', DEMO_BANNER_HEAD + '</head>');
-        }
-        if (html.includes('</body>')) {
-            html = html.replace('</body>', DEMO_BANNER_BODY + '</body>');
-        }
-        res.type('html').send(html);
-    });
-});
+// Serve static files
+app.use(express.static(path.join(__dirname, '..')));
 
 // Build/runtime diagnostics to help verify what code+assets are actually deployed.
 // NOTE: Keep this non-sensitive (no DB creds, no secrets).

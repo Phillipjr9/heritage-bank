@@ -1,7 +1,7 @@
 {
-  "name": "Heritage Bank (Demo Project)",
-  "short_name": "Heritage Demo",
-  "description": "Student portfolio demo — NOT a real bank. No real money or financial services.",
+  "name": "Heritage Bank",
+  "short_name": "Heritage Bank",
+  "description": "Heritage Bank - Secure online banking.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f0f2f5",
