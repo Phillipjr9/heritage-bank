@@ -684,6 +684,7 @@
         .zelle-badge p { font-size: 0.8rem; opacity: 0.85; margin: 2px 0 0; }
         .receipt-bank-value { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
         .receipt-bank-icon { width: 22px; height: 22px; border-radius: 4px; object-fit: contain; border: 1px solid #e0e0e0; }
+        .initially-hidden { display: none; }
     </style>
 </head>
 <body>
@@ -709,7 +710,7 @@
                     <i class="fas fa-university"></i> Heritage Account
                 </button>
                 <button class="tab-btn" onclick="setTransferType('zelle', this)">
-                    <i class="fas fa-bolt"></i> Zelle�
+                    <i class="fas fa-bolt"></i> Zelle&reg;
                 </button>
                 <button class="tab-btn" onclick="setTransferType('ukbank', this)">
                     <i class="fas fa-landmark"></i> UK Bank Transfer
@@ -731,14 +732,14 @@
                     <div class="zelle-badge">
                         <i class="fas fa-bolt"></i>
                         <div>
-                            <strong>Zelle� Instant Send</strong>
-                            <p>Send money in minutes � no fees</p>
+                            <strong>Zelle&reg; Instant Send</strong>
+                            <p>Send money in minutes &mdash; no fees</p>
                         </div>
                     </div>
                     <div class="form-group">
                         <label>Recipient Email or Phone</label>
                         <input type="text" id="zelleRecipient" placeholder="email@example.com or (555) 123-4567" oninput="lookupZelleRecipient()">
-                        <small>Enter the email or US mobile number linked to their Zelle� account</small>
+                        <small>Enter the email or US mobile number linked to their Zelle&reg; account</small>
                     </div>
                 </div>
 
@@ -1216,11 +1217,11 @@
             const currencySelector = document.querySelector('.currency-selector');
             const currencyGroup = currencySelector ? currencySelector.closest('.form-group') : null;
             if (type === 'zelle' || type === 'usbank' || type === 'account') {
-                // Domestic USD-only transfers � hide currency selector
+                // Domestic USD-only transfers - hide currency selector
                 if (currencyGroup) currencyGroup.style.display = 'none';
                 setRecipientCurrency('USD', document.querySelector('.currency-option'));
             } else if (type === 'ukbank') {
-                // UK transfers � auto-select GBP
+                // UK transfers - auto-select GBP
                 if (currencyGroup) currencyGroup.style.display = '';
                 const gbpOption = document.querySelectorAll('.currency-option')[1];
                 if (gbpOption) setRecipientCurrency('GBP', gbpOption);
@@ -1313,7 +1314,7 @@
                 const val = document.getElementById('zelleRecipient').value.trim();
                 if (val && (val.includes('@') || val.replace(/\D/g,'').length >= 10)) {
                     preview.classList.add('show');
-                    document.getElementById('recipientName').textContent = 'Zelle� Recipient';
+                    document.getElementById('recipientName').textContent = 'Zelle\u00AE Recipient';
                     document.getElementById('recipientInfo').textContent = val;
                 } else {
                     preview.classList.remove('show');
@@ -1487,13 +1488,13 @@
                         submitBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Money';
                         return;
                     }
-                    // Detect email vs phone � if contains @, treat as email
+                    // Detect email vs phone - if contains @, treat as email
                     if (zelleVal.includes('@')) {
                         body.toEmail = zelleVal;
                     } else {
                         body.toEmail = zelleVal; // Server will look up by email; phone resolves via email match
                     }
-                    body.description = `Zelle� Instant Send | ${document.getElementById('description').value || 'Sent via Zelle'}`;
+                    body.description = `Zelle\u00AE Instant Send | ${document.getElementById('description').value || 'Sent via Zelle'}`;
                 } else if (transferType === 'ukbank') {
                     body.toAccountNumber = document.getElementById('ukAccountNumber').value;
                     body.description = `UK Transfer to ${document.getElementById('ukRecipientName').value} at ${selectedUkBank.name} (${selectedUkBank.sortCode}) | Ref: ${document.getElementById('ukReference').value || 'N/A'}`;
