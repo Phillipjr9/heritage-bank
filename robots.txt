@@ -1,4 +1,2 @@
-# This is a DEMO student project, NOT a real bank.
-# Block all search engine crawling to prevent phishing misclassification.
 User-agent: *
-Disallow: /
+Allow: /
