@@ -13360,8 +13360,15 @@ app.listen(PORT, () => {
     // Keep-alive: Prevent Render free-tier from sleeping after 15 min of inactivity.
     // Pings own /api/build-info every 13 minutes (lightweight, no auth needed).
     if (process.env.NODE_ENV === 'production' || process.env.RENDER) {
-        const keepAliveUrl = (process.env.APP_BASE_URL || process.env.PRODUCTION_ORIGIN || `http://localhost:${PORT}`) + '/api/build-info';
+        const renderUrl = process.env.RENDER_EXTERNAL_URL || process.env.APP_BASE_URL || process.env.PRODUCTION_ORIGIN;
+        const keepAliveUrl = (renderUrl || `http://localhost:${PORT}`) + '/api/build-info';
         const KEEP_ALIVE_INTERVAL = 13 * 60 * 1000; // 13 minutes
+        // Initial ping after 1 minute to confirm service is reachable
+        setTimeout(() => {
+            fetch(keepAliveUrl)
+                .then(r => console.log(`[keep-alive] initial ping ${r.status}`))
+                .catch(err => console.warn('[keep-alive] initial ping failed:', err.message));
+        }, 60000);
         setInterval(() => {
             fetch(keepAliveUrl)
                 .then(r => console.log(`[keep-alive] pinged ${r.status}`))
