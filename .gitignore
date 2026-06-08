@@ -34,3 +34,4 @@ functions/serviceAccountKey.json
 .amplify
 amplify_outputs*
 amplifyconfiguration*
+amplify.old/
