@@ -227,6 +227,26 @@ app.get('/api/dashboard', authenticateToken, (req, res) => {
   });
 });
 
+// ============ STATIC FILES & SPA ============
+
+// Serve static files from root directory
+const rootPath = path.join(__dirname, '..');
+app.use(express.static(rootPath, {
+  maxAge: '1d',
+  etag: false,
+  index: ['index.html']
+}));
+
+// SPA fallback - serve index.html for non-API routes
+app.get('*', (req, res, next) => {
+  // If it's an API request, skip to next middleware
+  if (req.path.startsWith('/api/')) {
+    return next();
+  }
+  // Serve index.html for all other requests (SPA routing)
+  res.sendFile(path.join(rootPath, 'index.html'));
+});
+
 // ============ MIDDLEWARE ============
 
 // Token authentication middleware

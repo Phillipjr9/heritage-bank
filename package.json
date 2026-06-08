@@ -1,8 +1,12 @@
 {
   "name": "heritage-bank-frontend",
   "version": "1.0.0",
-  "description": "Heritage Bank - Digital Banking Application (Frontend)",
+  "description": "Heritage Bank - Digital Banking Application (Frontend + Backend on Render)",
   "private": true,
-  "scripts": {},
+  "scripts": {
+    "build": "echo 'Frontend is static assets - no build needed'",
+    "start": "node backend/server.js",
+    "dev": "node backend/server.js"
+  },
   "dependencies": {}
 }
