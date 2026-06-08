@@ -3,9 +3,13 @@ set -e
 
 echo "🏗️ Building Heritage Bank for Render..."
 
-# Install dependencies
-echo "📦 Installing dependencies..."
+# Install root dependencies (if needed)
+echo "📦 Installing root dependencies..."
 npm install
+
+# Install backend dependencies
+echo "📦 Installing backend dependencies..."
+npm install --prefix backend
 
 # Run database migrations if needed
 if [ -f "migrate-profile.js" ]; then

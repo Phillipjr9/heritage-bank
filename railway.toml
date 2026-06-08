@@ -3,7 +3,7 @@ builder = "nixpacks"
 
 [build.nixpacks]
 node = "20"
-buildCommands = ["npm ci --prefix backend || npm install --prefix backend"]
+buildCommands = ["cd backend && npm ci && cd ..", "echo 'Backend dependencies installed'"]
 
 [deploy]
 startCommand = "node backend/server.js"
