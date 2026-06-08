@@ -6,33 +6,10 @@
   "scripts": {
     "start": "node backend/server-firestore.js",
     "dev": "node backend/server-firestore.js",
-    "build": "npm --prefix backend install"
+    "build": "npm --prefix backend ci || npm --prefix backend install"
   },
   "engines": {
     "node": ">=18.0.0"
   },
-  "dependencies": {
-    "ai": "^6.0.197",
-    "aws-amplify": "^6.17.0",
-    "bcryptjs": "^2.4.3",
-    "body-parser": "^1.20.2",
-    "cors": "^2.8.5",
-    "dotenv": "^16.3.1",
-    "express": "^4.18.2",
-    "express-rate-limit": "^8.2.1",
-    "firebase-admin": "^12.7.0",
-    "helmet": "^8.1.0",
-    "jsonwebtoken": "^9.0.2",
-    "mysql2": "^3.6.5",
-    "serverless-http": "^3.2.0"
-  },
-  "devDependencies": {
-    "@aws-amplify/backend": "^1.23.0",
-    "@aws-amplify/backend-cli": "^1.8.3",
-    "aws-cdk-lib": "^2.244.0",
-    "constructs": "^10.6.0",
-    "esbuild": "^0.28.0",
-    "tsx": "^4.22.4",
-    "typescript": "^5.9.3"
-  }
+  "dependencies": {}
 }

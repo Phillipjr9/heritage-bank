@@ -1,0 +1,12 @@
+[build]
+builder = "nixpacks"
+# Specify Node 20 for AWS SDK compatibility
+nixpacks.providers = ["node"]
+
+[build.nixpacks]
+node = "20"
+
+[deploy]
+startCommand = "node backend/server-firestore.js"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
