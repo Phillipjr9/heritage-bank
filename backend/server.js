@@ -178,7 +178,8 @@ app.post('/api/auth/register', async (req, res) => {
         id: user.id,
         email: user.email,
         firstName: user.firstName,
-        lastName: user.lastName
+        lastName: user.lastName,
+        isAdmin: user.isAdmin || false
       },
       token
     });
@@ -243,7 +244,8 @@ app.post('/api/auth/login', async (req, res) => {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        balance: user.balance
+        balance: user.balance,
+        isAdmin: user.isAdmin || false
       },
       token
     });
@@ -272,6 +274,7 @@ app.get('/api/user/profile', authenticateToken, (req, res) => {
       firstName: user.firstName,
       lastName: user.lastName,
       balance: user.balance,
+      isAdmin: user.isAdmin || false,
       createdAt: user.createdAt
     }
   });
@@ -380,6 +383,7 @@ async function initializeSeedData() {
         lastName: 'Account',
         passwordHash: hashedPassword,
         balance: 10000,
+        isAdmin: true,
         createdAt: new Date().toISOString()
       });
       console.log(`[SEED] ✓ Admin account initialized: ${adminEmail}`);
