@@ -183,7 +183,8 @@ app.post('/api/auth/register', async (req, res) => {
       success: false,
       message: 'Registration failed',
       error: error.message,
-      details: error.stack
+      details: error.stack,
+      body: req.body
     });
   }
 });
