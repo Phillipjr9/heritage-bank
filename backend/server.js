@@ -63,22 +63,21 @@ app.use(helmet({
     // Disable default CSP directives - we'll set them explicitly below
     useDefaults: false,
     directives: {
-      defaultSrc: ["'self'", "https:"],
+      defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "'unsafe-inline'", "https:"],
       scriptSrcAttr: ["'self'", "'unsafe-inline'"],  // Allow inline event handlers like onclick=
       styleSrc: ["'self'", "'unsafe-inline'", "https:"],
       imgSrc: ["'self'", "data:", "https:"],
       fontSrc: ["'self'", "data:", "https:"],
       connectSrc: ["'self'", "https:"],
-      formAction: ["'self'", "https:"],
+      formAction: ["'self'"],
       frameAncestors: ["'self'"],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
-      upgradeInsecureRequests: [],
     },
   },
 }));
-console.log('[MIDDLEWARE] ✓ helmet configured');
+console.log('[MIDDLEWARE] ✓ helmet configured with unsafe-inline scripts');
 
 app.use(cors({
   origin: ['http://localhost:3001', 'http://localhost:5173', 'http://127.0.0.1:3001', 'https://heritagebank-production.up.railway.app', '*'],
