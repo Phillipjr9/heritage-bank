@@ -162,21 +162,13 @@ async function initializeSchema() {
  */
 async function getUserByEmail(email) {
   const pool = await initializePool();
-  let connection;
+  const connection = await pool.getConnection();
   try {
-    connection = await Promise.race([
-      pool.getConnection(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout (5s)')), 5000))
-    ]);
     const [rows] = await connection.execute('SELECT * FROM users WHERE email = ?', [email]);
     return normalizeUser(rows[0] || null);
   } finally {
     if (connection) {
-      try {
-        await connection.release();
-      } catch (releaseErr) {
-        console.error('[DB] Error releasing connection:', releaseErr.message);
-      }
+      await connection.release();
     }
   }
 }
@@ -186,21 +178,13 @@ async function getUserByEmail(email) {
  */
 async function getUserById(id) {
   const pool = await initializePool();
-  let connection;
+  const connection = await pool.getConnection();
   try {
-    connection = await Promise.race([
-      pool.getConnection(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout (5s)')), 5000))
-    ]);
     const [rows] = await connection.execute('SELECT * FROM users WHERE id = ?', [id]);
     return normalizeUser(rows[0] || null);
   } finally {
     if (connection) {
-      try {
-        await connection.release();
-      } catch (releaseErr) {
-        console.error('[DB] Error releasing connection:', releaseErr.message);
-      }
+      await connection.release();
     }
   }
 }
@@ -210,13 +194,8 @@ async function getUserById(id) {
  */
 async function createUser(id, email, firstName, lastName, passwordHash, isAdmin = false, phone = null, gender = null) {
   const pool = await initializePool();
-  let connection;
+  const connection = await pool.getConnection();
   try {
-    connection = await Promise.race([
-      pool.getConnection(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout (5s)')), 5000))
-    ]);
-    
     const actualPasswordColumn = await detectPasswordColumn();
     console.log(`[DB] Creating user: ${email}, passwordColumn: ${actualPasswordColumn}, phone: ${phone}, gender: ${gender}`);
     const columns = ['email', 'firstName', 'lastName', actualPasswordColumn, 'balance', 'isAdmin'];
@@ -252,6 +231,7 @@ async function createUser(id, email, firstName, lastName, passwordHash, isAdmin 
     return user;
   } catch (err) {
     console.error(`[DB] createUser failed for ${email}:`, err.message);
+    console.error('[DB] Error stack:', err.stack);
     throw err;
   } finally {
     if (connection) {
