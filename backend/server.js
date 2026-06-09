@@ -366,6 +366,60 @@ app.get('/api/dashboard', authenticateToken, async (req, res) => {
   }
 });
 
+// Admin check middleware
+async function requireAdmin(req, res, next) {
+  try {
+    const user = await db.getUserByEmail(req.user.email);
+    if (!user || !user.isAdmin) return res.status(403).json({ success: false, message: 'Admin access required' });
+    next();
+  } catch (e) {
+    console.error('[ADMIN] requireAdmin error', e);
+    res.status(500).json({ success: false, message: 'Admin check failed' });
+  }
+}
+
+// Minimal admin endpoints used by admin dashboard
+app.get('/api/admin/dashboard-stats', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const users = await db.getAllUsers();
+    const totalUsers = users.length;
+    const totalBalance = users.reduce((s, u) => s + (parseFloat(u.balance || 0) || 0), 0);
+    res.json({ success: true, stats: {
+      totalUsers,
+      totalBalance,
+      todayTransactions: 0,
+      pendingLoans: 0,
+      pendingDeposits: 0,
+      newContactMessages: 0,
+      monthlyVolume: 0,
+      activeUsers: totalUsers
+    }});
+  } catch (e) {
+    console.error('[ADMIN] dashboard-stats error', e);
+    res.status(500).json({ success: false, message: 'Failed to fetch dashboard stats' });
+  }
+});
+
+app.get('/api/admin/users-with-balances', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const users = await db.getAllUsers();
+    const mapped = users.map(u => ({
+      id: u.id,
+      email: u.email,
+      firstName: u.firstName,
+      lastName: u.lastName,
+      balance: parseFloat(u.balance || 0),
+      accountNumber: u.accountNumber || null,
+      accountStatus: u.accountStatus || 'active',
+      transferRestricted: !!u.transferRestricted
+    }));
+    res.json({ success: true, users: mapped });
+  } catch (e) {
+    console.error('[ADMIN] users-with-balances error', e);
+    res.status(500).json({ success: false, message: 'Failed to fetch users' });
+  }
+});
+
 // ============ STATIC FILES & SPA ============
 
 // Serve static files from root directory

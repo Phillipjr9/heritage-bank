@@ -279,7 +279,11 @@ async function getAllUsers() {
   const pool = await initializePool();
   const connection = await pool.getConnection();
   try {
-    const [rows] = await connection.execute('SELECT id, email, firstName, lastName, balance, isAdmin, isLocked, createdAt FROM users ORDER BY createdAt DESC');
+    // Select columns that exist across different production schemas.
+    // Some deployments use `isLocked` while others do not; select a safe subset.
+    const [rows] = await connection.execute(`SELECT id, email, firstName, lastName, balance, isAdmin,
+      accountNumber, accountStatus, transferRestricted, createdAt
+      FROM users ORDER BY createdAt DESC`);
     return rows;
   } finally {
     await connection.release();
