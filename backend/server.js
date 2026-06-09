@@ -57,7 +57,17 @@ console.log('[STARTUP] Setting up middleware...');
 
 // Middleware
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: 'cross-origin' }
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'", "https:"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https:"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https:"],
+      imgSrc: ["'self'", "data:", "https:"],
+      fontSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "https:"],
+    },
+  },
 }));
 console.log('[MIDDLEWARE] ✓ helmet configured');
 
