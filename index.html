@@ -1005,6 +1005,38 @@
                 setTimeout(function() { loader.style.display = 'none'; }, 500);
             });
         })();
+
+        // --- Reveal animations: show all initially visible elements ---
+        (function() {
+            // Get all reveal-up elements
+            var elements = document.querySelectorAll('.reveal-up');
+            
+            // Immediately make them visible
+            elements.forEach(function(element) {
+                // Set inline styles to override the reveal-up CSS
+                element.style.opacity = '1';
+                element.style.transform = 'translateY(0)';
+                // Also add the revealed class for consistency
+                element.classList.add('revealed');
+            });
+            
+            // Set up IntersectionObserver for future scroll reveals
+            if ('IntersectionObserver' in window) {
+                var observer = new IntersectionObserver(function(entries) {
+                    entries.forEach(function(entry) {
+                        if (entry.isIntersecting) {
+                            entry.target.style.opacity = '1';
+                            entry.target.style.transform = 'translateY(0)';
+                            entry.target.classList.add('revealed');
+                        }
+                    });
+                }, { threshold: 0.1 });
+                
+                elements.forEach(function(element) {
+                    observer.observe(element);
+                });
+            }
+        })();
     </script>
 </body>
 </html>

@@ -4,6 +4,37 @@ const API_URL = window.location.hostname === 'localhost' || window.location.host
     ? 'http://localhost:3001' 
     : window.location.origin;
 
+// Intersection Observer for reveal animations on scroll
+const revealObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+        if (entry.isIntersecting) {
+            entry.target.classList.add('revealed');
+        }
+    });
+}, { threshold: 0.1 });
+
+// Setup reveal animations
+function setupRevealAnimations() {
+    document.querySelectorAll('.reveal-up').forEach(element => {
+        // Observe for future visibility (scrolling)
+        revealObserver.observe(element);
+        // Immediately reveal if in viewport
+        const rect = element.getBoundingClientRect();
+        if (rect.top <= window.innerHeight && rect.bottom >= 0) {
+            element.classList.add('revealed');
+        }
+    });
+}
+
+// Run immediately if DOM ready, or wait for it
+if (document.readyState !== 'loading') {
+    // DOM already loaded
+    setTimeout(setupRevealAnimations, 50);
+} else {
+    // Wait for DOM
+    document.addEventListener('DOMContentLoaded', setupRevealAnimations);
+}
+
 // Mobile Menu Toggle
 document.addEventListener('DOMContentLoaded', function() {
     const hamburger = document.getElementById('hamburger');

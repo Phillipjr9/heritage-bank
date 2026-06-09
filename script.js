@@ -3,6 +3,35 @@
 // Use relative paths for API - works on any domain
 const API_URL = '';  // Empty string means use current domain
 
+// Intersection Observer for reveal animations
+const revealObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+        if (entry.isIntersecting) {
+            entry.target.classList.add('revealed');
+        }
+    });
+}, { threshold: 0.1 });
+
+// Start observing all reveal-up elements immediately when DOM is ready
+function setupRevealAnimations() {
+    const revealElements = document.querySelectorAll('.reveal-up');
+    revealElements.forEach(element => {
+        revealObserver.observe(element);
+        // Check if element is already visible (e.g., on initial page load for hero)
+        const rect = element.getBoundingClientRect();
+        if (rect.top < window.innerHeight && rect.bottom > 0) {
+            element.classList.add('revealed');
+        }
+    });
+}
+
+// Setup reveals immediately
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupRevealAnimations);
+} else {
+    setupRevealAnimations();
+}
+
 // Mobile Menu Toggle
 document.addEventListener('DOMContentLoaded', function() {
     const hamburger = document.getElementById('hamburger');
