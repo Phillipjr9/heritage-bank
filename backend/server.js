@@ -420,6 +420,161 @@ app.get('/api/admin/users-with-balances', authenticateToken, requireAdmin, async
   }
 });
 
+app.get('/api/transactions/all', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const pool = await db.initializePool();
+    const connection = await pool.getConnection();
+    try {
+      const [transactions] = await connection.execute(
+        'SELECT * FROM transactions ORDER BY createdAt DESC LIMIT 200'
+      );
+      res.json({ success: true, transactions });
+    } finally {
+      await connection.release();
+    }
+  } catch (e) {
+    console.error('[ADMIN] transactions/all error', e);
+    res.status(500).json({ success: false, message: 'Failed to load transactions' });
+  }
+});
+
+app.get('/api/admin/activity-logs', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const pool = await db.initializePool();
+    const connection = await pool.getConnection();
+    try {
+      let logs = [];
+      try {
+        const [rows] = await connection.execute(
+          'SELECT al.id, al.user_id, al.action_type, al.action_details, al.ip_address, al.created_at, u.firstName, u.lastName FROM activity_logs al LEFT JOIN users u ON al.user_id = u.id ORDER BY al.created_at DESC LIMIT 100'
+        );
+        logs = rows.map(row => ({
+          id: row.id,
+          user_id: row.user_id,
+          userName: row.firstName && row.lastName ? `${row.firstName} ${row.lastName}` : null,
+          action_type: row.action_type,
+          action_details: row.action_details,
+          ip_address: row.ip_address,
+          created_at: row.created_at
+        }));
+      } catch (activityError) {
+        if (!String(activityError.message).includes('activity_logs')) {
+          throw activityError;
+        }
+        // Fallback to recent transactions if activity_logs table is absent.
+        const [txRows] = await connection.execute(
+          'SELECT t.id, t.fromUserId, t.toUserId, t.type, t.description, t.status, t.createdAt FROM transactions t ORDER BY t.createdAt DESC LIMIT 100'
+        );
+        logs = txRows.map(row => ({
+          id: `tx_${row.id}`,
+          user_id: row.fromUserId || row.toUserId || null,
+          userName: null,
+          action_type: row.type || 'transaction',
+          action_details: row.description || '',
+          ip_address: 'N/A',
+          created_at: row.createdAt
+        }));
+      }
+      res.json({ success: true, logs });
+    } finally {
+      await connection.release();
+    }
+  } catch (e) {
+    console.error('[ADMIN] activity-logs error', e);
+    res.status(500).json({ success: false, message: 'Failed to load activity logs' });
+  }
+});
+
+app.get('/api/user/:userId/transactions', authenticateToken, async (req, res) => {
+  try {
+    const requestedUserId = Number(req.params.userId);
+    if (!Number.isFinite(requestedUserId)) {
+      return res.status(400).json({ success: false, message: 'Invalid userId' });
+    }
+
+    const currentUser = await db.getUserByEmail(req.user.email);
+    if (!currentUser) {
+      return res.status(401).json({ success: false, message: 'User not found' });
+    }
+
+    const isAdmin = !!currentUser.isAdmin;
+    if (!isAdmin && currentUser.id !== requestedUserId) {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+
+    const transactions = await db.getUserTransactions(requestedUserId, 100);
+    res.json({ success: true, transactions });
+  } catch (e) {
+    console.error('[API] user transactions error', e);
+    res.status(500).json({ success: false, message: 'Failed to fetch transactions' });
+  }
+});
+
+app.get('/api/user/:userId/activity', authenticateToken, async (req, res) => {
+  try {
+    const requestedUserId = Number(req.params.userId);
+    if (!Number.isFinite(requestedUserId)) {
+      return res.status(400).json({ success: false, message: 'Invalid userId' });
+    }
+
+    const currentUser = await db.getUserByEmail(req.user.email);
+    if (!currentUser) {
+      return res.status(401).json({ success: false, message: 'User not found' });
+    }
+
+    const isAdmin = !!currentUser.isAdmin;
+    if (!isAdmin && currentUser.id !== requestedUserId) {
+      return res.status(403).json({ success: false, message: 'Forbidden' });
+    }
+
+    const pool = await db.initializePool();
+    const connection = await pool.getConnection();
+    try {
+      let activities = [];
+      try {
+        const [logRows] = await connection.execute(
+          'SELECT id, user_id, action_type, action_details, ip_address, created_at FROM activity_logs WHERE user_id = ? ORDER BY created_at DESC LIMIT 50',
+          [requestedUserId]
+        );
+        activities = logRows.map(row => ({
+          id: `log_${row.id}`,
+          user_id: row.user_id,
+          action: row.action_type,
+          description: row.action_details,
+          ip_address: row.ip_address,
+          timestamp: row.created_at
+        }));
+      } catch (activityError) {
+        if (!String(activityError.message).includes('activity_logs')) {
+          throw activityError;
+        }
+      }
+
+      const transactions = await db.getUserTransactions(requestedUserId, 50);
+      const transactionActivities = transactions.map(tx => ({
+        id: `tx_${tx.id}`,
+        user_id: tx.fromUserId === requestedUserId ? tx.fromUserId : tx.toUserId,
+        action: tx.fromUserId === requestedUserId ? `Outgoing ${tx.type || 'transaction'}` : `Incoming ${tx.type || 'transaction'}`,
+        description: tx.description || '',
+        timestamp: tx.createdAt || tx.created_at,
+        transactionId: tx.id
+      }));
+
+      activities = [...activities, ...transactionActivities]
+        .filter(a => a.timestamp)
+        .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+        .slice(0, 50);
+
+      res.json({ success: true, activities });
+    } finally {
+      await connection.release();
+    }
+  } catch (e) {
+    console.error('[API] user activity error', e);
+    res.status(500).json({ success: false, message: 'Failed to fetch activity' });
+  }
+});
+
 // ============ STATIC FILES & SPA ============
 
 // Serve static files from root directory
