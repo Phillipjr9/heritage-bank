@@ -6,6 +6,7 @@
 const mysql = require('mysql2/promise');
 
 let pool = null;
+let passwordColumn = null;
 
 /**
  * Initialize database connection pool
@@ -14,22 +15,23 @@ async function initializePool() {
   if (pool) return pool;
 
   const config = {
-    host: process.env.DB_HOST || 'localhost',
-    port: process.env.DB_PORT || 4000,
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'heritage_bank',
+    host: process.env.DB_HOST || process.env.MYSQLHOST || 'localhost',
+    port: Number(process.env.DB_PORT || process.env.MYSQLPORT || 4000),
+    user: process.env.DB_USER || process.env.MYSQLUSER || 'root',
+    password: process.env.DB_PASSWORD || process.env.MYSQLPASSWORD || '',
+    database: process.env.DB_NAME || process.env.MYSQLDATABASE || process.env.DATABASE || 'heritage_bank',
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
     enableKeepAlive: true,
-    ssl: {
-      rejectUnauthorized: true
-    }
+    ssl: process.env.DB_SSL === 'false' || process.env.MYSQL_SSL === 'false'
+      ? undefined
+      : { rejectUnauthorized: true }
   };
 
   try {
-    console.log(`[DB] Connecting to TiDB: ${config.host}:${config.port}/${config.database}`);
+    console.log(`[DB] Connecting to database: ${config.host}:${config.port}/${config.database}`);
+    console.log(`[DB] Database env: DB_HOST=${Boolean(process.env.DB_HOST)}, MYSQLHOST=${Boolean(process.env.MYSQLHOST)}, DB_NAME=${Boolean(process.env.DB_NAME)}, MYSQLDATABASE=${Boolean(process.env.MYSQLDATABASE)}`);
     pool = mysql.createPool(config);
     console.log('[DB] ✓ Connection pool created successfully');
     return pool;
@@ -42,49 +44,90 @@ async function initializePool() {
 /**
  * Initialize database schema (create tables if they don't exist)
  */
+async function detectPasswordColumn() {
+  if (passwordColumn) return passwordColumn;
+
+  const pool = await initializePool();
+  const [rows] = await pool.execute(
+    `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('password', 'passwordHash')`,
+    [process.env.DB_NAME || 'heritage_bank']
+  );
+
+  if (rows.some((column) => column.COLUMN_NAME === 'passwordHash')) {
+    passwordColumn = 'passwordHash';
+  } else if (rows.some((column) => column.COLUMN_NAME === 'password')) {
+    passwordColumn = 'password';
+  } else {
+    passwordColumn = 'password';
+  }
+
+  return passwordColumn;
+}
+
+function normalizeUser(row) {
+  if (!row) return null;
+  if (!row.passwordHash && row.password) {
+    row.passwordHash = row.password;
+  }
+  return row;
+}
+
 async function initializeSchema() {
   const pool = await initializePool();
   const connection = await pool.getConnection();
   try {
     console.log('[DB] Initializing schema...');
 
-    // Create users table
-    await connection.execute(`
-      CREATE TABLE IF NOT EXISTS users (
-        id VARCHAR(50) PRIMARY KEY,
-        email VARCHAR(255) UNIQUE NOT NULL,
-        firstName VARCHAR(255) NOT NULL,
-        lastName VARCHAR(255) NOT NULL,
-        passwordHash VARCHAR(255) NOT NULL,
-        balance DECIMAL(19, 2) DEFAULT 1000,
-        isAdmin BOOLEAN DEFAULT FALSE,
-        isLocked BOOLEAN DEFAULT FALSE,
-        createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_email (email)
-      )
-    `);
-    console.log('[DB] ✓ Users table ready');
+    // Check if users table exists
+    const [usersTables] = await connection.execute(
+      `SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users'`,
+      [process.env.DB_NAME || process.env.MYSQLDATABASE || 'heritage_bank']
+    );
 
-    // Create transactions table for audit trail
-    await connection.execute(`
-      CREATE TABLE IF NOT EXISTS transactions (
-        id VARCHAR(50) PRIMARY KEY,
-        fromUserId VARCHAR(50),
-        toUserId VARCHAR(50),
-        amount DECIMAL(19, 2) NOT NULL,
-        type VARCHAR(50),
-        description TEXT,
-        status VARCHAR(50) DEFAULT 'completed',
-        createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (fromUserId) REFERENCES users(id),
-        FOREIGN KEY (toUserId) REFERENCES users(id),
-        INDEX idx_fromUser (fromUserId),
-        INDEX idx_toUser (toUserId),
-        INDEX idx_createdAt (createdAt)
-      )
-    `);
-    console.log('[DB] ✓ Transactions table ready');
+    if (usersTables.length === 0) {
+      // Only create tables if they don't exist (for dev/test environments)
+      console.log('[DB] Creating users table...');
+      await connection.execute(`
+        CREATE TABLE IF NOT EXISTS users (
+          id INT PRIMARY KEY AUTO_INCREMENT,
+          email VARCHAR(255) UNIQUE NOT NULL,
+          firstName VARCHAR(255) NOT NULL,
+          lastName VARCHAR(255) NOT NULL,
+          password VARCHAR(255) NOT NULL,
+          balance DECIMAL(19, 2) DEFAULT 1000,
+          isAdmin BOOLEAN DEFAULT FALSE,
+          isLocked BOOLEAN DEFAULT FALSE,
+          createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_email (email)
+        )
+      `);
+      console.log('[DB] ✓ Users table created');
+
+      console.log('[DB] Creating transactions table...');
+      await connection.execute(`
+        CREATE TABLE IF NOT EXISTS transactions (
+          id INT PRIMARY KEY AUTO_INCREMENT,
+          fromUserId INT,
+          toUserId INT,
+          amount DECIMAL(19, 2) NOT NULL,
+          type VARCHAR(50),
+          description TEXT,
+          status VARCHAR(50) DEFAULT 'completed',
+          createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (fromUserId) REFERENCES users(id),
+          FOREIGN KEY (toUserId) REFERENCES users(id),
+          INDEX idx_fromUser (fromUserId),
+          INDEX idx_toUser (toUserId),
+          INDEX idx_createdAt (createdAt)
+        )
+      `);
+      console.log('[DB] ✓ Transactions table created');
+    } else {
+      // Tables already exist in production - just verify they have required columns
+      console.log('[DB] ✓ Users table already exists (production schema)');
+      console.log('[DB] ✓ Transactions table already exists (production schema)');
+    }
 
   } catch (error) {
     console.error('[DB] ✗ Schema initialization error:', error);
@@ -102,7 +145,7 @@ async function getUserByEmail(email) {
   const connection = await pool.getConnection();
   try {
     const [rows] = await connection.execute('SELECT * FROM users WHERE email = ?', [email]);
-    return rows[0] || null;
+    return normalizeUser(rows[0] || null);
   } finally {
     await connection.release();
   }
@@ -116,7 +159,7 @@ async function getUserById(id) {
   const connection = await pool.getConnection();
   try {
     const [rows] = await connection.execute('SELECT * FROM users WHERE id = ?', [id]);
-    return rows[0] || null;
+    return normalizeUser(rows[0] || null);
   } finally {
     await connection.release();
   }
@@ -129,10 +172,22 @@ async function createUser(id, email, firstName, lastName, passwordHash, isAdmin 
   const pool = await initializePool();
   const connection = await pool.getConnection();
   try {
-    await connection.execute(
-      'INSERT INTO users (id, email, firstName, lastName, passwordHash, balance, isAdmin) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [id, email, firstName, lastName, passwordHash, 1000, isAdmin ? 1 : 0]
-    );
+    const actualPasswordColumn = await detectPasswordColumn();
+    const columns = ['email', 'firstName', 'lastName', actualPasswordColumn, 'balance', 'isAdmin'];
+    const values = [email, firstName, lastName, passwordHash, 1000, isAdmin ? 1 : 0];
+
+    if (id) {
+      columns.unshift('id');
+      values.unshift(id);
+    }
+
+    const placeholders = columns.map(() => '?').join(', ');
+    const sql = `INSERT INTO users (${columns.join(', ')}) VALUES (${placeholders})`;
+    const [result] = await connection.execute(sql, values);
+
+    if (result.insertId) {
+      return getUserById(result.insertId);
+    }
     return getUserByEmail(email);
   } finally {
     await connection.release();
@@ -184,13 +239,13 @@ async function getAllUsers() {
 /**
  * Record transaction
  */
-async function recordTransaction(id, fromUserId, toUserId, amount, type, description) {
+async function recordTransaction(fromUserId, toUserId, amount, type, description) {
   const pool = await initializePool();
   const connection = await pool.getConnection();
   try {
     await connection.execute(
-      'INSERT INTO transactions (id, fromUserId, toUserId, amount, type, description) VALUES (?, ?, ?, ?, ?, ?)',
-      [id, fromUserId, toUserId, amount, type, description]
+      'INSERT INTO transactions (fromUserId, toUserId, amount, type, description) VALUES (?, ?, ?, ?, ?)',
+      [fromUserId, toUserId, amount, type, description]
     );
   } finally {
     await connection.release();
