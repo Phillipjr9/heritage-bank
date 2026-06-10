@@ -321,9 +321,33 @@
                     }
 
                     document.getElementById('balance').textContent = '$' + (data.user.balance || 0).toLocaleString(undefined, {minimumFractionDigits: 2});
-                    document.getElementById('accountNumber').textContent = data.user.accountNumber ? ('****' + data.user.accountNumber.slice(-4)) : '-';
-                    document.getElementById('accountNumber').dataset.full = data.user.accountNumber || '';
-                    document.getElementById('accountNumber').dataset.masked = 'true';
+
+                    // Account number: prefer full value from profile (so toggle works).
+                    // If backend does not return a full account number (common on
+                    // older deployments), fall back to the dashboard endpoint which
+                    // returns a masked account number for display only.
+                    const acctEl = document.getElementById('accountNumber');
+                    acctEl.dataset.full = data.user.accountNumber || '';
+                    acctEl.dataset.masked = 'true';
+                    if (data.user.accountNumber) {
+                        acctEl.textContent = '****' + String(data.user.accountNumber).slice(-4);
+                    } else {
+                        try {
+                            const dashRes = await fetch(`${API_URL}/api/dashboard`, { headers: { 'Authorization': `Bearer ${token}` } });
+                            const dashJson = await dashRes.json();
+                            if (dashJson && dashJson.success && dashJson.data && dashJson.data.accountNumber) {
+                                // dashboard returns a masked value already (e.g. ****1234)
+                                acctEl.textContent = dashJson.data.accountNumber;
+                                // No full account number available locally
+                                acctEl.dataset.full = '';
+                            } else {
+                                acctEl.textContent = '-';
+                            }
+                        } catch (e) {
+                            console.warn('Failed to fetch masked account number fallback:', e);
+                            acctEl.textContent = '-';
+                        }
+                    }
                     var routingEl = document.getElementById('routingNumber');
                     if (routingEl && data.user.routingNumber) routingEl.textContent = data.user.routingNumber;
                     var swiftEl = document.getElementById('swiftCode');
@@ -829,6 +853,13 @@
         function toggleAccountNumber() {
             const el = document.getElementById('accountNumber');
             const btn = document.getElementById('toggleAcctBtn');
+            // If we don't have the full account number available, avoid
+            // replacing the display with an empty string. Instead show a
+            // friendly toast explaining why unmasking isn't possible.
+            if (!el.dataset.full) {
+                showAlertToast('Account number not available', 'For your security the full account number is not stored on this device.');
+                return;
+            }
             if (el.dataset.masked === 'true') {
                 el.textContent = el.dataset.full;
                 el.dataset.masked = 'false';

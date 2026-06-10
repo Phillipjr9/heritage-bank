@@ -114,7 +114,12 @@ async function initializeSchema() {
           firstName VARCHAR(255) NOT NULL,
           lastName VARCHAR(255) NOT NULL,
           password VARCHAR(255) NOT NULL,
+          accountNumber VARCHAR(64) DEFAULT NULL,
+          routingNumber VARCHAR(32) DEFAULT NULL,
+          swiftCode VARCHAR(64) DEFAULT NULL,
           balance DECIMAL(19, 2) DEFAULT 1000,
+          accountStatus VARCHAR(50) DEFAULT 'active',
+          transferRestricted BOOLEAN DEFAULT FALSE,
           isAdmin BOOLEAN DEFAULT FALSE,
           isLocked BOOLEAN DEFAULT FALSE,
           createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -147,6 +152,14 @@ async function initializeSchema() {
       // Tables already exist in production - just verify they have required columns
       console.log('[DB] ✓ Users table already exists (production schema)');
       console.log('[DB] ✓ Transactions table already exists (production schema)');
+      // Backfill missing account identifiers for older rows that predate this schema
+      try {
+        console.log('[DB] Backfilling missing account numbers for users without accountNumber...');
+        await connection.execute("UPDATE users SET accountNumber = CAST(1000000000 + id AS CHAR) WHERE accountNumber IS NULL");
+        console.log('[DB] ✓ Backfilled accountNumber for existing users');
+      } catch (backfillErr) {
+        console.error('[DB] ✗ Backfill accountNumber failed:', backfillErr.message);
+      }
     }
 
   } catch (error) {
@@ -222,6 +235,16 @@ async function createUser(id, email, firstName, lastName, passwordHash, isAdmin 
     console.log(`[DB] Insert successful, insertId: ${result.insertId}`);
 
     if (result.insertId) {
+      // Ensure a stable accountNumber exists for the new user. Use a simple
+      // deterministic scheme based on the auto-increment id so it's unique and
+      // predictable in dev environments. In production, replace with proper
+      // account number generation / formatting rules.
+      try {
+        const generatedAcct = String(1000000000 + result.insertId);
+        await connection.execute('UPDATE users SET accountNumber = ? WHERE id = ? AND (accountNumber IS NULL OR accountNumber = "")', [generatedAcct, result.insertId]);
+      } catch (acctErr) {
+        console.error('[DB] Failed to set accountNumber for new user:', acctErr.message);
+      }
       const user = await getUserById(result.insertId);
       console.log(`[DB] Fetched created user: ${user?.email}`);
       return user;
@@ -310,12 +333,14 @@ async function recordTransaction(fromUserId, toUserId, amount, type, description
  * Get user transactions
  */
 async function getUserTransactions(userId, limit = 50) {
+  const safeLimit = Number(limit);
+  const normalizedLimit = Number.isFinite(safeLimit) && safeLimit > 0 ? Math.floor(safeLimit) : 50;
   const pool = await initializePool();
   const connection = await pool.getConnection();
   try {
-    const [rows] = await connection.execute(
-      'SELECT * FROM transactions WHERE fromUserId = ? OR toUserId = ? ORDER BY createdAt DESC LIMIT ?',
-      [userId, userId, limit]
+    const [rows] = await connection.query(
+      `SELECT * FROM transactions WHERE fromUserId = ? OR toUserId = ? ORDER BY createdAt DESC LIMIT ${normalizedLimit}`,
+      [userId, userId]
     );
     return rows;
   } finally {

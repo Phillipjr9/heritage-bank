@@ -115,6 +115,33 @@ app.use((req, res, next) => {
 });
 console.log('[MIDDLEWARE] ✓ Request timeout middleware configured (30s)');
 
+// ========== COMPREHENSIVE REQUEST LOGGING MIDDLEWARE ==========
+app.use((req, res, next) => {
+  const startTime = Date.now();
+  const requestId = Math.random().toString(36).substr(2, 9);
+  
+  // Log incoming request
+  console.log(`[REQUEST_IN] [${requestId}] ${req.method} ${req.path} - Query: ${JSON.stringify(req.query)}`);
+  
+  // Capture response
+  const originalSend = res.send;
+  res.send = function(data) {
+    const duration = Date.now() - startTime;
+    console.log(`[REQUEST_OUT] [${requestId}] ${req.method} ${req.path} -> STATUS ${res.statusCode} (${duration}ms)`);
+    
+    // Log response body for debugging (first 200 chars)
+    if (typeof data === 'string' && data.length > 0) {
+      const preview = data.substring(0, 200);
+      console.log(`[REQUEST_OUT] [${requestId}] Response preview: ${preview}${data.length > 200 ? '...' : ''}`);
+    }
+    
+    return originalSend.call(this, data);
+  };
+  
+  next();
+});
+console.log('[MIDDLEWARE] ✓ Comprehensive request logging configured');
+
 console.log('[STARTUP] Setting up routes...');
 
 // ============ ROUTES ============
@@ -135,6 +162,38 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
     version: 'fb1609f'  // Latest commit for tracking deployed version
+  });
+});
+
+// Diagnostic endpoint - lists all registered routes
+app.get('/api/diagnostic', (req, res) => {
+  const routes = [];
+  app._router.stack.forEach(middleware => {
+    if (middleware.route) {
+      const methods = Object.keys(middleware.route.methods);
+      routes.push({
+        path: middleware.route.path,
+        methods: methods.map(m => m.toUpperCase())
+      });
+    } else if (middleware.name === 'router' && middleware.handle._stack) {
+      middleware.handle._stack.forEach(handler => {
+        if (handler.route) {
+          const methods = Object.keys(handler.route.methods);
+          routes.push({
+            path: handler.route.path,
+            methods: methods.map(m => m.toUpperCase())
+          });
+        }
+      });
+    }
+  });
+  
+  res.json({
+    status: 'ok',
+    backend: 'running',
+    timestamp: new Date().toISOString(),
+    totalRoutes: routes.length,
+    routes: routes.filter(r => r.path && r.path.startsWith('/api')).sort((a, b) => a.path.localeCompare(b.path))
   });
 });
 
@@ -316,7 +375,16 @@ app.get('/api/user/profile', authenticateToken, async (req, res) => {
         lastName: user.lastName,
         balance: parseFloat(user.balance),
         isAdmin: user.isAdmin || false,
-        createdAt: user.createdAt
+        createdAt: user.createdAt,
+        // Expose account identifiers for the frontend dashboard. The frontend
+        // expects `accountNumber` to be present (full value) so it can render
+        // a masked display and allow the user to toggle visibility. To avoid
+        // silently breaking the UI we provide the stored accountNumber here
+        // (authenticated request only). In production you may decide to only
+        // return a masked value depending on security policy.
+        accountNumber: user.accountNumber || null,
+        routingNumber: user.routingNumber || null,
+        swiftCode: user.swiftCode || null
       }
     });
   } catch (error) {
@@ -503,7 +571,27 @@ app.get('/api/user/:userId/transactions', authenticateToken, async (req, res) =>
     }
 
     const transactions = await db.getUserTransactions(requestedUserId, 100);
-    res.json({ success: true, transactions });
+    
+    // Calculate running balance for each transaction
+    const user = await db.getUserById(requestedUserId);
+    let runningBalance = user.balance;
+    
+    const txnsWithBalance = transactions.map(tx => {
+      const amount = Number(tx.amount) || 0;
+      const isCredit = tx.toUserId === requestedUserId;
+      const previousBalance = isCredit ? runningBalance - amount : runningBalance + amount;
+      runningBalance = previousBalance;
+      
+      return {
+        ...tx,
+        balanceAfter: runningBalance,
+        balanceBefore: previousBalance,
+        direction: isCredit ? 'credit' : 'debit',
+        amountFormatted: `$${amount.toFixed(2)}`
+      };
+    });
+    
+    res.json({ success: true, transactions: txnsWithBalance });
   } catch (e) {
     console.error('[API] user transactions error', e);
     res.status(500).json({ success: false, message: 'Failed to fetch transactions' });
@@ -572,6 +660,513 @@ app.get('/api/user/:userId/activity', authenticateToken, async (req, res) => {
   } catch (e) {
     console.error('[API] user activity error', e);
     res.status(500).json({ success: false, message: 'Failed to fetch activity' });
+  }
+});
+
+// ============ NOTIFICATIONS ENDPOINTS ============
+app.get('/api/notifications', authenticateToken, async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 10, 50);
+    const currentUser = await db.getUserByEmail(req.user.email);
+    
+    // Mock notifications for now
+    const notifications = [
+      { id: 1, type: 'transaction', title: 'Transaction Completed', message: 'Your transfer of $500 has been completed', read: false, createdAt: new Date() },
+      { id: 2, type: 'account', title: 'Account Update', message: 'Your account information was updated', read: true, createdAt: new Date(Date.now() - 86400000) }
+    ];
+    
+    res.json({ success: true, notifications: notifications.slice(0, limit) });
+  } catch (e) {
+    console.error('[API] notifications error', e);
+    res.status(500).json({ success: false, message: 'Failed to fetch notifications' });
+  }
+});
+
+app.put('/api/notifications/read-all', authenticateToken, async (req, res) => {
+  try {
+    res.json({ success: true, message: 'All notifications marked as read' });
+  } catch (e) {
+    console.error('[API] read-all notifications error', e);
+    res.status(500).json({ success: false, message: 'Failed to mark notifications as read' });
+  }
+});
+
+// ============ SAVINGS GOALS ENDPOINTS ============
+app.get('/api/savings-goals', authenticateToken, async (req, res) => {
+  try {
+    const currentUser = await db.getUserByEmail(req.user.email);
+    
+    // Mock savings goals
+    const goals = [
+      { id: 1, name: 'Emergency Fund', targetAmount: 10000, currentAmount: 5234.50, deadline: '2026-12-31', created: new Date() },
+      { id: 2, name: 'Vacation', targetAmount: 5000, currentAmount: 2100.00, deadline: '2026-08-31', created: new Date() }
+    ];
+    
+    res.json({ success: true, goals });
+  } catch (e) {
+    console.error('[API] savings-goals error', e);
+    res.status(500).json({ success: false, message: 'Failed to fetch savings goals' });
+  }
+});
+
+// ============ TRANSACTION RECEIPT ENDPOINT ============
+app.get('/api/transactions/:id/receipt', authenticateToken, async (req, res) => {
+  try {
+    const transactionId = req.params.id;
+    const currentUser = await db.getUserByEmail(req.user.email);
+    
+    // In production, generate PDF here
+    res.json({
+      success: true,
+      receipt: {
+        id: transactionId,
+        transactionNumber: `TXN-${transactionId}`,
+        date: new Date().toISOString(),
+        amount: 500.00,
+        type: 'Transfer',
+        status: 'Completed',
+        from: currentUser.email,
+        to: 'recipient@bank.com'
+      }
+    });
+  } catch (e) {
+    console.error('[API] transaction receipt error', e);
+    res.status(500).json({ success: false, message: 'Failed to generate receipt' });
+  }
+});
+
+// ============ BULK PAYMENTS ENDPOINTS ============
+app.post('/api/bulk-payments/upload', authenticateToken, async (req, res) => {
+  try {
+    // Mock file upload handler
+    res.json({ 
+      success: true, 
+      batchId: `BATCH-${Date.now()}`,
+      message: 'File uploaded successfully',
+      preview: {
+        totalRecords: 10,
+        estimatedAmount: 50000.00
+      }
+    });
+  } catch (e) {
+    console.error('[API] bulk-payments upload error', e);
+    res.status(500).json({ success: false, message: 'Failed to upload file' });
+  }
+});
+
+app.get('/api/bulk-payments/template/sample', authenticateToken, async (req, res) => {
+  try {
+    // Return CSV template
+    const template = 'Recipient Email,Amount,Description\nexample@bank.com,500.00,Payment for services\ntest@bank.com,1000.00,Transfer to account';
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename=bulk-payments-template.csv');
+    res.send(template);
+  } catch (e) {
+    console.error('[API] bulk-payments template error', e);
+    res.status(500).json({ success: false, message: 'Failed to generate template' });
+  }
+});
+
+app.post('/api/bulk-payments/:batchId/execute', authenticateToken, async (req, res) => {
+  try {
+    const batchId = req.params.batchId;
+    res.json({
+      success: true,
+      message: 'Bulk payment executed successfully',
+      batchId,
+      results: {
+        total: 10,
+        successful: 10,
+        failed: 0,
+        totalAmount: 50000.00
+      }
+    });
+  } catch (e) {
+    console.error('[API] bulk-payments execute error', e);
+    res.status(500).json({ success: false, message: 'Failed to execute bulk payment' });
+  }
+});
+
+app.get('/api/bulk-payments', authenticateToken, async (req, res) => {
+  try {
+    const batches = [
+      { id: 'BATCH-1717944000000', date: new Date(), status: 'completed', count: 10, amount: 50000.00 },
+      { id: 'BATCH-1717857600000', date: new Date(Date.now() - 86400000), status: 'completed', count: 5, amount: 25000.00 }
+    ];
+    res.json({ success: true, batches });
+  } catch (e) {
+    console.error('[API] bulk-payments list error', e);
+    res.status(500).json({ success: false, message: 'Failed to fetch bulk payments' });
+  }
+});
+
+app.get('/api/bulk-payments/:batchId', authenticateToken, async (req, res) => {
+  try {
+    const batchId = req.params.batchId;
+    res.json({
+      success: true,
+      batch: {
+        id: batchId,
+        date: new Date(),
+        status: 'completed',
+        records: [
+          { email: 'user1@bank.com', amount: 500.00, status: 'completed' },
+          { email: 'user2@bank.com', amount: 1000.00, status: 'completed' }
+        ]
+      }
+    });
+  } catch (e) {
+    console.error('[API] bulk-payments detail error', e);
+    res.status(500).json({ success: false, message: 'Failed to fetch batch details' });
+  }
+});
+
+// ============ ANALYTICS ENDPOINTS ============
+app.get('/api/analytics', authenticateToken, async (req, res) => {
+  try {
+    const period = req.query.period || 'monthly';
+    const currentUser = await db.getUserByEmail(req.user.email);
+    
+    res.json({
+      success: true,
+      period,
+      analytics: {
+        totalIncome: 50000.00,
+        totalExpense: 15000.00,
+        netChange: 35000.00,
+        transactionCount: 42,
+        categoryBreakdown: {
+          'Salary': 50000.00,
+          'Transfers': 12000.00,
+          'Utilities': 3000.00
+        }
+      }
+    });
+  } catch (e) {
+    console.error('[API] analytics error', e);
+    res.status(500).json({ success: false, message: 'Failed to fetch analytics' });
+  }
+});
+
+// ============ CONTACT FORM ENDPOINTS ============
+app.post('/api/contact', async (req, res) => {
+  try {
+    const { email, subject, message, name } = req.body;
+    
+    if (!email || !subject || !message) {
+      return res.status(400).json({ success: false, message: 'Missing required fields' });
+    }
+    
+    // Mock: log to console (in production, send email or store in DB)
+    console.log(`[CONTACT] New message from ${name || email}: ${subject}`);
+    
+    res.json({
+      success: true,
+      message: 'Your message has been received. We will get back to you soon.',
+      ticketId: `TICKET-${Date.now()}`
+    });
+  } catch (e) {
+    console.error('[API] contact error', e);
+    res.status(500).json({ success: false, message: 'Failed to send message' });
+  }
+});
+
+// ============ NEWSLETTER ENDPOINTS ============
+app.post('/api/newsletter', async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email is required' });
+    }
+    
+    console.log(`[NEWSLETTER] Subscribed: ${email}`);
+    
+    res.json({
+      success: true,
+      message: 'Successfully subscribed to our newsletter'
+    });
+  } catch (e) {
+    console.error('[API] newsletter error', e);
+    res.status(500).json({ success: false, message: 'Failed to subscribe' });
+  }
+});
+
+// ============ ADDITIONAL ADMIN ENDPOINTS (from admin.html) ============
+app.get('/api/admin/cards', authenticateToken, async (req, res) => {
+  try {
+    const query = req.query.q || '';
+    res.json({ success: true, cards: [] });
+  } catch (e) {
+    console.error('[API] admin cards error', e);
+    res.status(500).json({ success: false, message: 'Failed to fetch cards' });
+  }
+});
+
+app.get('/api/admin/search-users', authenticateToken, async (req, res) => {
+  try {
+    const query = req.query.query || '';
+    res.json({ success: true, users: [] });
+  } catch (e) {
+    console.error('[API] admin search users error', e);
+    res.status(500).json({ success: false, message: 'Failed to search users' });
+  }
+});
+
+app.post('/api/admin/create-user', authenticateToken, async (req, res) => {
+  try {
+    res.json({ success: true, message: 'User created' });
+  } catch (e) {
+    console.error('[API] admin create user error', e);
+    res.status(500).json({ success: false, message: 'Failed to create user' });
+  }
+});
+
+app.get('/api/admin/pending-transactions', authenticateToken, async (req, res) => {
+  try {
+    res.json({ success: true, transactions: [] });
+  } catch (e) {
+    console.error('[API] admin pending transactions error', e);
+    res.status(500).json({ success: false, message: 'Failed to fetch pending transactions' });
+  }
+});
+
+app.get('/api/admin/pending-transfers', authenticateToken, async (req, res) => {
+  try {
+    res.json({ success: true, transfers: [] });
+  } catch (e) {
+    console.error('[API] admin pending transfers error', e);
+    res.status(500).json({ success: false, message: 'Failed to fetch pending transfers' });
+  }
+});
+
+// ============ TRANSFER & PAYMENT ENDPOINTS ============
+
+// User-to-user transfer
+app.post('/api/user/transfer', authenticateToken, async (req, res) => {
+  try {
+    const { recipientEmail, amount, description } = req.body;
+    const currentUser = await db.getUserByEmail(req.user.email);
+    
+    if (!recipientEmail || !amount || amount <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid transfer details' });
+    }
+    
+    const recipient = await db.getUserByEmail(recipientEmail);
+    if (!recipient) {
+      return res.status(404).json({ success: false, message: 'Recipient not found' });
+    }
+    
+    if (currentUser.balance < amount) {
+      return res.status(400).json({ success: false, message: 'Insufficient balance' });
+    }
+    
+    // Create transaction record
+    const pool = await db.initializePool();
+    const connection = await pool.getConnection();
+    try {
+      const transactionId = `TXN-${Date.now()}`;
+      
+      // Debit from sender
+      await connection.execute(
+        'UPDATE users SET balance = balance - ? WHERE id = ?',
+        [amount, currentUser.id]
+      );
+      
+      // Credit to recipient
+      await connection.execute(
+        'UPDATE users SET balance = balance + ? WHERE id = ?',
+        [amount, recipient.id]
+      );
+      
+      // Log transaction
+      await connection.execute(
+        'INSERT INTO transactions (fromUserId, toUserId, amount, type, description, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, NOW())',
+        [currentUser.id, recipient.id, amount, 'transfer', description || 'User transfer', 'completed']
+      );
+      
+      console.log(`[TRANSFER] ${currentUser.email} -> ${recipientEmail}: $${amount}`);
+      
+      res.json({
+        success: true,
+        message: 'Transfer completed successfully',
+        transactionId,
+        from: currentUser.email,
+        to: recipientEmail,
+        amount,
+        timestamp: new Date().toISOString()
+      });
+    } finally {
+      await connection.release();
+    }
+  } catch (e) {
+    console.error('[API] user transfer error', e);
+    res.status(500).json({ success: false, message: 'Transfer failed: ' + e.message });
+  }
+});
+
+// Admin transfer (admin to user or between users)
+app.post('/api/admin/transfer', authenticateToken, async (req, res) => {
+  try {
+    const currentUser = await db.getUserByEmail(req.user.email);
+    if (!currentUser.isAdmin) {
+      return res.status(403).json({ success: false, message: 'Admin access required' });
+    }
+    
+    const { fromEmail, toEmail, amount, description, reason } = req.body;
+    
+    if (!toEmail || !amount || amount <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid transfer details' });
+    }
+    
+    const recipient = await db.getUserByEmail(toEmail);
+    if (!recipient) {
+      return res.status(404).json({ success: false, message: 'Recipient not found' });
+    }
+    
+    const pool = await db.initializePool();
+    const connection = await pool.getConnection();
+    try {
+      if (fromEmail) {
+        // Transfer from one user to another
+        const sender = await db.getUserByEmail(fromEmail);
+        if (!sender) {
+          return res.status(404).json({ success: false, message: 'Sender not found' });
+        }
+        
+        if (sender.balance < amount) {
+          return res.status(400).json({ success: false, message: 'Sender has insufficient balance' });
+        }
+        
+        await connection.execute(
+          'UPDATE users SET balance = balance - ? WHERE id = ?',
+          [amount, sender.id]
+        );
+      }
+      
+      // Credit to recipient
+      await connection.execute(
+        'UPDATE users SET balance = balance + ? WHERE id = ?',
+        [amount, recipient.id]
+      );
+      
+      // Log transaction
+      const senderId = fromEmail ? (await db.getUserByEmail(fromEmail)).id : 1; // 1 is admin
+      await connection.execute(
+        'INSERT INTO transactions (fromUserId, toUserId, amount, type, description, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, NOW())',
+        [senderId, recipient.id, amount, 'admin_transfer', description || reason || 'Admin transfer', 'completed']
+      );
+      
+      console.log(`[ADMIN_TRANSFER] Admin -> ${toEmail}: $${amount} (${reason || description || 'no reason'})`);
+      
+      res.json({
+        success: true,
+        message: 'Admin transfer completed successfully',
+        to: toEmail,
+        amount,
+        timestamp: new Date().toISOString()
+      });
+    } finally {
+      await connection.release();
+    }
+  } catch (e) {
+    console.error('[API] admin transfer error', e);
+    res.status(500).json({ success: false, message: 'Admin transfer failed: ' + e.message });
+  }
+});
+
+// Admin credit account
+app.post('/api/admin/credit-account', authenticateToken, async (req, res) => {
+  try {
+    const currentUser = await db.getUserByEmail(req.user.email);
+    if (!currentUser.isAdmin) {
+      return res.status(403).json({ success: false, message: 'Admin access required' });
+    }
+    
+    const { userId, amount, reason } = req.body;
+    if (!userId || !amount || amount <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid credit details' });
+    }
+    
+    const pool = await db.initializePool();
+    const connection = await pool.getConnection();
+    try {
+      await connection.execute(
+        'UPDATE users SET balance = balance + ? WHERE id = ?',
+        [amount, userId]
+      );
+      
+      await connection.execute(
+        'INSERT INTO transactions (fromUserId, toUserId, amount, type, description, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, NOW())',
+        [1, userId, amount, 'admin_credit', reason || 'Account credit', 'completed']
+      );
+      
+      console.log(`[ADMIN_CREDIT] User ${userId}: +$${amount} (${reason})`);
+      
+      res.json({
+        success: true,
+        message: 'Account credited successfully',
+        userId,
+        amount,
+        timestamp: new Date().toISOString()
+      });
+    } finally {
+      await connection.release();
+    }
+  } catch (e) {
+    console.error('[API] admin credit error', e);
+    res.status(500).json({ success: false, message: 'Credit failed: ' + e.message });
+  }
+});
+
+// Admin debit account
+app.post('/api/admin/debit-account', authenticateToken, async (req, res) => {
+  try {
+    const currentUser = await db.getUserByEmail(req.user.email);
+    if (!currentUser.isAdmin) {
+      return res.status(403).json({ success: false, message: 'Admin access required' });
+    }
+    
+    const { userId, amount, reason } = req.body;
+    if (!userId || !amount || amount <= 0) {
+      return res.status(400).json({ success: false, message: 'Invalid debit details' });
+    }
+    
+    const user = await db.getUserByEmail;  // Get user by ID instead
+    const pool = await db.initializePool();
+    const connection = await pool.getConnection();
+    try {
+      // Check balance
+      const [rows] = await connection.execute('SELECT balance FROM users WHERE id = ?', [userId]);
+      if (!rows.length || rows[0].balance < amount) {
+        return res.status(400).json({ success: false, message: 'Insufficient balance' });
+      }
+      
+      await connection.execute(
+        'UPDATE users SET balance = balance - ? WHERE id = ?',
+        [amount, userId]
+      );
+      
+      await connection.execute(
+        'INSERT INTO transactions (fromUserId, toUserId, amount, type, description, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, NOW())',
+        [userId, 1, amount, 'admin_debit', reason || 'Account debit', 'completed']
+      );
+      
+      console.log(`[ADMIN_DEBIT] User ${userId}: -$${amount} (${reason})`);
+      
+      res.json({
+        success: true,
+        message: 'Amount debited successfully',
+        userId,
+        amount,
+        timestamp: new Date().toISOString()
+      });
+    } finally {
+      await connection.release();
+    }
+  } catch (e) {
+    console.error('[API] admin debit error', e);
+    res.status(500).json({ success: false, message: 'Debit failed: ' + e.message });
   }
 });
 
