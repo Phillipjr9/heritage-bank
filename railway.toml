@@ -3,7 +3,7 @@ builder = "nixpacks"
 
 [build.nixpacks]
 node = "20"
-buildCommands = ["npm ci --omit=dev"]
+buildCommands = ["npm ci --omit=dev --prefix backend"]
 
 [deploy]
 startCommand = "node backend/server.js"
