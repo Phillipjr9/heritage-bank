@@ -1,5 +1,11 @@
 {
   "version": 2,
+  "public": true,
+  "buildCommand": "echo 'Static frontend only'",
+  "outputDirectory": "public",
+  "env": {
+    "API_URL": "@api-url"
+  },
   "routes": [
     {
       "src": "/(.*\\..*)",
