@@ -2967,7 +2967,7 @@ async function ensureCardsTable(connection) {
     const createTableSQL = `
       CREATE TABLE IF NOT EXISTS cards (
         id INT PRIMARY KEY AUTO_INCREMENT,
-        accountId INT,
+        accountId INT DEFAULT NULL,
         userId INT NOT NULL,
         cardType VARCHAR(20) NOT NULL DEFAULT 'virtual',
         cardNumber VARCHAR(255),
