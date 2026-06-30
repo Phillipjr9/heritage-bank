@@ -2967,6 +2967,7 @@ async function ensureCardsTable(connection) {
     const createTableSQL = `
       CREATE TABLE IF NOT EXISTS cards (
         id INT PRIMARY KEY AUTO_INCREMENT,
+        accountId INT,
         userId INT NOT NULL,
         cardType VARCHAR(20) NOT NULL DEFAULT 'virtual',
         cardNumber VARCHAR(255),
@@ -2984,7 +2985,8 @@ async function ensureCardsTable(connection) {
         internationalEnabled TINYINT(1) DEFAULT 0,
         issuedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (userId) REFERENCES users(id),
-        INDEX idx_userId (userId)
+        INDEX idx_userId (userId),
+        INDEX idx_accountId (accountId)
       )
     `;
     console.log('[DB] Executing CREATE TABLE IF NOT EXISTS for cards...');
