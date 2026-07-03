@@ -11,6 +11,12 @@ backend/.env
 logs/
 *.log
 npm-debug.log*
+server.log
+server-test.log
+backend-server.err.log
+backend-server.out.log
+output.txt
+test_output.log
 
 # OS files
 .DS_Store
@@ -30,8 +36,35 @@ build/
 functions/serviceAccountKey.json
 *.json.bak
 
-# amplify
+# Amplify
 .amplify
 amplify_outputs*
 amplifyconfiguration*
 amplify.old/
+amplify-gen2/
+
+# Backup & Old Files
+backup-design/
+logo/
+.qodo/
+.sixth/
+.snapshots/
+
+# Test Files
+test_*.js
+webauthn-test.js
+webauthn-fullflow-test.js
+check_missing_pages.py
+
+# Documentation (keep only README.md)
+*.md
+!README.md
+
+# PDF Test Files
+receipt_test*.pdf
+
+# Firebase
+.firebase/
+.firebaserc
+firestore.rules
+firestore.indexes.json
