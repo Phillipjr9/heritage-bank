@@ -13,7 +13,6 @@ firebase-*.json
 amplify*
 backend-server.*
 functions/
-public/
 README.md
 MIGRATION-PLAN.md
 RAILWAY-SETUP.md
