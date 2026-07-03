@@ -64,8 +64,8 @@ if (!process.env.JWT_SECRET) {
   console.warn('[SECURITY] ⚠️  WARNING: Using default JWT_SECRET. This is only acceptable in development!');
 }
 
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@heritage.com';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Admin123!@';
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'admin@heritage.com').trim().toLowerCase();
+const ADMIN_PASSWORD = (process.env.ADMIN_PASSWORD || 'Admin123!@').trim();
 
 if (process.env.NODE_ENV === 'production') {
   if (!process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD) {
@@ -4169,16 +4169,18 @@ app.use((err, req, res, next) => {
 async function initializeSeedData() {
   try {
     const adminEmail = ADMIN_EMAIL;
-    const existingAdmin = await db.getUserByEmail(adminEmail);
-    
-    if (!existingAdmin) {
-      const adminPassword = ADMIN_PASSWORD;
-      const hashedPassword = await bcrypt.hash(adminPassword, 10);
-      await db.createUser(null, adminEmail, 'Admin', 'Account', hashedPassword, true);
-      console.log(`[SEED] ✓ Admin account initialized: ${adminEmail}`);
-    } else {
-      console.log('[SEED] ℹ Admin account already exists');
-    }
+    const adminPassword = ADMIN_PASSWORD;
+    const hashedPassword = await bcrypt.hash(adminPassword, 10);
+
+    await db.upsertUser(adminEmail, {
+      firstName: 'Admin',
+      lastName: 'Account',
+      passwordHash: hashedPassword,
+      isAdmin: true,
+      accountStatus: 'active'
+    });
+
+    console.log(`[SEED] ✓ Admin account ensured: ${adminEmail}`);
   } catch (err) {
     console.error('[SEED] ✗ Failed to initialize seed data:', err);
     throw err;

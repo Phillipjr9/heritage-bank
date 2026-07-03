@@ -477,6 +477,32 @@ async function setUserLocked(email, locked) {
 }
 
 /**
+ * Ensure a user exists and has the expected authentication fields.
+ * This is used for seeded admin accounts so production logins remain reliable.
+ */
+async function upsertUser(email, { firstName, lastName, passwordHash, isAdmin = false, accountStatus = 'active' } = {}) {
+  const pool = await initializePool();
+  const connection = await pool.getConnection();
+  try {
+    const actualPasswordColumn = await detectPasswordColumn();
+    const [rows] = await connection.execute('SELECT id FROM users WHERE email = ? LIMIT 1', [email]);
+
+    if (rows.length > 0) {
+      const userId = rows[0].id;
+      await connection.execute(
+        `UPDATE users SET firstName = ?, lastName = ?, ${actualPasswordColumn} = ?, isAdmin = ?, accountStatus = ? WHERE id = ?`,
+        [firstName, lastName, passwordHash, isAdmin ? 1 : 0, accountStatus, userId]
+      );
+      return getUserById(userId);
+    }
+
+    return createUser(null, email, firstName, lastName, passwordHash, isAdmin);
+  } finally {
+    await connection.release();
+  }
+}
+
+/**
  * Get all users (admin only)
  */
 async function getAllUsers() {
@@ -549,6 +575,7 @@ module.exports = {
   createUser,
   updateUserBalance,
   setUserLocked,
+  upsertUser,
   getAllUsers,
   recordTransaction,
   getUserTransactions,
