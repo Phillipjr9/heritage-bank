@@ -19,7 +19,8 @@
     <link rel="stylesheet" href="loading.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: #f0f2f5; font-family: 'Inter', 'Segoe UI', sans-serif; min-height: 100vh; }
+        html, body { height: 100%; }
+        body { background: #f0f2f5; font-family: 'Inter', 'Segoe UI', sans-serif; min-height: 100vh; display: flex; flex-direction: column; padding-bottom: 40px; }
         .container { max-width: 1100px; margin: 30px auto; padding: 20px; }
         .header { display: flex; align-items: center; gap: 15px; margin-bottom: 24px; }
         .back-btn { width: 42px; height: 42px; border-radius: 12px; background: white; border: 1px solid rgba(26,71,42,0.08); cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(0,0,0,0.08); transition: all 0.3s ease; }
@@ -128,12 +129,12 @@
             .input { min-width: 0; width: 100%; }
             .btn { width: 100%; justify-content: center; text-align: center; }
         }
-        .app-footer { background: #1a2332; padding: 20px 0; margin-top: 40px; text-align: center; }
-        .app-footer-inner { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
-        .app-footer-links { margin-bottom: 10px; }
-        .app-footer-links a { color: #8899aa; text-decoration: none; margin: 0 10px; font-size: 0.8rem; }
-        .app-footer-links a:hover { color: #aabbcc; }
-        .app-footer-copy { color: #556677; font-size: 0.75rem; margin: 0; }
+        .app-footer { background: linear-gradient(135deg, #0f1419 0%, #1a2332 50%, #152028 100%); padding: 30px 20px; margin-top: auto; text-align: center; border-top: 1px solid rgba(212,175,55,0.15); }
+        .app-footer-inner { max-width: 1200px; margin: 0 auto; }
+        .app-footer-links { margin-bottom: 16px; display: flex; justify-content: center; flex-wrap: wrap; gap: 20px; }
+        .app-footer-links a { color: #9ca3af; text-decoration: none; font-size: 0.85rem; font-weight: 500; transition: color 0.3s ease; }
+        .app-footer-links a:hover { color: #d4af37; }
+        .app-footer-copy { color: #6b7280; font-size: 0.75rem; margin: 0; font-weight: 400; }
         .toast-notification { position: fixed; top: 20px; right: 20px; padding: 16px 24px; border-radius: 12px; color: white; font-weight: 500; z-index: 20000; display: flex; align-items: center; gap: 10px; box-shadow: 0 8px 20px rgba(0,0,0,0.2); animation: toastSlideIn 0.3s ease, toastFadeOut 0.3s ease 3.7s forwards; max-width: 400px; }
         .toast-notification.error { background: linear-gradient(135deg, #e74c3c, #c0392b); }
         @keyframes toastSlideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
@@ -213,15 +214,20 @@
         }
 
         function isCredit(tx) {
-            return tx.type === 'credit' || tx.type === 'deposit' || tx.type === 'received';
+            if (!tx) return false;
+            const direction = String(tx.direction || '').toLowerCase();
+            if (direction === 'credit') return true;
+            if (direction === 'debit') return false;
+
+            const type = String(tx.type || '').toLowerCase();
+            return ['credit', 'deposit', 'received', 'direct_deposit', 'admin_credit', 'refund'].includes(type);
         }
 
         function formatNameAcct(firstName, lastName, accountNumber) {
-            const f = firstName ? firstName.charAt(0) + '.' : '';
-            const l = lastName || '';
-            const name = [f, l].filter(Boolean).join(' ') || '-';
-            if (accountNumber) return `${name} (...${String(accountNumber).slice(-5)})`;
-            return name;
+            const name = [firstName, lastName].filter(Boolean).join(' ').trim();
+            const displayName = name || 'Heritage Bank';
+            if (accountNumber) return `${displayName} (...${String(accountNumber).slice(-5)})`;
+            return displayName;
         }
 
         const COUNTRY_MAP = {
@@ -350,7 +356,7 @@
                             const fromDisp = formatNameAcct(tx.fromFirstName, tx.fromLastName, tx.fromAccountNumber);
                             const toCode = getCountryCode(tx);
                             let toName = formatNameAcct(tx.toFirstName, tx.toLastName, tx.toAccountNumber);
-                            if (toName === '-' && tx.recipientName) toName = tx.recipientName;
+                            if (!tx.toFirstName && !tx.toLastName && tx.recipientName) toName = tx.recipientName;
                             let fromTo;
                             if (isBillPayment(tx)) {
                                 const lastFour = tx.fromAccountNumber ? String(tx.fromAccountNumber).slice(-4) : '7890';
@@ -445,7 +451,7 @@
 
             const fromDisplay = formatNameAcct(tx.fromFirstName, tx.fromLastName, tx.fromAccountNumber);
             let toDisplay = formatNameAcct(tx.toFirstName, tx.toLastName, tx.toAccountNumber);
-            if (toDisplay === '-' && tx.recipientName) toDisplay = tx.recipientName;
+            if (!tx.toFirstName && !tx.toLastName && tx.recipientName) toDisplay = tx.recipientName;
             const rawDesc = String(tx.description || '');
             const toCode = getCountryCode(tx);
             const toCountryName = getCountryName(tx);
@@ -455,6 +461,9 @@
             const isBill = isBillPayment(tx);
             const lastFour = tx.fromAccountNumber ? String(tx.fromAccountNumber).slice(-4) : '7890';
             const billerName = tx.recipientName || desc.replace(/Bill payment to\s*/i, '').replace(/AT&T Phone Payment.*/i, 'AT&T').split('(')[0].trim() || 'Biller';
+            const sameBankTransfer = Boolean(tx.fromUserId && tx.toUserId && ['ach', 'bank_transfer', 'wire_transfer', 'internal_transfer', 'admin_transfer'].includes(String(tx.type || '').toLowerCase()));
+            const fromLabel = sameBankTransfer ? 'Heritage Bank, USA' : 'Heritage Bank, USA';
+            const toLabel = toCode !== 'US' ? escapeHtml(toCountryName || 'International') : 'Heritage Bank, USA';
 
             let html = `
                 <div class="txn-modal-amount">
@@ -492,11 +501,11 @@
                 html += `
                 <div class="txn-detail-row">
                     <span class="txn-detail-label">From</span>
-                    <span class="txn-detail-value">${flagImg('US')} ${escapeHtml(fromDisplay)} &mdash; Heritage Bank, USA</span>
+                    <span class="txn-detail-value">${flagImg('US')} ${escapeHtml(fromDisplay)} &mdash; ${fromLabel}</span>
                 </div>
                 <div class="txn-detail-row">
                     <span class="txn-detail-label">To</span>
-                    <span class="txn-detail-value">${flagImg(toCode)} ${escapeHtml(toDisplay)}${toCode !== 'US' ? ' &mdash; ' + escapeHtml(toCountryName || 'International') : ' &mdash; Heritage Bank, USA'}</span>
+                    <span class="txn-detail-value">${flagImg(toCode)} ${escapeHtml(toDisplay)} &mdash; ${toLabel}</span>
                 </div>`;
             }
 

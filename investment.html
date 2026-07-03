@@ -20,7 +20,10 @@
     <style>
         .initially-hidden { display: none; }
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: #f0f2f5; font-family: 'Inter', 'Segoe UI', sans-serif; min-height: 100vh; }
+        html, body { height: 100%; }
+        body { background: #f0f2f5; font-family: 'Inter', 'Segoe UI', sans-serif; min-height: 100vh; display: flex; flex-direction: column; }
+        body > *:not(.app-footer) { flex-shrink: 0; }
+        .app-footer { margin-top: auto; flex-shrink: 0; }
 
         .container { max-width: 1100px; margin: 0 auto; padding: 20px; }
 
@@ -72,6 +75,13 @@
             gap: 10px;
         }
         .section-title i { color: #d4af37; }
+        
+        .app-footer { background: linear-gradient(135deg, #0f1419 0%, #1a2332 50%, #152028 100%); padding: 30px 20px; text-align: center; border-top: 1px solid rgba(212,175,55,0.15); }
+        .app-footer-inner { max-width: 1200px; margin: 0 auto; }
+        .app-footer-links { margin-bottom: 16px; display: flex; justify-content: center; flex-wrap: wrap; gap: 20px; }
+        .app-footer-links a { color: #9ca3af; text-decoration: none; font-size: 0.85rem; font-weight: 500; transition: color 0.3s ease; }
+        .app-footer-links a:hover { color: #d4af37; }
+        .app-footer-copy { color: #6b7280; font-size: 0.75rem; margin: 0; font-weight: 400; }
 
         .products-grid {
             display: grid;
@@ -370,7 +380,7 @@
     </style>
 </head>
 <body>
-    <div class="page-loader" id="pageLoader"><div class="loader-content"><div class="loader-ring"><div class="loader-logo"><img src="assets/logo.png" alt="Heritage Bank"></div></div><div class="loader-text">Loading</div></div></div>
+    <div class="page-loader hidden" id="pageLoader" style="display: none !important;"><div class="loader-content"><div class="loader-ring"><div class="loader-logo"><img src="assets/logo.png" alt="Heritage Bank"></div></div><div class="loader-text">Loading</div></div></div>
     <div class="container">
         <div class="header">
             <button class="back-btn" onclick="location.href='dashboard.html'" title="Back to Dashboard"><i class="fas fa-arrow-left"></i></button>
@@ -494,6 +504,8 @@
             </form>
         </div>
 
+        <div class="status-message initially-hidden" id="investmentStatusMessage"></div>
+
         <!-- My Investments -->
         <div class="investments-card initially-hidden" id="myInvestments">
             <div class="investments-card-header">
@@ -590,11 +602,23 @@
 
         // Auth
         async function checkAuth() {
+            if (!token) {
+                window.location.href = 'signin.html';
+                return false;
+            }
             try {
                 const res = await fetch(`${API_URL}/api/auth/profile`, { headers: { 'Authorization': `Bearer ${token}` } });
-                if (res.ok) { const d = await res.json(); userId = d.user.id; }
-                else window.location.href = 'signin.html';
-            } catch { window.location.href = 'signin.html'; }
+                if (res.ok) {
+                    const d = await res.json();
+                    userId = d.user.id;
+                    return true;
+                }
+                window.location.href = 'signin.html';
+                return false;
+            } catch {
+                window.location.href = 'signin.html';
+                return false;
+            }
         }
 
         // Estimate calculation
@@ -748,9 +772,32 @@
         }
 
         // Load investments
+        function showStatusMessage(message, isError = true) {
+            const el = document.getElementById('investmentStatusMessage');
+            el.textContent = message;
+            el.style.display = 'block';
+            el.style.background = isError ? '#fef2f2' : '#ecfdf5';
+            el.style.color = isError ? '#991b1b' : '#166534';
+            el.style.border = isError ? '1px solid #fecaca' : '1px solid #bbf7d0';
+        }
+
+        function clearStatusMessage() {
+            const el = document.getElementById('investmentStatusMessage');
+            el.textContent = '';
+            el.style.display = 'none';
+        }
+
         async function loadMyInvestments() {
             try {
-                const res = await fetch(`${API_URL}/api/investments/my-investments`, { headers: { 'Authorization': `Bearer ${token}` } });
+                clearStatusMessage();
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 5000);
+                
+                const res = await fetch(`${API_URL}/api/investments/my-investments`, { 
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    signal: controller.signal
+                });
+                clearTimeout(timeout);
                 const data = await res.json();
                 if (data.success) {
                     if (data.investments.length > 0) {
@@ -761,8 +808,22 @@
                         document.getElementById('invCount').textContent = '0';
                         document.getElementById('portfolioBanner').style.display = 'none';
                     }
+                } else {
+                    showStatusMessage(data.message || 'Unable to load investments. Please refresh or sign in again.', true);
+                    document.getElementById('myInvestments').style.display = 'block';
+                    document.getElementById('investmentsList').innerHTML = '<div class="empty-state"><i class="fas fa-seedling"></i><p>No investments yet. Start investing to grow your wealth!</p></div>';
+                    document.getElementById('invCount').textContent = '0';
+                    document.getElementById('portfolioBanner').style.display = 'none';
                 }
-            } catch (e) { console.error('Error loading investments:', e); }
+            } catch (e) {
+                console.error('Error loading investments:', e);
+                clearTimeout(timeout);
+                showStatusMessage('Unable to connect to server. Make sure the backend is running.', true);
+                document.getElementById('myInvestments').style.display = 'block';
+                document.getElementById('investmentsList').innerHTML = '<div class="empty-state"><i class="fas fa-wifi-off"></i><p>Connection error. Check your internet and try again.</p></div>';
+                document.getElementById('invCount').textContent = '0';
+                document.getElementById('portfolioBanner').style.display = 'none';
+            }
         }
 
         function displayInvestments(data) {
@@ -906,9 +967,36 @@
             el.addEventListener('click', (e) => { if (e.target === el) el.classList.remove('active'); });
         });
 
-        // Init
-        checkAuth();
-        loadMyInvestments();
+        function hideLoader() {
+            const loader = document.getElementById('pageLoader');
+            if (loader) {
+                loader.style.display = 'none !important';
+                loader.classList.remove('show');
+                loader.classList.add('hidden');
+            }
+        }
+
+        async function initInvestmentPage() {
+            hideLoader();
+            if (token) {
+                try {
+                    await checkAuth();
+                    await loadMyInvestments();
+                } catch (e) {
+                    console.log('Auth failed:', e);
+                    await loadMyInvestments();
+                }
+            } else {
+                await loadMyInvestments();
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            hideLoader();
+            setTimeout(initInvestmentPage, 100);
+        });
+        
+        window.addEventListener('load', hideLoader);
     </script>
     <footer class="app-footer">
         <div class="app-footer-inner">

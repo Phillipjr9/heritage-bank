@@ -35,6 +35,11 @@
         .input { padding: 10px 14px; border: 1.5px solid #e2e8f0; border-radius: 10px; font-size: 14px; min-width: 240px; background: #f8faf9; transition: all 0.3s ease; }
         .input:focus { outline: none; border-color: #d4af37; box-shadow: 0 0 0 3px rgba(212,175,55,0.12); background: white; }
         .btn { padding: 10px 16px; border: none; border-radius: 10px; cursor: pointer; font-weight: 600; transition: all 0.3s ease; display: inline-flex; align-items: center; gap: 6px; }
+        .template-chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+        .template-chip { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; background: #eef6ef; color: #1a472a; border: 1px solid #d4e8d4; cursor: pointer; transition: transform 0.2s ease, background 0.2s ease; font-size: 13px; }
+        .template-chip:hover { background: #d4f0d4; transform: translateY(-1px); }
+        .template-chip i { color: #19632f; }
+        .template-copy-note { margin-top: 10px; color: #64748b; font-size: 13px; }
         .btn-primary { background: linear-gradient(135deg, #1a472a, #2d5f3f); color: white; box-shadow: 0 2px 6px rgba(26,71,42,0.15); }
         .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(26,71,42,0.25); }
         .btn-secondary { background: linear-gradient(135deg, #d4af37, #c19b2e); color: #1a472a; box-shadow: 0 2px 6px rgba(212,175,55,0.2); }
@@ -160,6 +165,17 @@
                 <button class="btn btn-primary" onclick="downloadCurrentStatement()"><i class="fas fa-file-invoice"></i> Download Statement</button>
             </div>
 
+            <div class="description-picker">
+                <label for="descriptionTemplateSelect" style="font-weight:600; display:block; margin-bottom:8px;">Choose a description template</label>
+                <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+                    <select id="descriptionTemplateSelect" class="input" onchange="onSelectDescriptionTemplate(event)">
+                        <option value="">Select a preset</option>
+                    </select>
+                    <button class="btn btn-secondary" type="button" onclick="copySelectedDescription()"><i class="fas fa-copy"></i> Copy Selected</button>
+                </div>
+                <div class="template-copy-note" id="selectedTemplateNote">Choose a template from the list and copy it directly.</div>
+            </div>
+
             <div id="tableWrap"></div>
         </div>
     </div>
@@ -213,7 +229,16 @@
         }
 
         function isCredit(tx) {
-            return tx.type === 'credit' || tx.type === 'deposit' || tx.type === 'received';
+            // Prefer direction-based logic when userId is available (incoming vs outgoing transfers)
+            try {
+                const me = Number(userId);
+                const fromId = Number(tx && tx.fromUserId);
+                const toId = Number(tx && tx.toUserId);
+                if (Number.isFinite(me) && Number.isFinite(toId) && toId === me) return true;
+                if (Number.isFinite(me) && Number.isFinite(fromId) && fromId === me) return false;
+            } catch (e) {}
+            const t = String(tx && tx.type || '').toLowerCase();
+            return (t === 'credit' || t === 'deposit' || t === 'received' || t === 'transfer_in' || t === 'admin_credit');
         }
 
         function formatNameAcct(firstName, lastName, accountNumber) {
@@ -269,6 +294,56 @@
             return `<img src="https://flagcdn.com/w40/${c.toLowerCase()}.png" alt="${entry.name}" style="width:20px;height:14px;vertical-align:middle;margin-right:4px;border-radius:2px;">`;
         }
 
+        const DESCRIPTION_TEMPLATES = [
+            'Salary payment',
+            'Bonus payout',
+            'Expense reimbursement',
+            'Invoice payment',
+            'Refund',
+            'Commission',
+            'Direct deposit',
+            'Membership rebate'
+        ];
+
+        function renderDescriptionTemplates() {
+            const select = document.getElementById('descriptionTemplateSelect');
+            if (!select) return;
+            select.innerHTML = [`
+                <option value="">Select a preset</option>
+            `].concat(DESCRIPTION_TEMPLATES.map(template => `
+                <option value="${template.replace(/"/g, '&quot;')}">${template}</option>
+            `)).join('');
+            updateSelectedTemplateNote('Choose a template from the list and copy it directly.');
+        }
+
+        function onSelectDescriptionTemplate(event) {
+            const template = event.target.value || '';
+            updateSelectedTemplateNote(template ? `Selected: ${template}` : 'Choose a template from the list and copy it directly.');
+        }
+
+        function copySelectedDescription() {
+            const select = document.getElementById('descriptionTemplateSelect');
+            const template = (select && select.value) ? select.value : '';
+            if (!template) {
+                showToast('Please choose a description template first.');
+                return;
+            }
+            if (!navigator.clipboard) {
+                showToast('Clipboard not available');
+                return;
+            }
+            navigator.clipboard.writeText(template).then(() => {
+                showToast(`Copied template: ${template}`);
+            }).catch(() => {
+                showToast('Unable to copy template');
+            });
+        }
+
+        function updateSelectedTemplateNote(message) {
+            const note = document.getElementById('selectedTemplateNote');
+            if (note) note.textContent = message;
+        }
+
         function getCountryName(tx) {
             const code = tx && tx.destinationCountry;
             if (code && COUNTRY_MAP[code]) return COUNTRY_MAP[code].name;
@@ -289,6 +364,7 @@
                 return;
             }
             userId = profile.user.id;
+            renderDescriptionTemplates();
             await refresh();
         }
 
@@ -378,7 +454,7 @@
                                     <td>${tx.reference || '-'}</td>
                                     <td>${pill(tx.status)}</td>
                                     <td class="amount ${cls}" style="text-align:right;">
-                                        ${sign}$${formatMoney(Math.abs(parseFloat(tx.amount) + (credit ? 0 : (parseFloat(tx.fee) || 0))))}
+                                        ${sign}$${formatMoney((function(){ const amt = Math.abs(parseFloat(tx.amount) || 0); const fee = parseFloat(tx.fee) || 0; return credit ? amt : (amt + fee); })())}
                                         ${(parseFloat(tx.fee) || 0) > 0 ? `<div class="muted" style="font-size:11px;">Fee: $${formatMoney(parseFloat(tx.fee))}</div>` : ''}
                                     </td>
                                     <td>

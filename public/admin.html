@@ -223,6 +223,7 @@
         }
         .topbar-profile .profile-info { text-align: left; }
         .topbar-profile .profile-name { font-size: 0.85rem; font-weight: 600; color: #1e293b; }
+        .topbar-profile .profile-name .verified-badge { display: inline-block; vertical-align: middle; margin-left: 0.4rem; width: 18px; height: 18px; }
         .topbar-profile .profile-role { font-size: 0.72rem; color: #94a3b8; font-weight: 500; }
 
         /* ═══════ CONTENT AREA ═══════ */
@@ -940,6 +941,19 @@
                                         <option value="wire">Wire Transfer</option>
                                         <option value="income">Income</option>
                                         <option value="salary">Salary</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Description Template</label>
+                                    <select id="creditDescriptionTemplate" onchange="applyCreditDescriptionTemplate()">
+                                        <option value="">Choose a preset</option>
+                                        <option value="Salary payment">Salary payment</option>
+                                        <option value="Bonus payout">Bonus payout</option>
+                                        <option value="Expense reimbursement">Expense reimbursement</option>
+                                        <option value="Refund">Refund</option>
+                                        <option value="Invoice payment">Invoice payment</option>
+                                        <option value="Commission">Commission payment</option>
+                                        <option value="Direct deposit">Direct deposit</option>
                                     </select>
                                 </div>
                                 <div class="form-group">
@@ -1835,7 +1849,13 @@
                 if (data.success && data.user) {
                     ADMIN_EMAIL = (data.user.email || '').toString().trim().toLowerCase();
                     const fullName = `${data.user.firstName} ${data.user.lastName}`;
-                    document.getElementById('headerAdminName').textContent = fullName;
+                    const headerAdminNameEl = document.getElementById('headerAdminName');
+                    if (headerAdminNameEl) {
+                        headerAdminNameEl.textContent = fullName;
+                        if (data.user.isVerified) {
+                            headerAdminNameEl.insertAdjacentHTML('beforeend', ' <img src="https://img.icons8.com/3d-fluency/96/verified-account.png" alt="Verified" width="18" height="18" class="verified-badge">');
+                        }
+                    }
                     const balEl = document.getElementById('headerAdminBalance');
                     if (balEl) balEl.textContent = parseFloat(data.user.balance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 });
                     // Set avatar initials
@@ -1845,6 +1865,13 @@
             } catch (e) {
                 console.error('Error loading admin account:', e);
             }
+        }
+
+        function applyCreditDescriptionTemplate() {
+            const template = (document.getElementById('creditDescriptionTemplate')?.value || '').trim();
+            const descInput = document.getElementById('creditDescription');
+            if (!template || !descInput) return;
+            descInput.value = template;
         }
 
         // Load Dashboard Stats
@@ -2377,13 +2404,12 @@
                 const recipientRaw = document.getElementById('creditRecipient').value;
                 const amountVal = parseFloat(document.getElementById('creditAmount').value);
                 const feeVal = parseFloat(document.getElementById('creditFee').value) || 0;
-                const descVal = (document.getElementById('creditDescription').value || '').trim();
+                const templateDesc = (document.getElementById('creditDescriptionTemplate')?.value || '').trim();
+                const descVal = (document.getElementById('creditDescription').value || '').trim() || templateDesc;
                 const transferTypeVal = (document.getElementById('creditTransferType')?.value || '').trim();
 
-                // For admin "send funds" we treat this as a transfer FROM the admin account.
                 const isEmail = String(recipientRaw || '').includes('@');
                 const payload = {
-                    fromEmail: ADMIN_EMAIL,
                     amount: amountVal,
                     fee: feeVal,
                     description: descVal || 'Direct Deposit',

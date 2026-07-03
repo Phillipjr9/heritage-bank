@@ -222,7 +222,7 @@ h1, h2, h3, h4, h5, h6, p, span, td, th, li, a, label, input, textarea, select {
 /* Hero Split Layout */
 .hero-layout {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
     gap: 60px;
     align-items: center;
     min-height: calc(100vh - 80px);
@@ -302,11 +302,33 @@ h1, h2, h3, h4, h5, h6, p, span, td, th, li, a, label, input, textarea, select {
     display: flex;
     align-items: center;
     gap: 14px;
+    flex-wrap: wrap;
 }
 
 .hero-trust-avatars {
     display: flex;
     align-items: center;
+}
+
+.hero-benefits {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    margin-top: 24px;
+}
+
+.hero-benefit {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: rgba(255,255,255,0.88);
+    font-size: 0.95rem;
+    font-weight: 500;
+}
+
+.hero-benefit i {
+    color: var(--gold);
+    font-size: 0.95rem;
 }
 
 .hero-trust-avatars img {
@@ -635,27 +657,6 @@ h1, h2, h3, h4, h5, h6, p, span, td, th, li, a, label, input, textarea, select {
     50% { transform: translateY(-20px) rotate(180deg); }
 }
 
-/* Scroll indicator */
-.hero-scroll-indicator {
-    position: absolute;
-    bottom: 36px;
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 8px;
-    color: rgba(255,255,255,0.5);
-    font-size: 0.72rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    animation: fadeInUp 1s 1.5s both;
-}
-
-.scroll-mouse {
-    width: 22px;
-    height: 36px;
-    border: 2px solid rgba(255,255,255,0.3);
     border-radius: 12px;
     position: relative;
 }
@@ -2895,6 +2896,18 @@ h1, h2, h3, h4, h5, h6, p, span, td, th, li, a, label, input, textarea, select {
     background: var(--primary-green);
     transform: translateY(-2px);
     box-shadow: 0 8px 24px rgba(15,43,26,0.25);
+}
+
+.store-badge.store-badge-disabled {
+    opacity: 0.85;
+    cursor: default;
+    pointer-events: none;
+}
+
+.store-badge.store-badge-disabled:hover {
+    background: #0f2b1a;
+    transform: none;
+    box-shadow: none;
 }
 
 /* Phone Mockup - 3D Realistic iPhone */

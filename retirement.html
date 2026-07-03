@@ -32,8 +32,9 @@
         .retirement-banner {
             background: linear-gradient(135deg, #1a472a 0%, #2d5f3f 50%, #1a472a 100%);
             color: white; padding: 28px 32px; border-radius: 16px; margin-bottom: 28px;
-            position: relative; overflow: hidden; display: none;
+            position: relative; overflow: hidden;
         }
+        .retirement-banner.hidden { display: none; }
         .retirement-banner::before {
             content: ''; position: absolute; top: -50%; right: -20%; width: 300px; height: 300px;
             background: radial-gradient(circle, rgba(212,175,55,0.12), transparent 70%); pointer-events: none;
@@ -171,8 +172,12 @@
         @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
         /* Footer */
-        .app-footer { text-align: center; padding: 20px; margin-top: 20px; color: #94a3b8; font-size: 0.78rem; }
-        .app-footer a { color: #64748b; text-decoration: none; margin: 0 8px; }
+        .app-footer { background: linear-gradient(135deg, #0f1419 0%, #1a2332 50%, #152028 100%); padding: 30px 20px; margin-top: auto; text-align: center; border-top: 1px solid rgba(212,175,55,0.15); }
+        .app-footer-inner { max-width: 1200px; margin: 0 auto; }
+        .app-footer-links { margin-bottom: 16px; display: flex; justify-content: center; flex-wrap: wrap; gap: 20px; }
+        .app-footer-links a { color: #9ca3af; text-decoration: none; font-size: 0.85rem; font-weight: 500; transition: color 0.3s ease; }
+        .app-footer-links a:hover { color: #d4af37; }
+        .app-footer-copy { color: #6b7280; font-size: 0.75rem; margin: 0; font-weight: 400; }
 
         @media (max-width: 768px) {
             .form-grid { grid-template-columns: 1fr; }
@@ -196,7 +201,7 @@
 </head>
 <body>
     <!-- Page Loader -->
-    <div class="page-loader" id="pageLoader"><div class="loader-content"><div class="loader-ring"><div class="loader-logo"><img src="assets/logo.png" alt="Heritage Bank"></div></div><div class="loader-text">Loading</div></div></div>
+    <div class="page-loader hidden" id="pageLoader" style="display: none !important;"><div class="loader-content"><div class="loader-ring"><div class="loader-logo"><img src="assets/logo.png" alt="Heritage Bank"></div></div><div class="loader-text">Loading</div></div></div>
 
     <div class="container">
         <div class="header">
@@ -205,7 +210,7 @@
         </div>
 
         <!-- Portfolio Banner -->
-        <div class="retirement-banner" id="retirementBanner">
+        <div class="retirement-banner hidden" id="retirementBanner">
             <h2><i class="fas fa-chart-pie"></i> Retirement Portfolio</h2>
             <div class="banner-stats">
                 <div class="banner-stat"><label>Total Balance</label><span class="gold" id="totalBalance">$0</span></div>
@@ -435,12 +440,19 @@
 
         // Auth check
         async function checkAuth() {
-            if (!token) { window.location.href = 'signin.html'; return; }
+            if (!token) {
+                window.location.href = 'signin.html';
+                throw new Error('No token');
+            }
             try {
                 const res = await fetch(`${API_URL}/api/auth/profile`, { headers: { 'Authorization': `Bearer ${token}` } });
                 const data = await res.json();
-                if (!data.success) throw new Error();
-            } catch { window.location.href = 'signin.html'; }
+                if (!data.success) throw new Error('Auth failed');
+                return true;
+            } catch (e) {
+                window.location.href = 'signin.html';
+                throw e;
+            }
         }
 
         // Live estimate
@@ -470,11 +482,23 @@
         document.getElementById('contributeForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const product = document.getElementById('product').value;
-            const amount = document.getElementById('amount').value;
+            const amount = parseFloat(document.getElementById('amount').value);
             const beneficiary = document.getElementById('beneficiary').value;
-            const targetAge = document.getElementById('targetAge').value;
+            const targetAge = parseInt(document.getElementById('targetAge').value, 10);
+            const info = PRODUCTS[product];
 
-            if (!product || !amount) return;
+            if (!product || !amount || !info) {
+                showToast('Select a product and enter a valid contribution amount.', 'error');
+                return;
+            }
+            if (amount < info.min) {
+                showToast(`Minimum contribution for ${product} is $${info.min.toLocaleString()}`, 'error');
+                return;
+            }
+            if (targetAge && targetAge < 0) {
+                showToast('Enter a valid target age.', 'error');
+                return;
+            }
 
             const btn = document.getElementById('submitBtn');
             btn.disabled = true;
@@ -508,8 +532,11 @@
         // Quick contribute from product card
         function openContributeModal(product) {
             selectedProduct = product;
+            const info = PRODUCTS[product] || { min: 50, limit: 100000 };
             document.getElementById('modalTitle').textContent = `Contribute to ${product}`;
             document.getElementById('modalAmount').value = '';
+            document.getElementById('modalAmount').min = info.min;
+            document.getElementById('modalAmount').placeholder = info.min.toLocaleString();
             document.getElementById('modalBeneficiary').value = '';
             document.getElementById('contributeModal').classList.add('show');
         }
@@ -517,7 +544,11 @@
         async function submitModalContribution() {
             const amount = parseFloat(document.getElementById('modalAmount').value);
             const beneficiary = document.getElementById('modalBeneficiary').value;
+            const info = PRODUCTS[selectedProduct];
+            if (!info) { showToast('Invalid product selected', 'error'); return; }
             if (!amount || amount <= 0) { showToast('Enter a valid amount', 'error'); return; }
+            if (amount < info.min) { showToast(`Minimum for ${selectedProduct} is $${info.min.toLocaleString()}`, 'error'); return; }
+            if (amount > info.limit) { showToast(`Maximum contribution for ${selectedProduct} is $${info.limit.toLocaleString()}/yr`, 'error'); return; }
 
             try {
                 const res = await fetch(`${API_URL}/api/retirement/contribute`, {
@@ -538,20 +569,53 @@
                 } else {
                     showToast(data.message || 'Failed', 'error');
                 }
-            } catch { showToast('Network error', 'error'); }
+            } catch {
+                showToast('Network error', 'error');
+            }
         }
 
         // Load accounts
         async function loadAccounts() {
             try {
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 5000);
+                
                 const res = await fetch(`${API_URL}/api/retirement/accounts`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    signal: controller.signal
                 });
+                clearTimeout(timeout);
                 const data = await res.json();
-                if (data.success && data.accounts.length > 0) {
-                    displayAccounts(data);
+                if (data.success) {
+                    if (data.accounts.length > 0) {
+                        displayAccounts(data);
+                    } else {
+                        document.getElementById('retirementBanner').style.display = 'none';
+                        const card = document.getElementById('myAccounts');
+                        card.style.display = 'block';
+                        document.getElementById('accountsList').innerHTML = `
+                            <div style="padding:24px; border:1px dashed #cbd5e1; border-radius:16px; background:#ffffff; color:#475569; text-align:center;">
+                                <i class="fas fa-seedling" style="font-size:1.5rem; margin-bottom:12px; display:block;"></i>
+                                <p>No retirement accounts found yet. Start by contributing to a Traditional IRA, Roth IRA, or 529 plan.</p>
+                            </div>
+                        `;
+                    }
+                } else {
+                    showToast(data.message || 'Unable to load accounts', 'error');
                 }
-            } catch { }
+            } catch (e) {
+                console.error('Error loading accounts:', e);
+                clearTimeout(timeout);
+                document.getElementById('retirementBanner').style.display = 'none';
+                const card = document.getElementById('myAccounts');
+                card.style.display = 'block';
+                document.getElementById('accountsList').innerHTML = `
+                    <div style="padding:24px; border:1px dashed #cbd5e1; border-radius:16px; background:#ffffff; color:#475569; text-align:center;">
+                        <i class="fas fa-wifi-off" style="font-size:1.5rem; margin-bottom:12px; display:block;"></i>
+                        <p>Unable to load accounts. Make sure you're signed in and the backend is running.</p>
+                    </div>
+                `;
+            }
         }
 
         function displayAccounts(data) {
@@ -667,12 +731,37 @@
             setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 3000);
         }
 
+        function hideLoader() {
+            const loader = document.getElementById('pageLoader');
+            if (loader) {
+                loader.style.display = 'none !important';
+                loader.classList.remove('show');
+                loader.classList.add('hidden');
+            }
+        }
+
         // Init
-        checkAuth();
-        loadAccounts();
-        window.addEventListener('load', () => {
-            document.getElementById('pageLoader').style.display = 'none';
+        async function initRetirementPage() {
+            hideLoader();
+            if (token) {
+                try {
+                    await checkAuth();
+                    loadAccounts();
+                } catch (e) {
+                    console.log('Auth failed:', e);
+                    loadAccounts();
+                }
+            } else {
+                loadAccounts();
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            hideLoader();
+            setTimeout(initRetirementPage, 100);
         });
+        
+        window.addEventListener('load', hideLoader);
     </script>
 </body>
 </html>

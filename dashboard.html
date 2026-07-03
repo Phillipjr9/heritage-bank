@@ -323,20 +323,43 @@
                 
                 if (data.success && data.user) {
                     userId = data.user.id;
-                    document.getElementById('userName').textContent = data.user.firstName || 'User';
+                    var fullName = [data.user.firstName, data.user.lastName].filter(Boolean).join(' ') || 'User';
+                    var userNameEl = document.getElementById('userName');
+                    if (userNameEl) {
+                        userNameEl.textContent = fullName;
+                        if (data.user.isVerified) {
+                            userNameEl.insertAdjacentHTML('beforeend', ' <img src="https://img.icons8.com/3d-fluency/96/verified-account.png" alt="Verified" width="22" height="22" class="verified-badge">');
+                        }
+                    }
 
                     // Sidebar avatar
                     var sNameEl = document.getElementById('sidebarUserName');
-                    if (sNameEl) sNameEl.textContent = (data.user.firstName || '') + ' ' + (data.user.lastName || '');
+                    if (sNameEl) {
+                        sNameEl.textContent = fullName;
+                        if (data.user.isVerified) {
+                            sNameEl.insertAdjacentHTML('beforeend', ' <img src="https://img.icons8.com/3d-fluency/96/verified-account.png" alt="Verified" width="18" height="18" class="verified-badge">');
+                        }
+                    }
                     var sAvatarImg = document.getElementById('sidebarUserAvatarImg');
                     var sAvatarIcon = document.getElementById('sidebarUserAvatarIcon');
                     if (data.user.profileImage) {
-                        if (sAvatarImg) { sAvatarImg.src = API_URL + '/backend/' + data.user.profileImage; sAvatarImg.style.display = 'block'; }
+                        if (sAvatarImg) {
+                            var avatarSrc = data.user.profileImage;
+                            if (/^data:/i.test(avatarSrc) || /^https?:\/\//i.test(avatarSrc)) {
+                                sAvatarImg.src = avatarSrc;
+                            } else if (avatarSrc.startsWith('/')) {
+                                sAvatarImg.src = API_URL + avatarSrc;
+                            } else if (avatarSrc.startsWith('assets/')) {
+                                sAvatarImg.src = API_URL + '/' + avatarSrc;
+                            } else {
+                                sAvatarImg.src = API_URL + '/backend/' + avatarSrc;
+                            }
+                            sAvatarImg.style.display = 'block';
+                        }
                         if (sAvatarIcon) sAvatarIcon.style.display = 'none';
                     } else {
-                        var defAvatar = (data.user.gender === 'female') ? 'assets/avatar-female.jpg' : 'assets/avatar-male.jpg';
-                        if (sAvatarImg) { sAvatarImg.src = defAvatar; sAvatarImg.style.display = 'block'; }
-                        if (sAvatarIcon) sAvatarIcon.style.display = 'none';
+                        if (sAvatarImg) sAvatarImg.style.display = 'none';
+                        if (sAvatarIcon) sAvatarIcon.style.display = 'block';
                     }
 
                     document.getElementById('balance').textContent = '$' + (data.user.balance || 0).toLocaleString(undefined, {minimumFractionDigits: 2});

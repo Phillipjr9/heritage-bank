@@ -159,8 +159,14 @@
         .modal-close:hover { color: #1a472a; }
         .modal h3 { color: #1a472a; margin-bottom: 18px; }
 
-        .app-footer { text-align: center; padding: 20px; color: #9ca3af; font-size: 0.8rem; margin-top: 20px; }
-        .app-footer a { color: #1a472a; text-decoration: none; }
+        html, body { height: 100%; }
+        body { display: flex; flex-direction: column; }
+        .app-footer { background: linear-gradient(135deg, #0f1419 0%, #1a2332 50%, #152028 100%); padding: 30px 20px; margin-top: auto; text-align: center; border-top: 1px solid rgba(212,175,55,0.15); }
+        .app-footer-inner { max-width: 1200px; margin: 0 auto; }
+        .app-footer-links { margin-bottom: 16px; display: flex; justify-content: center; flex-wrap: wrap; gap: 20px; }
+        .app-footer-links a { color: #9ca3af; text-decoration: none; font-size: 0.85rem; font-weight: 500; transition: color 0.3s ease; }
+        .app-footer-links a:hover { color: #d4af37; }
+        .app-footer-copy { color: #6b7280; font-size: 0.75rem; margin: 0; font-weight: 400; }
     </style>
 </head>
 <body>

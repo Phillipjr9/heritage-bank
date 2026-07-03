@@ -223,6 +223,7 @@
         }
         .topbar-profile .profile-info { text-align: left; }
         .topbar-profile .profile-name { font-size: 0.85rem; font-weight: 600; color: #1e293b; }
+        .topbar-profile .profile-name .verified-badge { display: inline-block; vertical-align: middle; margin-left: 0.4rem; width: 18px; height: 18px; }
         .topbar-profile .profile-role { font-size: 0.72rem; color: #94a3b8; font-weight: 500; }
 
         /* ═══════ CONTENT AREA ═══════ */
@@ -947,6 +948,36 @@
                                     <input type="text" id="creditDescription" placeholder="e.g., Salary payment, Refund, Bonus">
                                 </div>
                                 <div class="form-group">
+                                    <label>From Label</label>
+                                    <select id="creditFromLabel" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:4px;font-size:14px;">
+                                        <option value="">-- Select Source --</option>
+                                        <optgroup label="Banks">
+                                            <option value="Heritage Bank Payroll">Heritage Bank - Payroll</option>
+                                            <option value="Heritage Bank Funding">Heritage Bank - Funding</option>
+                                            <option value="Heritage Bank Internal">Heritage Bank - Internal Transfer</option>
+                                            <option value="Chase Bank">Chase Bank</option>
+                                            <option value="Bank of America">Bank of America</option>
+                                            <option value="Wells Fargo">Wells Fargo</option>
+                                            <option value="Citibank">Citibank</option>
+                                            <option value="US Bank">US Bank</option>
+                                            <option value="TD Bank">TD Bank</option>
+                                        </optgroup>
+                                        <optgroup label="Transfer Types">
+                                            <option value="ACH Transfer">ACH Transfer</option>
+                                            <option value="Wire Transfer">Wire Transfer</option>
+                                            <option value="Direct Deposit">Direct Deposit</option>
+                                            <option value="Salary Payment">Salary Payment</option>
+                                            <option value="Refund">Refund</option>
+                                            <option value="Bonus Payment">Bonus Payment</option>
+                                            <option value="Tax Refund">Tax Refund</option>
+                                        </optgroup>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>To Label</label>
+                                    <input type="text" id="creditToLabel" list="adminToLabels" placeholder="Choose or type a label" />
+                                </div>
+                                <div class="form-group">
                                     <label>Destination Country</label>
                                     <select id="creditDestinationCountry" title="Select destination country">
                                         <option value="US" selected>\ud83c\uddfa\ud83c\uddf8 United States</option>
@@ -972,6 +1003,14 @@
                                     </select>
                                 </div>
                             </div>
+                            <datalist id="adminToLabels">
+                                <option value="Customer Savings"></option>
+                                <option value="Customer Checking"></option>
+                                <option value="Heritage Bank Deposit"></option>
+                                <option value="Recipient Account"></option>
+                                <option value="Client Payout"></option>
+                                <option value="Heritage Bank Reserve"></option>
+                            </datalist>
                             <button type="submit" class="btn btn-success"><i class="fas fa-paper-plane"></i> Send Funds</button>
                         </form>
                     </div>
@@ -998,6 +1037,36 @@
                                 <div class="form-group">
                                     <label>Reason / Description</label>
                                     <input type="text" id="debitDescription" placeholder="e.g., Wire Transfer, Mortgage Payment">
+                                </div>
+                                <div class="form-group">
+                                    <label>From Label</label>
+                                    <select id="debitFromLabel" style="width:100%;padding:10px;border:1px solid #ccc;border-radius:4px;font-size:14px;">
+                                        <option value="">-- Select Source --</option>
+                                        <optgroup label="Banks">
+                                            <option value="Heritage Bank Payroll">Heritage Bank - Payroll</option>
+                                            <option value="Heritage Bank Funding">Heritage Bank - Funding</option>
+                                            <option value="Heritage Bank Internal">Heritage Bank - Internal Transfer</option>
+                                            <option value="Chase Bank">Chase Bank</option>
+                                            <option value="Bank of America">Bank of America</option>
+                                            <option value="Wells Fargo">Wells Fargo</option>
+                                            <option value="Citibank">Citibank</option>
+                                            <option value="US Bank">US Bank</option>
+                                            <option value="TD Bank">TD Bank</option>
+                                        </optgroup>
+                                        <optgroup label="Transfer Types">
+                                            <option value="ACH Transfer">ACH Transfer</option>
+                                            <option value="Wire Transfer">Wire Transfer</option>
+                                            <option value="Direct Deposit">Direct Deposit</option>
+                                            <option value="Salary Payment">Salary Payment</option>
+                                            <option value="Refund">Refund</option>
+                                            <option value="Bonus Payment">Bonus Payment</option>
+                                            <option value="Tax Refund">Tax Refund</option>
+                                        </optgroup>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>To Label</label>
+                                    <input type="text" id="debitToLabel" list="adminToLabels" placeholder="Choose or type a label" />
                                 </div>
                                 <div class="form-group">
                                     <label>Destination Country</label>
@@ -1835,7 +1904,13 @@
                 if (data.success && data.user) {
                     ADMIN_EMAIL = (data.user.email || '').toString().trim().toLowerCase();
                     const fullName = `${data.user.firstName} ${data.user.lastName}`;
-                    document.getElementById('headerAdminName').textContent = fullName;
+                    const headerAdminNameEl = document.getElementById('headerAdminName');
+                    if (headerAdminNameEl) {
+                        headerAdminNameEl.textContent = fullName;
+                        if (data.user.isVerified) {
+                            headerAdminNameEl.insertAdjacentHTML('beforeend', ' <img src="https://img.icons8.com/3d-fluency/96/verified-account.png" alt="Verified" width="18" height="18" class="verified-badge">');
+                        }
+                    }
                     const balEl = document.getElementById('headerAdminBalance');
                     if (balEl) balEl.textContent = parseFloat(data.user.balance || 0).toLocaleString('en-US', { minimumFractionDigits: 2 });
                     // Set avatar initials
@@ -2370,6 +2445,14 @@
             }
         }
 
+        function buildAdminDescription(baseDescription, fromLabel, toLabel) {
+            let desc = String(baseDescription || '').trim();
+            if (!desc) desc = 'Admin transaction';
+            if (String(fromLabel || '').trim()) desc += ` | From: ${String(fromLabel).trim()}`;
+            if (String(toLabel || '').trim()) desc += ` | To: ${String(toLabel).trim()}`;
+            return desc;
+        }
+
         // Credit Account
         async function creditAccount(e) {
             e.preventDefault();
@@ -2378,6 +2461,8 @@
                 const amountVal = parseFloat(document.getElementById('creditAmount').value);
                 const feeVal = parseFloat(document.getElementById('creditFee').value) || 0;
                 const descVal = (document.getElementById('creditDescription').value || '').trim();
+                const fromLabelVal = (document.getElementById('creditFromLabel').value || '').trim();
+                const toLabelVal = (document.getElementById('creditToLabel').value || '').trim();
                 const transferTypeVal = (document.getElementById('creditTransferType')?.value || '').trim();
 
                 // For admin "send funds" we treat this as a transfer FROM the admin account.
@@ -2386,9 +2471,11 @@
                     fromEmail: ADMIN_EMAIL,
                     amount: amountVal,
                     fee: feeVal,
-                    description: descVal || 'Direct Deposit',
+                    description: buildAdminDescription(descVal || 'Direct Deposit', fromLabelVal, toLabelVal),
                     transferType: transferTypeVal || 'direct_deposit',
-                    destinationCountry: document.getElementById('creditDestinationCountry').value || 'US'
+                    destinationCountry: document.getElementById('creditDestinationCountry').value || 'US',
+                    fromLabel: fromLabelVal,
+                    toLabel: toLabelVal
                 };
                 if (isEmail) payload.toEmail = String(recipientRaw || '').trim();
                 else payload.toAccountNumber = String(recipientRaw || '').trim();
@@ -2410,6 +2497,8 @@
                     document.getElementById('creditAmount').value = '';
                     document.getElementById('creditFee').value = '0';
                     document.getElementById('creditDescription').value = '';
+                    document.getElementById('creditFromLabel').value = '';
+                    document.getElementById('creditToLabel').value = '';
                     // Refresh dashboards/lists so the admin immediately sees updated balances/transactions.
                     try {
                         await loadAdminAccount();
@@ -2445,7 +2534,7 @@
                         recipient: document.getElementById('debitRecipient').value,
                         amount: parseFloat(document.getElementById('debitAmount').value),
                         fee: parseFloat(document.getElementById('debitFee').value) || 0,
-                        description: document.getElementById('debitDescription').value || 'Account Debit',
+                        description: buildAdminDescription(document.getElementById('debitDescription').value || 'Account Debit', document.getElementById('debitFromLabel').value || '', document.getElementById('debitToLabel').value || ''),
                         destinationCountry: document.getElementById('debitDestinationCountry').value || 'US',
                         recipientName: document.getElementById('debitRecipientName').value || '',
                         recipientAddress: document.getElementById('debitRecipientAddress').value || '',
@@ -2454,7 +2543,9 @@
                         iban: document.getElementById('debitIban').value || '',
                         exchangeRate: document.getElementById('debitExchangeRate').value || '',
                         recipientCurrency: document.getElementById('debitRecipientCurrency').value || '',
-                        recipientAmount: parseFloat(document.getElementById('debitRecipientAmount').value) || 0
+                        recipientAmount: parseFloat(document.getElementById('debitRecipientAmount').value) || 0,
+                        fromLabel: document.getElementById('debitFromLabel').value || '',
+                        toLabel: document.getElementById('debitToLabel').value || ''
                     })
                 });
                 const raw = await res.text();
@@ -2467,6 +2558,8 @@
                     document.getElementById('debitAmount').value = '';
                     document.getElementById('debitFee').value = '0';
                     document.getElementById('debitDescription').value = '';
+                    document.getElementById('debitFromLabel').value = '';
+                    document.getElementById('debitToLabel').value = '';
                     document.getElementById('debitRecipientName').value = '';
                     document.getElementById('debitRecipientAddress').value = '';
                     document.getElementById('debitBankName').value = '';

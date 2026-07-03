@@ -1,8 +1,12 @@
 // Heritage Bank - Main JavaScript
 
-const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
-    ? 'http://localhost:3001' 
-    : window.location.origin;
+const API_URL = (() => {
+    const { hostname, protocol } = window.location;
+    if (protocol === 'file:' || hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0') {
+        return 'http://localhost:3001';
+    }
+    return `${window.location.protocol}//${window.location.host}`;
+})();
 
 // Intersection Observer for reveal animations on scroll
 const revealObserver = new IntersectionObserver((entries) => {

@@ -114,6 +114,7 @@ async function initializeSchema() {
           firstName VARCHAR(255) NOT NULL,
           lastName VARCHAR(255) NOT NULL,
           password VARCHAR(255) NOT NULL,
+          passwordHash VARCHAR(255),
           accountNumber VARCHAR(64) DEFAULT NULL,
           routingNumber VARCHAR(32) DEFAULT NULL,
           swiftCode VARCHAR(64) DEFAULT NULL,
@@ -124,10 +125,13 @@ async function initializeSchema() {
           isLocked BOOLEAN DEFAULT FALSE,
           referralCode VARCHAR(16) UNIQUE,
           referredBy INT,
+          resetToken VARCHAR(255),
+          resetTokenExpiry DATETIME,
           createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           INDEX idx_email (email),
           INDEX idx_referralCode (referralCode),
+          INDEX idx_resetToken (resetToken),
           FOREIGN KEY (referredBy) REFERENCES users(id)
         )
       `);
@@ -183,7 +187,7 @@ async function initializeSchema() {
           id INT PRIMARY KEY AUTO_INCREMENT,
           userId INT NOT NULL,
           category VARCHAR(50) NOT NULL,
-          limit DECIMAL(12, 2) NOT NULL,
+          budgetLimit DECIMAL(12, 2) NOT NULL,
           month VARCHAR(7) NOT NULL,
           spent DECIMAL(12, 2) DEFAULT 0,
           alertSent BOOLEAN DEFAULT FALSE,
@@ -282,7 +286,7 @@ async function initializeSchema() {
             id INT PRIMARY KEY AUTO_INCREMENT,
             userId INT NOT NULL,
             category VARCHAR(50) NOT NULL,
-            limit DECIMAL(12, 2) NOT NULL,
+            budgetLimit DECIMAL(12, 2) NOT NULL,
             month VARCHAR(7) NOT NULL,
             spent DECIMAL(12, 2) DEFAULT 0,
             alertSent BOOLEAN DEFAULT FALSE,
@@ -516,7 +520,15 @@ async function getUserTransactions(userId, limit = 50) {
   const connection = await pool.getConnection();
   try {
     const [rows] = await connection.query(
-      `SELECT * FROM transactions WHERE fromUserId = ? OR toUserId = ? ORDER BY createdAt DESC LIMIT ${normalizedLimit}`,
+      `SELECT t.*, 
+              fu.firstName AS fromFirstName, fu.lastName AS fromLastName, fu.accountNumber AS fromAccountNumber,
+              tu.firstName AS toFirstName, tu.lastName AS toLastName, tu.accountNumber AS toAccountNumber
+       FROM transactions t
+       LEFT JOIN users fu ON fu.id = t.fromUserId
+       LEFT JOIN users tu ON tu.id = t.toUserId
+       WHERE t.fromUserId = ? OR t.toUserId = ?
+       ORDER BY t.createdAt DESC
+       LIMIT ${normalizedLimit}`,
       [userId, userId]
     );
     return rows;

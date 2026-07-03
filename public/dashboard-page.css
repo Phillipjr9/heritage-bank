@@ -194,6 +194,15 @@ body.dark-mode .main-content { background: #0f172a; }
     letter-spacing: -0.5px;
 }
 
+.page-title .verified-badge,
+.sidebar-user-name .verified-badge {
+    display: inline-block;
+    vertical-align: middle;
+    margin-left: 0.5rem;
+    width: 22px;
+    height: 22px;
+}
+
 .header-right {
     display: flex;
     align-items: center;

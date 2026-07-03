@@ -68,10 +68,21 @@
 
             <div class="blog-layout">
                 <div>
-                    <div class="blog-grid">
-                        <!-- Featured Post -->
-                        <div class="blog-card featured-post" data-category="investing">
-                            <div class="blog-image-cover" style="background:linear-gradient(135deg, #1a237e 0%, #283593 50%, #3949ab 100%)">
+                    <!-- Loading spinner -->
+                    <div id="blogLoading" class="blog-loading-spinner" style="display: none; text-align: center; padding: 60px 20px;">
+                        <div class="spinner" style="border: 4px solid #f0f0f0; border-top: 4px solid #1a472a; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto; margin-bottom: 20px;"></div>
+                        <p style="color: #666;">Loading latest financial news...</p>
+                    </div>
+
+                    <!-- Blog Grid -->
+                    <div class="blog-grid" id="blogGrid">
+                        <!-- Dynamic content will be loaded here -->
+                    </div>
+                </div>
+
+                    <!-- Load More -->
+                    <div style="text-align:center; margin-top:40px">
+                        <button class="btn btn-outline" id="loadMoreBtn" onclick="loadMoreArticles()" style="padding:14px 40px; border:2px solid #1a472a; color:#1a472a; border-radius:12px; font-weight:600; cursor:pointer; background:transparent; font-size:0.95rem; display:none;">Load More Articles</button>
                                 <span class="blog-badge">Featured</span>
                             </div>
                             <div class="blog-content">
@@ -591,51 +602,196 @@
     <script src="script.js"></script>
     <script src="cookie-consent.js"></script>
     <script>
-        function togglePost(link, e) {
-            e.preventDefault();
-            const card = link.closest('.blog-content');
-            const full = card.querySelector('.blog-full');
-            if (full.style.display === 'none' || !full.style.display) {
-                full.style.display = 'block';
-                link.innerHTML = 'Show Less <i class="fas fa-arrow-up"></i>';
-            } else {
-                full.style.display = 'none';
-                link.innerHTML = 'Read Full Article <i class="fas fa-arrow-right"></i>';
+        // API Configuration
+        const API_URL = window.location.hostname === 'localhost' 
+            ? 'http://localhost:3001' 
+            : window.location.origin;
+
+        let allArticles = [];
+        let currentCategory = 'all';
+        let currentPage = 1;
+
+        // Category mapping for filtering
+        const categoryKeywords = {
+            'savings': ['savings', 'budget', 'emergency', 'money', 'cash'],
+            'investing': ['invest', 'portfolio', 'stock', 'trading', 'market', 'wealth'],
+            'security': ['security', 'fraud', 'scam', 'protect', 'passkey', 'password', 'hack'],
+            'homebuying': ['mortgage', 'home', 'real estate', 'property', 'house', 'heloc'],
+            'business': ['business', 'sba', 'small business', 'entrepreneur', 'startup', 'cash flow'],
+            'fintech': ['fintech', 'technology', 'digital', 'ai', 'automation', 'instant', 'fednow'],
+            'retirement': ['retirement', '401k', 'ira', 'pension', 'roth']
+        };
+
+        function getCategoryFromTitle(title, description = '') {
+            const text = (title + ' ' + description).toLowerCase();
+            for (const [category, keywords] of Object.entries(categoryKeywords)) {
+                if (keywords.some(kw => text.includes(kw))) {
+                    return category;
+                }
+            }
+            return 'all';
+        }
+
+        function formatDate(dateStr) {
+            const date = new Date(dateStr);
+            const options = { year: 'numeric', month: 'short', day: 'numeric' };
+            return date.toLocaleDateString('en-US', options);
+        }
+
+        function estimateReadTime(text) {
+            const wordsPerMinute = 200;
+            const wordCount = text.split(/\s+/).length;
+            const minutes = Math.ceil(wordCount / wordsPerMinute);
+            return Math.max(1, minutes);
+        }
+
+        function createArticleCard(article, index) {
+            const category = getCategoryFromTitle(article.title, article.description || '');
+            const imageUrl = article.urlToImage || 'https://via.placeholder.com/500x300?text=No+Image';
+            const title = article.title || 'Untitled Article';
+            const excerpt = (article.description || article.content || '').substring(0, 200) + '...';
+            const author = article.author || article.source?.name || 'Heritage Bank News';
+            const date = formatDate(article.publishedAt || new Date());
+            const readTime = estimateReadTime(article.content || excerpt);
+            const url = article.url || '#';
+            const categoryClass = `cat-${category.replace(/\s+/g, '-')}`;
+            
+            const isFeatured = index === 0 ? ' featured-post' : '';
+            
+            return `
+                <div class="blog-card${isFeatured}" data-category="${category}">
+                    <div class="blog-image-cover" style="background-image: url('${imageUrl}'); background-size: cover; background-position: center;">
+                        ${isFeatured ? '<span class="blog-badge">Featured</span>' : ''}
+                    </div>
+                    <div class="blog-content">
+                        <span class="blog-category ${categoryClass}">${category.charAt(0).toUpperCase() + category.slice(1)}</span>
+                        <h3><a href="${url}" target="_blank" rel="noopener noreferrer">${title}</a></h3>
+                        <p class="blog-excerpt">${excerpt}</p>
+                        <div class="blog-author-row">
+                            <div class="blog-author-info">
+                                <div class="blog-author-avatar">${author.substring(0, 2).toUpperCase()}</div>
+                                <div>
+                                    <span class="blog-author-name">${author}</span>
+                                    <span class="blog-author-title">Financial News Source</span>
+                                </div>
+                            </div>
+                            <div class="blog-meta-right">
+                                <span><i class="far fa-calendar"></i> ${date}</span>
+                                <span><i class="far fa-clock"></i> ${readTime} min read</span>
+                            </div>
+                        </div>
+                        <div class="blog-meta">
+                            <a href="${url}" target="_blank" rel="noopener noreferrer" class="read-more">Read Full Article <i class="fas fa-arrow-right"></i></a>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderArticles(articles, category = 'all') {
+            const grid = document.getElementById('blogGrid');
+            let filtered = articles;
+
+            if (category !== 'all') {
+                filtered = articles.filter(art => getCategoryFromTitle(art.title, art.description) === category);
+            }
+
+            if (filtered.length === 0) {
+                grid.innerHTML = '<div style="text-align:center; padding:60px 20px; grid-column: 1/-1;"><p style="color:#666; font-size:1.1rem;">No articles found for this category.</p></div>';
+                return;
+            }
+
+            grid.innerHTML = filtered.map((art, idx) => createArticleCard(art, idx)).join('');
+            
+            // Animate cards on scroll
+            const cards = grid.querySelectorAll('.blog-card');
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.style.opacity = '1';
+                        entry.target.style.transform = 'translateY(0)';
+                    }
+                });
+            }, { threshold: 0.1 });
+
+            cards.forEach(card => {
+                card.style.opacity = '0';
+                card.style.transform = 'translateY(20px)';
+                card.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+                observer.observe(card);
+            });
+        }
+
+        async function loadBlogFeed() {
+            try {
+                const loading = document.getElementById('blogLoading');
+                loading.style.display = 'block';
+
+                const response = await fetch(`${API_URL}/api/blog/feed?page=1&pageSize=12`);
+                const data = await response.json();
+
+                loading.style.display = 'none';
+
+                if (data.success && data.articles) {
+                    allArticles = data.articles;
+                    renderArticles(allArticles, currentCategory);
+                    
+                    // Show load more button if there are more articles
+                    if (data.totalResults > 12) {
+                        document.getElementById('loadMoreBtn').style.display = 'inline-block';
+                    }
+                } else {
+                    console.warn('API returned fallback/demo data');
+                    allArticles = data.articles || [];
+                    renderArticles(allArticles, currentCategory);
+                }
+            } catch (e) {
+                console.error('Failed to load blog feed:', e);
+                document.getElementById('blogLoading').style.display = 'none';
+                document.getElementById('blogGrid').innerHTML = '<div style="text-align:center; padding:60px 20px; grid-column: 1/-1;"><p style="color:#f00;">Failed to load articles. Please try again later.</p></div>';
             }
         }
 
         function filterPosts(category, btn) {
-            const cards = document.querySelectorAll('.blog-card');
             const buttons = document.querySelectorAll('.blog-filter-btn');
             buttons.forEach(b => b.classList.remove('active'));
             if (btn && btn.classList) btn.classList.add('active');
 
-            cards.forEach(card => {
-                if (category === 'all' || card.dataset.category === category) {
-                    card.style.display = '';
-                    card.style.animation = 'fadeInUp 0.4s ease';
-                } else {
-                    card.style.display = 'none';
-                }
-            });
+            currentCategory = category;
+            renderArticles(allArticles, category);
         }
 
-        // Animate cards on scroll
-        const observer = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    entry.target.style.opacity = '1';
-                    entry.target.style.transform = 'translateY(0)';
-                }
-            });
-        }, { threshold: 0.1 });
-        document.querySelectorAll('.blog-card').forEach(card => {
-            card.style.opacity = '0';
-            card.style.transform = 'translateY(20px)';
-            card.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
-            observer.observe(card);
-        });
+        function loadMoreArticles() {
+            currentPage++;
+            const btn = document.getElementById('loadMoreBtn');
+            btn.textContent = 'Loading...';
+            btn.disabled = true;
+            
+            fetch(`${API_URL}/api/blog/feed?page=${currentPage}&pageSize=12`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.articles) {
+                        allArticles = [...allArticles, ...data.articles];
+                        renderArticles(allArticles, currentCategory);
+                    }
+                    if (allArticles.length >= data.totalResults) {
+                        btn.style.display = 'none';
+                    } else {
+                        btn.textContent = 'Load More Articles';
+                        btn.disabled = false;
+                    }
+                })
+                .catch(e => {
+                    console.error('Failed to load more:', e);
+                    btn.textContent = 'Load More Articles';
+                    btn.disabled = false;
+                });
+        }
 
+        // Load blog feed on page load
+        document.addEventListener('DOMContentLoaded', loadBlogFeed);
+
+        // Back to top button
         const backBtn = document.getElementById('backToTop');
         window.addEventListener('scroll', () => { backBtn.classList.toggle('visible', window.scrollY > 400); });
         backBtn.addEventListener('click', () => { window.scrollTo({ top: 0, behavior: 'smooth' }); });

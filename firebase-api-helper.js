@@ -13,7 +13,7 @@
 const API_BASE_URL = 'https://heritagebank-ku1y.onrender.com/api';
 
 // For local development, use:
-// const API_BASE_URL = 'http://localhost:3000/api';
+// const API_BASE_URL = 'http://localhost:3001/api';
 
 // ==================== TOKEN MANAGEMENT ====================
 function getAuthToken() {

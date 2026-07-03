@@ -4,14 +4,26 @@
  * security, 2FA, login history, sessions, data export, and account controls
  */
 
-const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
-    ? 'http://localhost:3001' 
-    : window.location.origin;
+const API_URL = (() => {
+    const { hostname, protocol } = window.location;
+    if (protocol === 'file:' || hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0') {
+        return 'http://localhost:3001';
+    }
+    return `${window.location.protocol}//${window.location.host}`;
+})();
 
 // HTML escape helper to prevent XSS
 function escapeHtml(str) {
     if (str == null) return '';
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function getProfileImageSrc(profileImage) {
+    if (!profileImage) return null;
+    if (/^data:/i.test(profileImage) || /^https?:\/\//i.test(profileImage)) return profileImage;
+    if (profileImage.startsWith('/')) return `${API_URL}${profileImage}`;
+    if (profileImage.startsWith('assets/')) return `${API_URL}/${profileImage}`;
+    return `${API_URL}/backend/${profileImage}`;
 }
 
 let userId = null;
@@ -355,15 +367,15 @@ function loadProfilePicture(user) {
     window._userGender = user.gender || null;
 
     if (user.profileImage) {
-        img.src = `${API_URL}/backend/${user.profileImage}`;
+        const src = getProfileImageSrc(user.profileImage);
+        img.src = src;
         img.style.display = 'block';
         if (icon) icon.style.display = 'none';
         if (removeBtn) removeBtn.style.display = '';
     } else {
-        // Use gender-based default avatar
-        img.src = getDefaultAvatar(user.gender);
-        img.style.display = 'block';
-        if (icon) icon.style.display = 'none';
+        // Show icon until image is uploaded
+        img.style.display = 'none';
+        if (icon) icon.style.display = 'block';
         if (removeBtn) removeBtn.style.display = 'none';
     }
 
@@ -379,17 +391,14 @@ function updateSidebarAvatar(profileImage, gender) {
 
     if (profileImage) {
         if (avatarImg) {
-            avatarImg.src = `${API_URL}/backend/${profileImage}`;
+            avatarImg.src = getProfileImageSrc(profileImage);
             avatarImg.style.display = 'block';
         }
         if (avatarIcon) avatarIcon.style.display = 'none';
     } else {
-        // Use gender-based default avatar
-        if (avatarImg) {
-            avatarImg.src = getDefaultAvatar(gender);
-            avatarImg.style.display = 'block';
-        }
-        if (avatarIcon) avatarIcon.style.display = 'none';
+        // Show icon until image is uploaded
+        if (avatarImg) avatarImg.style.display = 'none';
+        if (avatarIcon) avatarIcon.style.display = 'block';
     }
 }
 
@@ -447,7 +456,7 @@ async function uploadProfilePicture(fileData, fileName) {
             const img = document.getElementById('profilePictureImg');
             const icon = document.getElementById('profilePictureIcon');
             const removeBtn = document.getElementById('removeProfilePicBtn');
-            img.src = `${API_URL}/backend/${data.profileImage}`;
+            img.src = getProfileImageSrc(data.profileImage);
             img.style.display = 'block';
             if (icon) icon.style.display = 'none';
             if (removeBtn) removeBtn.style.display = '';
@@ -474,9 +483,8 @@ async function removeProfilePicture() {
             const img = document.getElementById('profilePictureImg');
             const icon = document.getElementById('profilePictureIcon');
             const removeBtn = document.getElementById('removeProfilePicBtn');
-            img.src = getDefaultAvatar(window._userGender);
-            img.style.display = 'block';
-            if (icon) icon.style.display = 'none';
+            img.style.display = 'none';
+            if (icon) icon.style.display = 'block';
             if (removeBtn) removeBtn.style.display = 'none';
             updateSidebarAvatar(null, window._userGender);
         } else {

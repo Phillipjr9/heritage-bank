@@ -156,23 +156,34 @@
             }).then(function(r) { return r.json(); }).then(function(data) {
                 if (data.success && data.user) {
                     var nameEl = document.getElementById('sidebarUserName');
-                    if (nameEl) nameEl.textContent = (data.user.firstName || '') + ' ' + (data.user.lastName || '');
+                    if (nameEl) {
+                        var fullName = [data.user.firstName, data.user.lastName].filter(Boolean).join(' ') || 'User';
+                        nameEl.textContent = fullName;
+                        if (data.user.isVerified) {
+                            nameEl.insertAdjacentHTML('beforeend', ' <img src="https://img.icons8.com/3d-fluency/96/verified-account.png" alt="Verified" width="18" height="18" class="verified-badge">');
+                        }
+                    }
                     var avatarImg = document.getElementById('sidebarUserAvatarImg');
                     var avatarIcon = document.getElementById('sidebarUserAvatarIcon');
                     if (data.user.profileImage) {
                         if (avatarImg) {
-                            avatarImg.src = sidebarApiUrl + '/backend/' + data.user.profileImage;
+                            var profileSrc = data.user.profileImage;
+                            if (/^data:/i.test(profileSrc) || /^https?:\/\//i.test(profileSrc)) {
+                                avatarImg.src = profileSrc;
+                            } else if (profileSrc.startsWith('/')) {
+                                avatarImg.src = sidebarApiUrl + profileSrc;
+                            } else if (profileSrc.startsWith('assets/')) {
+                                avatarImg.src = sidebarApiUrl + '/' + profileSrc;
+                            } else {
+                                avatarImg.src = sidebarApiUrl + '/backend/' + profileSrc;
+                            }
                             avatarImg.style.display = 'block';
                         }
                         if (avatarIcon) avatarIcon.style.display = 'none';
                     } else {
-                        // Use gender-based default avatar
-                        var defaultAvatar = (data.user.gender === 'female') ? 'assets/avatar-female.jpg' : 'assets/avatar-male.jpg';
-                        if (avatarImg) {
-                            avatarImg.src = defaultAvatar;
-                            avatarImg.style.display = 'block';
-                        }
-                        if (avatarIcon) avatarIcon.style.display = 'none';
+                        // Show icon until image is uploaded
+                        if (avatarImg) avatarImg.style.display = 'none';
+                        if (avatarIcon) avatarIcon.style.display = 'block';
                     }
                 }
             }).catch(function() {});

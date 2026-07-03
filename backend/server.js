@@ -8,6 +8,7 @@
 // ============ STARTUP DIAGNOSTICS ============
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 console.log('[STARTUP] Starting server initialization...');
 console.log(`[STARTUP] Current working directory: ${process.cwd()}`);
@@ -46,7 +47,7 @@ console.log('[STARTUP] ✓ PDF receipt generator loaded');
 
 console.log('[STARTUP] All dependencies loaded successfully!');
 
-require('dotenv').config({ path: path.join(__dirname, '.env') });
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -65,6 +66,14 @@ if (!process.env.JWT_SECRET) {
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@heritage.com';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Admin123!@';
+
+if (process.env.NODE_ENV === 'production') {
+  if (!process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD) {
+    console.error('[SECURITY] ✗✗✗ CRITICAL: ADMIN_EMAIL and ADMIN_PASSWORD environment variables must be set in production!');
+    console.error('[SECURITY] ✗✗✗ Using default admin credentials in production is insecure. Server refusing to start.');
+    process.exit(1);
+  }
+}
 
 console.log(`[STARTUP] Port configured: ${PORT}`);
 console.log('[STARTUP] JWT_SECRET: ' + (process.env.JWT_SECRET ? 'set' : 'using default'));
@@ -103,8 +112,10 @@ app.use(cors({
   origin: function(origin, callback) {
     // Define allowed origins - both local dev and production
     const allowedOrigins = [
+      'http://localhost:3000',
       'http://localhost:3001',
       'http://localhost:5173',
+      'http://127.0.0.1:3000',
       'http://127.0.0.1:3001',
       'https://heritage.up.railway.app',
       'https://heritagebank-production.up.railway.app',
@@ -236,6 +247,37 @@ app.get('/api/test-register', (req, res) => {
   res.json({ message: 'Test endpoint works - code deployed at version fb1609f' });
 });
 
+// ============ INPUT VALIDATION UTILITIES ============
+
+// Validate email format
+function isValidEmail(email) {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email) && email.length <= 255;
+}
+
+// Validate password strength (min 8 chars, at least 1 uppercase, 1 lowercase, 1 number)
+function isStrongPassword(password) {
+  if (password.length < 8) return false;
+  if (!/[A-Z]/.test(password)) return false;
+  if (!/[a-z]/.test(password)) return false;
+  if (!/[0-9]/.test(password)) return false;
+  return true;
+}
+
+// Sanitize string input
+function sanitizeString(str) {
+  if (typeof str !== 'string') return '';
+  return str.trim().substring(0, 1000); // Limit length to 1000 chars
+}
+
+// Validate amount (must be positive number up to 19 digits with 2 decimals)
+function isValidAmount(amount) {
+  const num = parseFloat(amount);
+  return !isNaN(num) && num > 0 && num <= 9999999999999999.99;
+}
+
+// ============ AUTHENTICATION ENDPOINTS ============
+
 // Register endpoint
 app.post('/api/auth/register', async (req, res) => {
   const REGISTRATION_MARKER = `[REGISTER_ENDPOINT_v${Date.now()}]`;
@@ -245,7 +287,7 @@ app.post('/api/auth/register', async (req, res) => {
     const { email, password, firstName, lastName, phone, gender } = req.body;
     console.log('[API] Step 1: Received request for', email);
 
-    // Validation
+    // Comprehensive validation
     if (!email || !password || !firstName || !lastName) {
       console.log('[API] Step 1: Missing required fields');
       return res.status(400).json({
@@ -253,6 +295,23 @@ app.post('/api/auth/register', async (req, res) => {
         message: 'Missing required fields: email, password, firstName, lastName'
       });
     }
+
+    // Email validation
+    if (!isValidEmail(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid email format'
+      });
+    }
+
+    // Password strength validation
+    if (!isStrongPassword(password)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 8 characters with uppercase, lowercase, and numbers'
+      });
+    }
+
     console.log('[API] Step 2: Validation passed');
 
     // Check if user exists
@@ -275,7 +334,9 @@ app.post('/api/auth/register', async (req, res) => {
 
     // Store user in database
     console.log('[API] Step 8: Creating user in database...');
-    const user = await db.createUser(null, email, firstName, lastName, hashedPassword, false, phone, gender);
+    const sanitizedFirstName = sanitizeString(firstName);
+    const sanitizedLastName = sanitizeString(lastName);
+    const user = await db.createUser(null, email, sanitizedFirstName, sanitizedLastName, hashedPassword, false, phone, gender);
     console.log('[API] Step 9: User created, id:', user?.id);
 
     // Generate JWT
@@ -392,6 +453,99 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// ============ PASSWORD RESET ENDPOINTS ============
+
+app.post('/api/auth/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email is required' });
+    }
+
+    const user = await db.getUserByEmail(email);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Generate reset token (in production, send via email)
+    const resetToken = Buffer.from(crypto.randomBytes(32)).toString('hex');
+    const resetExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+    // Store token in database
+    const pool = await db.initializePool();
+    const connection = await pool.getConnection();
+    try {
+      await connection.execute(
+        'UPDATE users SET resetToken = ?, resetTokenExpiry = ? WHERE id = ?',
+        [resetToken, resetExpiry, user.id]
+      );
+      
+      // In production, send email with reset link
+      console.log(`[AUTH] Password reset requested for ${email}. Token: ${resetToken}`);
+      
+      res.json({
+        success: true,
+        message: 'Password reset instructions have been sent to your email',
+        resetToken // Only for development - remove in production
+      });
+    } finally {
+      await connection.release();
+    }
+  } catch (error) {
+    console.error('[API] Forgot password error:', error);
+    res.status(500).json({ success: false, message: 'Failed to process forgot password request' });
+  }
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+  try {
+    const { resetToken, newPassword, confirmPassword } = req.body;
+    if (!resetToken || !newPassword || !confirmPassword) {
+      return res.status(400).json({ success: false, message: 'Missing required fields' });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ success: false, message: 'Passwords do not match' });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 8 characters' });
+    }
+
+    const pool = await db.initializePool();
+    const connection = await pool.getConnection();
+    try {
+      // Find user with valid reset token
+      const [[user]] = await connection.execute(
+        'SELECT * FROM users WHERE resetToken = ? AND resetTokenExpiry > NOW()',
+        [resetToken]
+      );
+
+      if (!user) {
+        return res.status(400).json({ success: false, message: 'Invalid or expired reset token' });
+      }
+
+      // Hash new password
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+      // Update password and clear reset token
+      await connection.execute(
+        'UPDATE users SET password = ?, passwordHash = ?, resetToken = NULL, resetTokenExpiry = NULL WHERE id = ?',
+        [hashedPassword, hashedPassword, user.id]
+      );
+
+      console.log(`[AUTH] Password reset successful for ${user.email}`);
+
+      res.json({ success: true, message: 'Password has been reset successfully' });
+    } finally {
+      await connection.release();
+    }
+  } catch (error) {
+    console.error('[API] Reset password error:', error);
+    res.status(500).json({ success: false, message: 'Failed to reset password' });
+  }
+});
+
 // Get user profile (requires auth)
 app.get('/api/user/profile', authenticateToken, async (req, res) => {
   try {
@@ -412,7 +566,10 @@ app.get('/api/user/profile', authenticateToken, async (req, res) => {
         createdAt: user.createdAt,
         accountNumber: user.accountNumber || null,
         routingNumber: user.routingNumber || null,
-        swiftCode: user.swiftCode || null
+        swiftCode: user.swiftCode || null,
+        gender: user.gender || null,
+        profileImage: user.profileImage || null,
+        isVerified: !!user.isVerified
       }
     });
   } catch (error) {
@@ -451,7 +608,8 @@ app.get('/api/auth/profile', authenticateToken, async (req, res) => {
         // return a masked value depending on security policy.
         accountNumber: user.accountNumber || null,
         routingNumber: user.routingNumber || null,
-        swiftCode: user.swiftCode || null
+        swiftCode: user.swiftCode || null,
+        isVerified: !!user.isVerified
       }
     });
   } catch (error) {
@@ -489,7 +647,10 @@ app.get('/api/user/profile/complete', authenticateToken, async (req, res) => {
         address: user.address || '',
         city: user.city || '',
         state: user.state || '',
-        zipCode: user.zipCode || ''
+        zipCode: user.zipCode || '',
+        gender: user.gender || null,
+        profileImage: user.profileImage || null,
+        isVerified: !!user.isVerified
       }
     });
   } catch (error) {
@@ -599,7 +760,12 @@ app.get('/api/transactions/all', authenticateToken, requireAdmin, async (req, re
     const connection = await pool.getConnection();
     try {
       const [transactions] = await connection.execute(
-        'SELECT * FROM transactions ORDER BY createdAt DESC LIMIT 200'
+        `SELECT t.*, fu.email AS senderEmail, fu.firstName AS senderFirst, fu.lastName AS senderLast, fu.accountNumber AS senderAccountNumber,
+                tu.email AS recipientEmail, tu.firstName AS recipientFirst, tu.lastName AS recipientLast, tu.accountNumber AS recipientAccountNumber
+           FROM transactions t
+           LEFT JOIN users fu ON t.fromUserId = fu.id
+           LEFT JOIN users tu ON t.toUserId = tu.id
+           ORDER BY t.createdAt DESC LIMIT 200`
       );
       res.json({ success: true, transactions });
     } finally {
@@ -885,15 +1051,37 @@ app.post('/api/savings-goals', authenticateToken, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Name and target amount are required' });
     }
     
+    const initialAmount = parseFloat(currentAmount) || 0;
+    if (initialAmount > 0 && parseFloat(user.balance) < initialAmount) {
+      return res.status(400).json({ success: false, message: 'Insufficient balance for initial savings amount' });
+    }
+    
     const pool = await db.initializePool();
     const connection = await pool.getConnection();
     try {
       await ensureSavingsGoalsTable(connection);
+      await connection.beginTransaction();
+      
+      // Insert savings goal
       const [result] = await connection.execute(
         'INSERT INTO savings_goals (userId, name, targetAmount, currentAmount, targetDate, category) VALUES (?, ?, ?, ?, ?, ?)',
-        [user.id, name, targetAmount, currentAmount || 0, targetDate || null, category || 'other']
+        [user.id, name, targetAmount, initialAmount, targetDate || null, category || 'other']
       );
+      
+      // If initial amount > 0, deduct from balance and record transaction
+      if (initialAmount > 0) {
+        await connection.execute('UPDATE users SET balance = balance - ? WHERE id = ?', [initialAmount, user.id]);
+        await connection.execute(
+          'INSERT INTO transactions (fromUserId, toUserId, amount, type, description, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, NOW())',
+          [user.id, null, initialAmount, 'savings_goal', `Savings goal: ${name}`, 'completed']
+        );
+      }
+      
+      await connection.commit();
       res.json({ success: true, message: 'Goal created successfully', goalId: result.insertId });
+    } catch (err) {
+      await connection.rollback();
+      throw err;
     } finally { await connection.release(); }
   } catch (e) {
     console.error('[API] create savings-goal error', e);
@@ -913,7 +1101,7 @@ app.put('/api/savings-goals/:id', authenticateToken, async (req, res) => {
     try {
       await ensureSavingsGoalsTable(connection);
       
-      // Verify ownership
+      // Verify ownership and get existing data
       const [[existing]] = await connection.execute(
         'SELECT * FROM savings_goals WHERE id = ? AND userId = ?',
         [req.params.id, user.id]
@@ -923,12 +1111,47 @@ app.put('/api/savings-goals/:id', authenticateToken, async (req, res) => {
         return res.status(404).json({ success: false, message: 'Goal not found' });
       }
       
+      const newAmount = parseFloat(currentAmount) || 0;
+      const oldAmount = parseFloat(existing.currentAmount) || 0;
+      const amountDifference = newAmount - oldAmount;
+      
+      // Check if user has enough balance for increase
+      if (amountDifference > 0 && parseFloat(user.balance) < amountDifference) {
+        return res.status(400).json({ success: false, message: 'Insufficient balance for this savings amount' });
+      }
+      
+      await connection.beginTransaction();
+      
+      // Update goal
       await connection.execute(
         'UPDATE savings_goals SET name = ?, targetAmount = ?, currentAmount = ?, targetDate = ?, category = ? WHERE id = ? AND userId = ?',
-        [name, targetAmount, currentAmount, targetDate || null, category || 'other', req.params.id, user.id]
+        [name, targetAmount, newAmount, targetDate || null, category || 'other', req.params.id, user.id]
       );
       
+      // Handle balance change if currentAmount changed
+      if (amountDifference !== 0) {
+        if (amountDifference > 0) {
+          // Adding to goal - deduct from balance
+          await connection.execute('UPDATE users SET balance = balance - ? WHERE id = ?', [amountDifference, user.id]);
+          await connection.execute(
+            'INSERT INTO transactions (fromUserId, toUserId, amount, type, description, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, NOW())',
+            [user.id, null, amountDifference, 'savings_goal', `Added to savings goal: ${name}`, 'completed']
+          );
+        } else {
+          // Removing from goal - add back to balance
+          await connection.execute('UPDATE users SET balance = balance + ? WHERE id = ?', [Math.abs(amountDifference), user.id]);
+          await connection.execute(
+            'INSERT INTO transactions (fromUserId, toUserId, amount, type, description, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, NOW())',
+            [null, user.id, Math.abs(amountDifference), 'savings_withdrawal', `Withdrawn from savings goal: ${name}`, 'completed']
+          );
+        }
+      }
+      
+      await connection.commit();
       res.json({ success: true, message: 'Goal updated successfully' });
+    } catch (err) {
+      await connection.rollback();
+      throw err;
     } finally { await connection.release(); }
   } catch (e) {
     console.error('[API] update savings-goal error', e);
@@ -968,20 +1191,25 @@ app.get('/api/transactions/:id/receipt', authenticateToken, async (req, res) => 
     const transactionId = req.params.id;
     const currentUser = await db.getUserByEmail(req.user.email);
     
-    // In production, generate PDF here
-    res.json({
-      success: true,
-      receipt: {
-        id: transactionId,
-        transactionNumber: `TXN-${transactionId}`,
-        date: new Date().toISOString(),
-        amount: 500.00,
-        type: 'Transfer',
-        status: 'Completed',
-        from: currentUser.email,
-        to: 'recipient@bank.com'
+    // Retrieve transaction from DB
+    const pool = await db.initializePool();
+    const conn = await pool.getConnection();
+    try {
+      const [[transaction]] = await conn.execute('SELECT * FROM transactions WHERE id = ?', [transactionId]);
+      if (!transaction) return res.status(404).json({ success: false, message: 'Transaction not found' });
+
+      // Generate PDF buffer using ReceiptGenerator
+      try {
+        const pdfBuf = await ReceiptGenerator.generate(transaction, currentUser);
+        res.setHeader('Content-Type', 'application/pdf');
+        const filename = `Heritage_Bank_Receipt_${transaction.reference || transactionId}.pdf`;
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        return res.send(pdfBuf);
+      } catch (pdfErr) {
+        console.error('[API] receipt generation error', pdfErr);
+        return res.status(500).json({ success: false, message: 'Failed to generate receipt PDF' });
       }
-    });
+    } finally { await conn.release(); }
   } catch (e) {
     console.error('[API] transaction receipt error', e);
     res.status(500).json({ success: false, message: 'Failed to generate receipt' });
@@ -1239,6 +1467,184 @@ app.post('/api/newsletter', async (req, res) => {
   }
 });
 
+// ============ MESSAGES ENDPOINTS ============
+
+async function ensureMessagesTable(connection) {
+  await connection.execute(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id INT PRIMARY KEY AUTO_INCREMENT,
+      fromUserId INT NOT NULL,
+      toUserId INT,
+      type VARCHAR(50) DEFAULT 'message',
+      title VARCHAR(255),
+      content TEXT,
+      isRead BOOLEAN DEFAULT FALSE,
+      createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (fromUserId) REFERENCES users(id),
+      FOREIGN KEY (toUserId) REFERENCES users(id),
+      INDEX idx_toUserId (toUserId),
+      INDEX idx_createdAt (createdAt)
+    )
+  `);
+}
+
+app.get('/api/messages', authenticateToken, async (req, res) => {
+  try {
+    const user = await db.getUserByEmail(req.user.email);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    const pool = await db.initializePool();
+    const connection = await pool.getConnection();
+    try {
+      await ensureMessagesTable(connection);
+      const type = req.query.type || 'all';
+      let query = 'SELECT * FROM messages WHERE toUserId = ? OR fromUserId = ?';
+      const params = [user.id, user.id];
+
+      if (type !== 'all') {
+        query += ' AND type = ?';
+        params.push(type);
+      }
+
+      query += ' ORDER BY createdAt DESC LIMIT 100';
+      const [messages] = await connection.execute(query, params);
+      
+      res.json({ success: true, messages });
+    } finally { await connection.release(); }
+  } catch (e) {
+    console.error('[API] messages list error', e);
+    res.status(500).json({ success: false, message: 'Failed to fetch messages' });
+  }
+});
+
+app.post('/api/messages', authenticateToken, async (req, res) => {
+  try {
+    const user = await db.getUserByEmail(req.user.email);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    const { toUserId, title, content, type } = req.body;
+    if (!content) {
+      return res.status(400).json({ success: false, message: 'Content is required' });
+    }
+
+    const pool = await db.initializePool();
+    const connection = await pool.getConnection();
+    try {
+      await ensureMessagesTable(connection);
+      const [result] = await connection.execute(
+        'INSERT INTO messages (fromUserId, toUserId, type, title, content) VALUES (?, ?, ?, ?, ?)',
+        [user.id, toUserId || null, type || 'message', title || '', content]
+      );
+      
+      res.json({ success: true, message: 'Message sent', messageId: result.insertId });
+    } finally { await connection.release(); }
+  } catch (e) {
+    console.error('[API] send message error', e);
+    res.status(500).json({ success: false, message: 'Failed to send message' });
+  }
+});
+
+app.get('/api/messages/:id', authenticateToken, async (req, res) => {
+  try {
+    const user = await db.getUserByEmail(req.user.email);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    const pool = await db.initializePool();
+    const connection = await pool.getConnection();
+    try {
+      await ensureMessagesTable(connection);
+      const [[message]] = await connection.execute(
+        'SELECT * FROM messages WHERE id = ? AND (toUserId = ? OR fromUserId = ?)',
+        [req.params.id, user.id, user.id]
+      );
+
+      if (!message) {
+        return res.status(404).json({ success: false, message: 'Message not found' });
+      }
+
+      res.json({ success: true, message });
+    } finally { await connection.release(); }
+  } catch (e) {
+    console.error('[API] get message error', e);
+    res.status(500).json({ success: false, message: 'Failed to fetch message' });
+  }
+});
+
+app.put('/api/messages/:id/read', authenticateToken, async (req, res) => {
+  try {
+    const user = await db.getUserByEmail(req.user.email);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    const pool = await db.initializePool();
+    const connection = await pool.getConnection();
+    try {
+      await ensureMessagesTable(connection);
+      await connection.execute(
+        'UPDATE messages SET isRead = TRUE WHERE id = ? AND toUserId = ?',
+        [req.params.id, user.id]
+      );
+
+      res.json({ success: true, message: 'Message marked as read' });
+    } finally { await connection.release(); }
+  } catch (e) {
+    console.error('[API] mark message read error', e);
+    res.status(500).json({ success: false, message: 'Failed to mark message as read' });
+  }
+});
+
+app.delete('/api/messages/:id', authenticateToken, async (req, res) => {
+  try {
+    const user = await db.getUserByEmail(req.user.email);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    const pool = await db.initializePool();
+    const connection = await pool.getConnection();
+    try {
+      await ensureMessagesTable(connection);
+      const [result] = await connection.execute(
+        'DELETE FROM messages WHERE id = ? AND (toUserId = ? OR fromUserId = ?)',
+        [req.params.id, user.id, user.id]
+      );
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ success: false, message: 'Message not found' });
+      }
+
+      res.json({ success: true, message: 'Message deleted' });
+    } finally { await connection.release(); }
+  } catch (e) {
+    console.error('[API] delete message error', e);
+    res.status(500).json({ success: false, message: 'Failed to delete message' });
+  }
+});
+
+app.post('/api/messages/send', authenticateToken, async (req, res) => {
+  try {
+    const user = await db.getUserByEmail(req.user.email);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    const { toUserId, title, content, type } = req.body;
+    if (!content) {
+      return res.status(400).json({ success: false, message: 'Content is required' });
+    }
+
+    const pool = await db.initializePool();
+    const connection = await pool.getConnection();
+    try {
+      await ensureMessagesTable(connection);
+      const [result] = await connection.execute(
+        'INSERT INTO messages (fromUserId, toUserId, type, title, content) VALUES (?, ?, ?, ?, ?)',
+        [user.id, toUserId || null, type || 'message', title || '', content]
+      );
+      
+      res.json({ success: true, message: 'Message sent successfully', messageId: result.insertId });
+    } finally { await connection.release(); }
+  } catch (e) {
+    console.error('[API] send message error', e);
+    res.status(500).json({ success: false, message: 'Failed to send message' });
+  }
+});
+
 // ============ ADDITIONAL ADMIN ENDPOINTS (from admin.html) ============
 app.get('/api/admin/cards', authenticateToken, requireAdmin, async (req, res) => {
   try {
@@ -1328,7 +1734,7 @@ app.post('/api/admin/create-user', authenticateToken, requireAdmin, async (req, 
   }
 });
 
-app.get('/api/admin/pending-transactions', authenticateToken, async (req, res) => {
+app.get('/api/admin/pending-transactions', authenticateToken, requireAdmin, async (req, res) => {
   try {
     res.json({ success: true, transactions: [] });
   } catch (e) {
@@ -1337,7 +1743,7 @@ app.get('/api/admin/pending-transactions', authenticateToken, async (req, res) =
   }
 });
 
-app.get('/api/admin/pending-transfers', authenticateToken, async (req, res) => {
+app.get('/api/admin/pending-transfers', authenticateToken, requireAdmin, async (req, res) => {
   try {
     res.json({ success: true, transfers: [] });
   } catch (e) {
@@ -1403,8 +1809,14 @@ app.post('/api/auth/webauthn/register-verify', authenticateToken, async (req, re
     }
 
     // In production, verify the attestation response properly
-    // For now, we'll store the credential ID
-    const { credential } = req.body;
+    // For now, we'll store the credential ID and the attestation object
+    const { attestationResponse } = req.body;
+    if (!attestationResponse) {
+      return res.status(400).json({ success: false, message: 'Missing attestation response' });
+    }
+
+    const credentialId = attestationResponse.id || '';
+    const publicKey = attestationResponse.response?.attestationObject || '';
 
     const pool = await db.initializePool();
     const connection = await pool.getConnection();
@@ -1432,7 +1844,7 @@ app.post('/api/auth/webauthn/register-verify', authenticateToken, async (req, re
 
       await connection.execute(
         'INSERT INTO webauthn_credentials (userId, credentialId, publicKey) VALUES (?, ?, ?)',
-        [user.id, credential.id || '', credential.publicKey || '']
+        [user.id, credentialId, publicKey]
       );
 
       res.json({ success: true, message: 'Biometric login registered successfully' });
@@ -1788,16 +2200,14 @@ app.post('/api/user/transfer', authenticateToken, async (req, res) => {
 });
 
 // Admin transfer (admin to user or between users)
-app.post('/api/admin/transfer', authenticateToken, async (req, res) => {
+app.post('/api/admin/transfer', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const currentUser = await db.getUserByEmail(req.user.email);
-    if (!currentUser || !currentUser.isAdmin) {
-      return res.status(403).json({ success: false, message: 'Admin access required' });
-    }
 
-    const { fromEmail, toEmail, toAccountNumber, amount, description, reason, transferType } = req.body;
+    const { fromEmail, toEmail, toAccountNumber, amount, description, reason, transferType, fromLabel, toLabel } = req.body;
+    const actualAmount = parseFloat(amount);
 
-    if ((!toEmail && !toAccountNumber) || !amount || amount <= 0) {
+    if ((!toEmail && !toAccountNumber) || !Number.isFinite(actualAmount) || actualAmount <= 0) {
       return res.status(400).json({ success: false, message: 'Invalid transfer details' });
     }
 
@@ -1821,21 +2231,23 @@ app.post('/api/admin/transfer', authenticateToken, async (req, res) => {
       if (fromEmail) {
         const sender = await db.getUserByEmail(fromEmail);
         if (!sender) return res.status(404).json({ success: false, message: 'Sender not found' });
-        if (parseFloat(sender.balance) < amount) return res.status(400).json({ success: false, message: 'Sender has insufficient balance' });
-        await connection.execute('UPDATE users SET balance = balance - ? WHERE id = ?', [amount, sender.id]);
+        if (parseFloat(sender.balance) < actualAmount) return res.status(400).json({ success: false, message: 'Sender has insufficient balance' });
+        await connection.execute('UPDATE users SET balance = balance - ? WHERE id = ?', [actualAmount, sender.id]);
         await connection.execute(
           'INSERT INTO transactions (fromUserId, toUserId, amount, type, description, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, NOW())',
-          [sender.id, recipient.id, amount, transferType || 'admin_transfer', description || reason || 'Admin transfer', 'completed']
+          [sender.id, recipient.id, actualAmount, transferType || 'admin_transfer', buildAdminDescription(description || reason || 'Admin transfer', fromLabel, toLabel), 'completed']
         );
       } else {
+        if (parseFloat(currentUser.balance) < actualAmount) return res.status(400).json({ success: false, message: 'Admin has insufficient balance' });
+        await connection.execute('UPDATE users SET balance = balance - ? WHERE id = ?', [actualAmount, currentUser.id]);
         await connection.execute(
           'INSERT INTO transactions (fromUserId, toUserId, amount, type, description, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, NOW())',
-          [currentUser.id, recipient.id, amount, transferType || 'direct_deposit', description || reason || 'Admin transfer', 'completed']
+          [currentUser.id, recipient.id, actualAmount, transferType || 'direct_deposit', buildAdminDescription(description || reason || 'Admin transfer', fromLabel, toLabel), 'completed']
         );
       }
-      await connection.execute('UPDATE users SET balance = balance + ? WHERE id = ?', [amount, recipient.id]);
-      console.log(`[ADMIN_TRANSFER] -> ${recipient.email}: $${amount}`);
-      res.json({ success: true, message: 'Transfer completed successfully', to: recipient.email, amount, timestamp: new Date().toISOString() });
+      await connection.execute('UPDATE users SET balance = balance + ? WHERE id = ?', [actualAmount, recipient.id]);
+      console.log(`[ADMIN_TRANSFER] -> ${recipient.email}: $${actualAmount}`);
+      res.json({ success: true, message: 'Transfer completed successfully', to: recipient.email, amount: actualAmount, timestamp: new Date().toISOString() });
     } finally {
       await connection.release();
     }
@@ -1846,12 +2258,17 @@ app.post('/api/admin/transfer', authenticateToken, async (req, res) => {
 });
 
 // Admin credit account
-app.post('/api/admin/credit-account', authenticateToken, async (req, res) => {
+function buildAdminDescription(baseDescription, fromLabel, toLabel) {
+  let desc = String(baseDescription || '').trim();
+  if (!desc) desc = 'Admin transaction';
+  if (String(fromLabel || '').trim()) desc += ` | From: ${String(fromLabel).trim()}`;
+  if (String(toLabel || '').trim()) desc += ` | To: ${String(toLabel || '').trim()}`;
+  return desc;
+}
+
+app.post('/api/admin/credit-account', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const currentUser = await db.getUserByEmail(req.user.email);
-    if (!currentUser.isAdmin) {
-      return res.status(403).json({ success: false, message: 'Admin access required' });
-    }
     
     const { userId, amount, reason } = req.body;
     if (!userId || !amount || amount <= 0) {
@@ -1890,14 +2307,11 @@ app.post('/api/admin/credit-account', authenticateToken, async (req, res) => {
 });
 
 // Admin debit account
-app.post('/api/admin/debit-account', authenticateToken, async (req, res) => {
+app.post('/api/admin/debit-account', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const currentUser = await db.getUserByEmail(req.user.email);
-    if (!currentUser || !currentUser.isAdmin) {
-      return res.status(403).json({ success: false, message: 'Admin access required' });
-    }
 
-    const { userId, recipient, amount, reason, description } = req.body;
+    const { userId, recipient, amount, reason, description, fromLabel, toLabel } = req.body;
     if ((!userId && !recipient) || !amount || amount <= 0) {
       return res.status(400).json({ success: false, message: 'Invalid debit details' });
     }
@@ -1928,7 +2342,7 @@ app.post('/api/admin/debit-account', authenticateToken, async (req, res) => {
       await connection.execute('UPDATE users SET balance = balance - ? WHERE id = ?', [amount, user.id]);
       await connection.execute(
         'INSERT INTO transactions (fromUserId, toUserId, amount, type, description, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, NOW())',
-        [user.id, currentUser.id, amount, 'admin_debit', reason || description || 'Account debit', 'completed']
+        [user.id, currentUser.id, amount, 'admin_debit', buildAdminDescription(reason || description || 'Account debit', fromLabel, toLabel), 'completed']
       );
       console.log(`[ADMIN_DEBIT] User ${user.id}: -$${amount}`);
       res.json({ success: true, message: 'Amount debited successfully', userId: user.id, amount, timestamp: new Date().toISOString() });
@@ -2296,27 +2710,97 @@ app.put('/api/user/profile/complete', authenticateToken, async (req, res) => {
   }
 });
 
-// Profile picture (store as base64 in DB, best-effort)
+function getProfileImageDir() {
+  const uploadDir = path.join(__dirname, '..', 'assets', 'profile-images');
+  try {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  } catch (err) {
+    console.error('[UPLOAD] Failed to create profile image directory:', err);
+  }
+  return uploadDir;
+}
+
+function getProfileImageExtension(mimeType) {
+  const mapping = {
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/png': 'png',
+    'image/gif': 'gif',
+    'image/webp': 'webp'
+  };
+  return mapping[mimeType] || null;
+}
+
+function storeProfileDataUrl(userId, dataUrl, originalFileName) {
+  const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(dataUrl);
+  if (!match) return null;
+
+  const mimeType = match[1];
+  const base64Data = match[2];
+  const extension = getProfileImageExtension(mimeType);
+  if (!extension) return null;
+
+  const safeBaseName = originalFileName ? path.parse(originalFileName).name.replace(/[^a-zA-Z0-9-_]/g, '_') : `profile-${userId}`;
+  const fileName = `${safeBaseName}-${Date.now()}.${extension}`;
+  const uploadDir = getProfileImageDir();
+  const filePath = path.join(uploadDir, fileName);
+
+  try {
+    const buffer = Buffer.from(base64Data, 'base64');
+    fs.writeFileSync(filePath, buffer);
+    return `/assets/profile-images/${fileName}`;
+  } catch (err) {
+    console.error('[UPLOAD] Failed to write profile image file:', err);
+    return null;
+  }
+}
+
+function deleteProfileImageFile(profileImagePath) {
+  if (!profileImagePath || typeof profileImagePath !== 'string') return;
+  const expectedPrefix = '/assets/profile-images/';
+  if (!profileImagePath.startsWith(expectedPrefix)) return;
+  const fileName = profileImagePath.substring(expectedPrefix.length);
+  const filePath = path.join(__dirname, '..', 'assets', 'profile-images', fileName);
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch (err) {
+    console.error('[UPLOAD] Failed to delete old profile image file:', err);
+  }
+}
+
+// Profile picture upload endpoint
 app.post('/api/user/profile/picture', authenticateToken, async (req, res) => {
   try {
     const user = await db.getUserByEmail(req.user.email);
     if (!user) return res.status(404).json({ success: false, message: 'User not found' });
-    const { fileData } = req.body;
+    const { fileData, fileName } = req.body || {};
     if (!fileData) return res.status(400).json({ success: false, message: 'No file data' });
-    
-    // Validate file size (5MB max)
-    const sizeInMB = (fileData.length * 0.75) / (1024 * 1024);
-    if (sizeInMB > 5) {
+
+    const isDataUrl = typeof fileData === 'string' && /^data:image\/[a-zA-Z0-9.+-]+;base64,/.test(fileData);
+    const dataSizeBytes = isDataUrl ? Buffer.byteLength(fileData.split(',')[1] || '', 'base64') : Buffer.byteLength(String(fileData), 'utf8');
+    if (dataSizeBytes > 5 * 1024 * 1024) {
       return res.status(400).json({ success: false, message: 'File size exceeds 5MB limit' });
     }
-    
+
     const pool = await db.initializePool();
     const conn = await pool.getConnection();
     try {
-      // Ensure profileImage column exists
       await conn.execute(`ALTER TABLE users ADD COLUMN IF NOT EXISTS profileImage LONGTEXT`).catch(() => {});
-      await conn.execute('UPDATE users SET profileImage = ? WHERE id = ?', [fileData, user.id]);
-      res.json({ success: true, profileImage: fileData, message: 'Profile picture uploaded successfully' });
+
+      let profileImageValue = fileData;
+      if (isDataUrl) {
+        const storedPath = storeProfileDataUrl(user.id, fileData, fileName);
+        if (storedPath) {
+          // Remove old stored image if we previously saved one
+          deleteProfileImageFile(user.profileImage);
+          profileImageValue = storedPath;
+        }
+      }
+
+      await conn.execute('UPDATE users SET profileImage = ? WHERE id = ?', [profileImageValue, user.id]);
+      res.json({ success: true, profileImage: profileImageValue, message: 'Profile picture uploaded successfully' });
     } finally { await conn.release(); }
   } catch (e) {
     console.error('[API] profile picture upload error:', e);
@@ -2350,10 +2834,12 @@ app.delete('/api/user/profile/picture', authenticateToken, async (req, res) => {
     const pool = await db.initializePool();
     const conn = await pool.getConnection();
     try {
+      deleteProfileImageFile(user.profileImage);
       await conn.execute('UPDATE users SET profileImage = NULL WHERE id = ?', [user.id]).catch(() => {});
       res.json({ success: true, message: 'Profile picture removed' });
     } finally { await conn.release(); }
   } catch (e) {
+    console.error('[API] profile picture delete error:', e);
     res.status(500).json({ success: false, message: 'Remove failed' });
   }
 });
@@ -2795,7 +3281,12 @@ app.get('/api/admin/search-transactions', authenticateToken, requireAdmin, async
     try {
       const like = `%${query}%`;
       const [transactions] = await conn.execute(
-        `SELECT * FROM transactions WHERE description LIKE ? OR type LIKE ? ORDER BY createdAt DESC LIMIT 100`,
+        `SELECT t.*, fu.email AS senderEmail, fu.firstName AS senderFirst, fu.lastName AS senderLast, fu.accountNumber AS senderAccountNumber,
+                tu.email AS recipientEmail, tu.firstName AS recipientFirst, tu.lastName AS recipientLast, tu.accountNumber AS recipientAccountNumber
+           FROM transactions t
+           LEFT JOIN users fu ON t.fromUserId = fu.id
+           LEFT JOIN users tu ON t.toUserId = tu.id
+           WHERE t.description LIKE ? OR t.type LIKE ? ORDER BY t.createdAt DESC LIMIT 100`,
         [like, like]
       );
       res.json({ success: true, transactions });
@@ -2991,6 +3482,19 @@ async function ensureCardsTable(connection) {
     `;
     console.log('[DB] Executing CREATE TABLE IF NOT EXISTS for cards...');
     await connection.execute(createTableSQL);
+    console.log('[DB] Ensuring legacy card table columns are present...');
+    await connection.execute(`ALTER TABLE cards
+      ADD COLUMN IF NOT EXISTS cardNumberMasked VARCHAR(30),
+      ADD COLUMN IF NOT EXISTS cvv VARCHAR(10),
+      ADD COLUMN IF NOT EXISTS deliveryStatus VARCHAR(30) DEFAULT 'not_applicable',
+      ADD COLUMN IF NOT EXISTS deliveryAddress TEXT,
+      ADD COLUMN IF NOT EXISTS deliveryEtaText VARCHAR(100),
+      ADD COLUMN IF NOT EXISTS dailySpendLimit DECIMAL(12,2) DEFAULT 5000,
+      ADD COLUMN IF NOT EXISTS monthlySpendLimit DECIMAL(12,2) DEFAULT 25000,
+      ADD COLUMN IF NOT EXISTS onlineEnabled TINYINT(1) DEFAULT 1,
+      ADD COLUMN IF NOT EXISTS internationalEnabled TINYINT(1) DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS issuedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    `).catch(() => {});
     console.log('[DB] ✓ Cards table ready');
   } catch (err) {
     console.error('[DB] Error ensuring cards table:', err.message);
@@ -3049,8 +3553,17 @@ app.post('/api/cards/apply', authenticateToken, async (req, res) => {
     console.log('[CARDS_APPLY] User found:', user.id, user.email);
     
     const { kind, deliveryAddress, pin, cardholderName } = req.body;
-    const cardType = kind === 'physical' ? 'physical' : 'virtual';
+    const cardType = kind === 'physical' ? 'debit' : 'virtual';
     console.log('[CARDS_APPLY] Card type:', cardType);
+
+    if (kind === 'physical') {
+      if (!deliveryAddress || !String(deliveryAddress).trim()) {
+        return res.status(400).json({ success: false, message: 'Delivery address is required for physical cards' });
+      }
+      if (!/^[0-9]{4}$/.test(String(pin || ''))) {
+        return res.status(400).json({ success: false, message: 'PIN must be a 4-digit number' });
+      }
+    }
     
     const pool = await db.initializePool();
     const connection = await pool.getConnection();
@@ -3058,6 +3571,32 @@ app.post('/api/cards/apply', authenticateToken, async (req, res) => {
       console.log('[CARDS_APPLY] Ensuring cards table exists...');
       await ensureCardsTable(connection);
       console.log('[CARDS_APPLY] Cards table ready');
+
+      console.log('[CARDS_APPLY] Ensuring linked bank account exists...');
+      const [acctRows] = await connection.execute(
+        `SELECT id FROM bank_accounts WHERE userId = ? AND status = 'active' ORDER BY isPrimary DESC, openedAt ASC LIMIT 1`,
+        [user.id]
+      );
+      console.log('[CARDS_APPLY] bank_accounts query result:', JSON.stringify(acctRows));
+      let accountId = acctRows?.[0]?.id;
+      if (!accountId) {
+        console.log('[CARDS_APPLY] No active bank account found, creating primary account');
+        const accountNumber = String(1000000000 + Number(user.id));
+        const accountName = 'Primary Checking';
+        const balance = parseFloat(user.balance) || 0;
+        const [acctResult] = await connection.execute(
+          `INSERT INTO bank_accounts (userId, accountNumber, accountType, accountName, ledgerBalance, availableBalance, status, isPrimary)
+           VALUES (?, ?, 'checking', ?, ?, ?, 'active', 1)`,
+          [user.id, accountNumber, accountName, balance, balance]
+        );
+        console.log('[CARDS_APPLY] bank_accounts insert result:', JSON.stringify(acctResult));
+        accountId = acctResult.insertId;
+        console.log('[CARDS_APPLY] Created bank account id:', accountId);
+      }
+      if (!accountId) {
+        console.error('[CARDS_APPLY] accountId still missing after creation');
+        throw new Error('No bank account available for card issuance');
+      }
       
       const rawNumber = Array.from({ length: 16 }, () => Math.floor(Math.random() * 10)).join('');
       const masked = '****-****-****-' + rawNumber.slice(-4);
@@ -3066,16 +3605,17 @@ app.post('/api/cards/apply', authenticateToken, async (req, res) => {
       const expiry = `${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getFullYear() + 4).slice(-2)}`;
       const holderName = (cardholderName || `${user.firstName} ${user.lastName}`).toUpperCase();
       const deliveryStatus = cardType === 'virtual' ? 'not_applicable' : 'processing';
+      const cardStatus = cardType === 'virtual' ? 'active' : 'pending';
       
       console.log('[CARDS_APPLY] Inserting card into database...');
-      console.log('[CARDS_APPLY] Insert params:', { userId: user.id, cardType, holderName, deliveryStatus, addressLength: deliveryAddress?.length || 0 });
+      console.log('[CARDS_APPLY] Insert params:', { userId: user.id, cardType, cardStatus, holderName, deliveryStatus, addressLength: deliveryAddress?.length || 0 });
       
       let insertResult;
       try {
         const [result] = await connection.execute(
-          `INSERT INTO cards (userId, cardType, cardNumber, cardNumberMasked, cardholderName, expirationDate, cvv, status, deliveryStatus, deliveryAddress)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [user.id, cardType, rawNumber, masked, holderName, expiry, cvv, 'active', deliveryStatus, deliveryAddress || null]
+          `INSERT INTO cards (accountId, userId, cardType, cardNumber, cardNumberMasked, cardholderName, expirationDate, cvv, status, deliveryStatus, deliveryAddress)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [accountId, user.id, cardType, rawNumber, masked, holderName, expiry, cvv, cardStatus, deliveryStatus, deliveryAddress || null]
         );
         insertResult = result;
         console.log('[CARDS_APPLY] Card inserted successfully, ID:', result.insertId);
@@ -3092,7 +3632,7 @@ app.post('/api/cards/apply', authenticateToken, async (req, res) => {
         cardNumberMasked: masked, 
         cardholderName: holderName, 
         expirationDate: expiry, 
-        status: 'active', 
+        status: cardStatus, 
         deliveryStatus, 
         issuedAt: new Date().toISOString() 
       };
@@ -3391,6 +3931,152 @@ app.post('/api/investments/:id/withdraw', authenticateToken, async (req, res) =>
   }
 });
 
+// ============ BLOG & NEWS ============
+// Fetch latest financial news from free API
+app.get('/api/blog/feed', async (req, res) => {
+  try {
+    const newsApiKey = process.env.NEWS_API_KEY || 'demo';
+    const page = parseInt(req.query.page) || 1;
+    const pageSize = parseInt(req.query.pageSize) || 12;
+    
+    console.log('[API] NEWS_API_KEY from env:', newsApiKey ? newsApiKey.substring(0, 5) + '...' : 'NOT SET');
+    console.log('[API] Using newsApiKey === "demo"?', newsApiKey === 'demo');
+    
+    // Try to fetch from NewsAPI.org (free tier: https://newsapi.org)
+    const newsUrl = `https://newsapi.org/v2/everything?q=banking+finance+investment&sortBy=publishedAt&language=en&pageSize=${pageSize}&page=${page}&apiKey=${newsApiKey}`;
+    
+    console.log('[API] newsUrl:', newsUrl.substring(0, 100) + '...');
+    
+    if (newsApiKey === 'demo') {
+      // Fallback to demo data if no API key is set
+      return res.json({
+        success: true,
+        articles: [
+          {
+            title: 'Interest Rates Reach New Highs in 2026',
+            description: 'Central banks maintain elevated rates as inflation continues to stabilize. Heritage Bank offers competitive rates on savings accounts.',
+            urlToImage: 'https://images.unsplash.com/photo-1518611505867-48e2b964cea5?w=500&h=300&fit=crop',
+            url: '#',
+            author: 'Financial Times',
+            publishedAt: new Date(Date.now() - 2*24*60*60*1000).toISOString(),
+            source: { name: 'Financial News' }
+          },
+          {
+            title: 'Digital Banking Trends: AI Takes Center Stage',
+            description: 'Machine learning transforms customer experience as banks adopt advanced personalization. Heritage Bank leads innovation in digital banking.',
+            urlToImage: 'https://images.unsplash.com/photo-1460925895917-adf4198c4b83?w=500&h=300&fit=crop',
+            url: '#',
+            author: 'TechCrunch',
+            publishedAt: new Date(Date.now() - 1*24*60*60*1000).toISOString(),
+            source: { name: 'Tech News' }
+          },
+          {
+            title: 'Security Alert: New Fraud Prevention Methods Emerge',
+            description: 'Banks implement advanced biometric authentication to protect customers. Your financial security is our priority.',
+            urlToImage: 'https://images.unsplash.com/photo-1516321318423-f06b0b814d0e?w=500&h=300&fit=crop',
+            url: '#',
+            author: 'Reuters',
+            publishedAt: new Date(Date.now() - 3*24*60*60*1000).toISOString(),
+            source: { name: 'Security News' }
+          },
+          {
+            title: 'Investment Portfolio Diversification: 2026 Guide',
+            description: 'Expert tips for building a balanced investment portfolio in the current market environment.',
+            urlToImage: 'https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=500&h=300&fit=crop',
+            url: '#',
+            author: 'Investment Weekly',
+            publishedAt: new Date(Date.now() - 4*24*60*60*1000).toISOString(),
+            source: { name: 'Investment News' }
+          },
+          {
+            title: 'Cryptocurrency Reaches Maturity in Traditional Finance',
+            description: 'Major financial institutions integrate crypto services. Heritage Bank explores blockchain technology adoption.',
+            urlToImage: 'https://images.unsplash.com/photo-1526628653108-6a37142458f9?w=500&h=300&fit=crop',
+            url: '#',
+            author: 'Crypto Insider',
+            publishedAt: new Date(Date.now() - 5*24*60*60*1000).toISOString(),
+            source: { name: 'Crypto News' }
+          },
+          {
+            title: 'Retirement Planning: How to Start Early',
+            description: 'Financial experts share strategies for building retirement wealth through consistent savings and smart investments.',
+            urlToImage: 'https://images.unsplash.com/photo-1521737604893-6f3031224c94?w=500&h=300&fit=crop',
+            url: '#',
+            author: 'Wealth Advisor',
+            publishedAt: new Date(Date.now() - 6*24*60*60*1000).toISOString(),
+            source: { name: 'Retirement News' }
+          }
+        ],
+        totalResults: 100,
+        page,
+        pageSize
+      });
+    }
+    
+    // Fetch from NewsAPI (requires free API key from newsapi.org)
+    const https = require('https');
+    const url = require('url');
+    const apiUrlObj = new url.URL(newsUrl);
+    
+    const options = {
+      hostname: apiUrlObj.hostname,
+      path: apiUrlObj.pathname + apiUrlObj.search,
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Heritage Bank Blog Feed (https://heritagebank.com)'
+      }
+    };
+    
+    const apiRequest = https.request(options, (apiRes) => {
+      let data = '';
+      apiRes.on('data', chunk => { data += chunk; });
+      apiRes.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.status === 'ok') {
+            res.json({
+              success: true,
+              articles: parsed.articles,
+              totalResults: parsed.totalResults,
+              page,
+              pageSize
+            });
+          } else {
+            throw new Error(parsed.message || 'NewsAPI error');
+          }
+        } catch (e) {
+          console.error('[API] NewsAPI parse error:', e);
+          res.json({
+            success: true,
+            articles: [],
+            totalResults: 0,
+            page,
+            pageSize,
+            message: 'Using demo data. To enable real news, get a free API key from newsapi.org'
+          });
+        }
+      });
+    });
+
+    apiRequest.on('error', (e) => {
+      console.error('[API] NewsAPI fetch error:', e);
+      res.json({
+        success: true,
+        articles: [],
+        totalResults: 0,
+        page,
+        pageSize,
+        fallback: true
+      });
+    });
+
+    apiRequest.end();
+  } catch (e) {
+    console.error('[API] blog feed error:', e);
+    res.status(500).json({ success: false, message: 'Failed to fetch blog feed' });
+  }
+});
+
 // ============ STATIC FILES & SPA ============
 
 // Serve static files from root directory
@@ -3409,13 +4095,32 @@ app.use(express.static(rootPath, {
 }));
 console.log('[MIDDLEWARE] ✓ Static file serving configured');
 
-// SPA fallback - serve index.html for non-API routes
-app.get('*', (req, res, next) => {
-  // If it's an API request, skip to next middleware
+// Serve extensionless HTML routes for root static pages like /branches -> branches.html
+app.get('/:page([a-zA-Z0-9_-]+)', (req, res, next) => {
   if (req.path.startsWith('/api/')) {
     return next();
   }
-  // Serve index.html for all other requests (SPA routing)
+
+  const pageName = req.params.page;
+  const htmlFile = path.join(rootPath, `${pageName}.html`);
+
+  try {
+    if (fs.existsSync(htmlFile) && fs.statSync(htmlFile).isFile()) {
+      return res.sendFile(htmlFile);
+    }
+  } catch (err) {
+    console.warn('[STATIC ROUTE] Error checking HTML file for', pageName, err.message);
+  }
+
+  return next();
+});
+
+// SPA fallback - serve index.html for non-API routes
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api/')) {
+    return next();
+  }
+
   res.sendFile(path.join(rootPath, 'index.html'));
 });
 console.log('[MIDDLEWARE] ✓ SPA fallback configured');
