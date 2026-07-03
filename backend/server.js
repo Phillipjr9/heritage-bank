@@ -380,30 +380,31 @@ app.post('/api/auth/register', async (req, res) => {
 // Login endpoint
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
-    console.log('[API] Login attempt for:', email);
+    const identifier = String(req.body.email || req.body.identifier || req.body.username || '').trim();
+    const password = String(req.body.password || '').trim();
+    console.log('[API] Login attempt for:', identifier);
 
-    if (!email || !password) {
-      console.log('[API] Missing email or password');
+    if (!identifier || !password) {
+      console.log('[API] Missing email/account or password');
       return res.status(400).json({
         success: false,
-        message: 'Email and password required'
+        message: 'Email or account number and password required'
       });
     }
 
-    // Find user in database
-    const user = await db.getUserByEmail(email);
+    // Find user in database by email or account number
+    const user = await db.getUserByEmailOrAccountNumber(identifier);
     if (!user) {
-      console.log('[API] User not found:', email);
+      console.log('[API] User not found:', identifier);
       return res.status(401).json({
         success: false,
-        message: 'Invalid email or password'
+        message: 'Invalid email, account number, or password'
       });
     }
 
     // Check if user is locked
     if (user.isLocked) {
-      console.log('[API] User account is locked:', email);
+      console.log('[API] User account is locked:', identifier);
       return res.status(403).json({
         success: false,
         message: 'Account is locked. Please contact support.'
@@ -414,10 +415,10 @@ app.post('/api/auth/login', async (req, res) => {
     const passwordHash = user.passwordHash || user.password;
     const passwordMatch = await bcrypt.compare(password, passwordHash);
     if (!passwordMatch) {
-      console.log('[API] Password mismatch for:', email);
+      console.log('[API] Password mismatch for:', identifier);
       return res.status(401).json({
         success: false,
-        message: 'Invalid email or password'
+        message: 'Invalid email, account number, or password'
       });
     }
 
@@ -428,7 +429,7 @@ app.post('/api/auth/login', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    console.log('[API] Login successful for:', email, '- Token generated');
+    console.log('[API] Login successful for:', identifier, '- Token generated');
     res.set('Content-Type', 'application/json');
     res.json({
       success: true,

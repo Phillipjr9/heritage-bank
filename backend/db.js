@@ -368,6 +368,29 @@ async function getUserByEmail(email) {
 }
 
 /**
+ * Get user by email or account number.
+ * This keeps login compatible with both email-based and account-number-based sign-ins.
+ */
+async function getUserByEmailOrAccountNumber(identifier) {
+  const normalizedIdentifier = String(identifier || '').trim();
+  if (!normalizedIdentifier) return null;
+
+  const pool = await initializePool();
+  const connection = await pool.getConnection();
+  try {
+    const [rows] = await connection.execute(
+      'SELECT * FROM users WHERE LOWER(email) = LOWER(?) OR accountNumber = ? LIMIT 1',
+      [normalizedIdentifier, normalizedIdentifier]
+    );
+    return normalizeUser(rows[0] || null);
+  } finally {
+    if (connection) {
+      await connection.release();
+    }
+  }
+}
+
+/**
  * Get user by ID
  */
 async function getUserById(id) {
@@ -571,6 +594,7 @@ module.exports = {
   initializePool,
   initializeSchema,
   getUserByEmail,
+  getUserByEmailOrAccountNumber,
   getUserById,
   createUser,
   updateUserBalance,
