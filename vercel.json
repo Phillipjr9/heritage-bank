@@ -1,5 +1,6 @@
 {
   "version": 2,
+  "installCommand": "echo 'Skipping install for static frontend'",
   "buildCommand": "echo 'Static frontend only'",
   "outputDirectory": "public",
   "routes": [
