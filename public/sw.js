@@ -56,8 +56,7 @@ self.addEventListener('fetch', function(event) {
   // HTML pages behind auth - network only (never serve stale dashboard/account pages)
   var authPages = ['/dashboard', '/admin', '/analytics', '/settings', '/messages',
     '/statements', '/transactions', '/transfer', '/pay-bills', '/cards',
-    '/investment', '/retirement', '/savings-goals', '/mobile-deposit', '/request-loan',
-    '/bulk-payments'];
+    '/investment', '/retirement', '/savings-goals', '/mobile-deposit', '/request-loan'];
   if (authPages.some(function(p) { return url.pathname.startsWith(p); })) {
     event.respondWith(
       fetch(event.request).catch(function() {
