@@ -31,7 +31,13 @@ body {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
     -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Firefox-only: apply macOS font smoothing without triggering warnings in other browsers */
+@-moz-document url-prefix() {
+    body {
+        -moz-osx-font-smoothing: grayscale;
+    }
 }
 
 /* Global word-wrap protection */
