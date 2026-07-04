@@ -3135,6 +3135,61 @@ app.put('/api/admin/support-tickets/:id', authenticateToken, requireAdmin, async
   }
 });
 
+app.post('/api/support-tickets', authenticateToken, async (req, res) => {
+  try {
+    const { category, subject, priority, description } = req.body;
+    if (!category || !subject || !description) {
+      return res.status(400).json({ success: false, message: 'Category, subject, and description are required' });
+    }
+
+    const user = await db.getUserByEmail(req.user.email);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const pool = await db.initializePool();
+    const conn = await pool.getConnection();
+    try {
+      await ensureSupportTables(conn);
+      const [result] = await conn.execute(
+        'INSERT INTO support_tickets (userId, userEmail, category, subject, description, priority, status) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [user.id, user.email, category, subject, description, priority || 'low', 'open']
+      );
+      res.json({ success: true, message: 'Support ticket created', ticketId: result.insertId });
+    } finally {
+      await conn.release();
+    }
+  } catch (e) {
+    console.error('[API] create support ticket error', e);
+    res.status(500).json({ success: false, message: 'Failed to create support ticket' });
+  }
+});
+
+app.get('/api/support-tickets', authenticateToken, async (req, res) => {
+  try {
+    const user = await db.getUserByEmail(req.user.email);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const pool = await db.initializePool();
+    const conn = await pool.getConnection();
+    try {
+      await ensureSupportTables(conn);
+      const [tickets] = await conn.execute(
+        'SELECT * FROM support_tickets WHERE userId = ? ORDER BY createdAt DESC LIMIT 200',
+        [user.id]
+      );
+      res.json({ success: true, tickets });
+    } finally {
+      await conn.release();
+    }
+  } catch (e) {
+    console.error('[API] user support-tickets error', e);
+    res.status(500).json({ success: false, message: 'Failed to fetch support tickets' });
+  }
+});
+
 app.get('/api/admin/messages', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const pool = await db.initializePool();
