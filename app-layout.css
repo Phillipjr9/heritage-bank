@@ -120,13 +120,21 @@
     object-fit: cover;
 }
 .sidebar-user-name {
-    font-size: 0.95rem;
-    line-height: 1.25;
+    font-size: 1.15rem;
+    line-height: 1.2;
     color: rgba(255,255,255,0.95);
     font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+/* Verified badge next to user name: small and moderately spaced */
+.verified-badge {
+    width: 14px !important;
+    height: 14px !important;
+    vertical-align: middle;
+    margin-left: 8px;
 }
 
 .sidebar-bottom {
