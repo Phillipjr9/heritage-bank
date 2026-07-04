@@ -95,9 +95,6 @@ async function populateAllSections(user) {
     
     // Load preferences
     await loadPreferences(user);
-    
-    // Load recent activity
-    await loadActivity();
 }
 
 // ============================================================================

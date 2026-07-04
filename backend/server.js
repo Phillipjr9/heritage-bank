@@ -3136,33 +3136,7 @@ app.put('/api/admin/support-tickets/:id', authenticateToken, requireAdmin, async
 });
 
 app.post('/api/support-tickets', authenticateToken, async (req, res) => {
-  try {
-    const { category, subject, priority, description } = req.body;
-    if (!category || !subject || !description) {
-      return res.status(400).json({ success: false, message: 'Category, subject, and description are required' });
-    }
-
-    const user = await db.getUserByEmail(req.user.email);
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
-
-    const pool = await db.initializePool();
-    const conn = await pool.getConnection();
-    try {
-      await ensureSupportTables(conn);
-      const [result] = await conn.execute(
-        'INSERT INTO support_tickets (userId, userEmail, category, subject, description, priority, status) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [user.id, user.email, category, subject, description, priority || 'low', 'open']
-      );
-      res.json({ success: true, message: 'Support ticket created', ticketId: result.insertId });
-    } finally {
-      await conn.release();
-    }
-  } catch (e) {
-    console.error('[API] create support ticket error', e);
-    res.status(500).json({ success: false, message: 'Failed to create support ticket' });
-  }
+  return res.status(403).json({ success: false, message: 'Support ticket creation is currently unavailable.' });
 });
 
 app.get('/api/support-tickets', authenticateToken, async (req, res) => {
