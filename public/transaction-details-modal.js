@@ -48,11 +48,43 @@
         return modal;
     }
 
-    function displayTransactionModal(tx, modal) {
+        function displayTransactionModal(tx, modal) {
         const direction = tx.direction || (tx.toUserId ? 'credit' : 'debit');
         const isCredit = direction === 'credit';
         const sign = isCredit ? '+' : '-';
         const amountColor = isCredit ? '#28a745' : '#dc3545';
+
+            // Determine a user-friendly "From" label.
+            // Prefer explicit admin-provided label (tx.fromLabel), then try parsing the description for a "From: <label>" tag
+            // (admin UI stores labels in description via buildAdminDescription), otherwise fall back to email or a bank name.
+            let fromName = null;
+            if (tx.fromLabel && String(tx.fromLabel).trim()) {
+                fromName = String(tx.fromLabel).trim();
+            }
+            if (!fromName) {
+                // Try to parse description for "| From: LABEL" (format used by admin helpers)
+                try {
+                    const desc = String(tx.description || '');
+                    const m = desc.match(/\|\s*From:\s*([^|]+)/i);
+                    if (m && m[1]) fromName = m[1].trim();
+                } catch (e) {
+                    /* ignore */
+                }
+            }
+            if (!fromName) {
+                // Avoid showing raw admin email; if it looks like an admin address use a friendly bank label
+                const email = String(tx.fromUserEmail || '');
+                if (/admin|support|heritage/i.test(email)) {
+                    fromName = 'Heritage Bank';
+                } else if (email) {
+                    fromName = email;
+                } else {
+                    fromName = 'You';
+                }
+            }
+
+            // Small sanitizer in case escapeHtml isn't available in this scope
+            const _esc = (v) => String(v || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
         const details = `
             <div class="transaction-detail-grid">
@@ -92,7 +124,7 @@
             <div class="transaction-parties">
                 <div class="party-section">
                     <div class="party-label">From</div>
-                    <div class="party-name">${tx.fromUserEmail || 'You'}</div>
+                    <div class="party-name">${_esc(fromName)}</div>
                 </div>
                 <div class="arrow-icon">→</div>
                 <div class="party-section">

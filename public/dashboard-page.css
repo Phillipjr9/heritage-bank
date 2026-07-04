@@ -198,9 +198,9 @@ body.dark-mode .main-content { background: #0f172a; }
 .sidebar-user-name .verified-badge {
     display: inline-block;
     vertical-align: middle;
-    margin-left: 0.5rem;
-    width: 22px;
-    height: 22px;
+    margin-left: 0.35rem;
+    width: 18px;
+    height: 18px;
 }
 
 .header-right {

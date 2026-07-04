@@ -462,7 +462,15 @@
             const lastFour = tx.fromAccountNumber ? String(tx.fromAccountNumber).slice(-4) : '7890';
             const billerName = tx.recipientName || desc.replace(/Bill payment to\s*/i, '').replace(/AT&T Phone Payment.*/i, 'AT&T').split('(')[0].trim() || 'Biller';
             const sameBankTransfer = Boolean(tx.fromUserId && tx.toUserId && ['ach', 'bank_transfer', 'wire_transfer', 'internal_transfer', 'admin_transfer'].includes(String(tx.type || '').toLowerCase()));
-            const fromLabel = sameBankTransfer ? 'Heritage Bank, USA' : 'Heritage Bank, USA';
+            // Prefer an explicit label embedded in admin-created descriptions when available
+            let fromLabel = sameBankTransfer ? 'Heritage Bank, USA' : 'Heritage Bank, USA';
+            try {
+                const rawDesc = String(tx.description || '');
+                const m = rawDesc.match(/\|\s*From:\s*([^|]+)/i);
+                if (m && m[1]) {
+                    fromLabel = m[1].trim();
+                }
+            } catch (e) { /* ignore parse errors */ }
             const toLabel = toCode !== 'US' ? escapeHtml(toCountryName || 'International') : 'Heritage Bank, USA';
 
             let html = `

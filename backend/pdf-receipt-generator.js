@@ -5,6 +5,8 @@
 
 const PDFDocument = require('pdfkit');
 const { Readable } = require('stream');
+const fs = require('fs');
+const path = require('path');
 
 class ReceiptGenerator {
   static generate(transaction, user, options = {}) {
@@ -20,19 +22,49 @@ class ReceiptGenerator {
         doc.on('end', () => resolve(Buffer.concat(chunks)));
         doc.on('error', reject);
 
-        // Header with logo and company info
-        doc.fontSize(24).font('Helvetica-Bold').text('Heritage Bank', { align: 'center' });
-        doc.fontSize(10).font('Helvetica').fillColor('#666').text('Professional Banking Solutions', { align: 'center' });
-        doc.fontSize(9).fillColor('#999').text('Member FDIC | Equal Housing Lender', { align: 'center' });
+        // Document metadata
+        doc.info = doc.info || {};
+        doc.info.Title = `Transaction Receipt - ${transaction.reference || `TXN-${transaction.id}`}`;
+        doc.info.Author = 'Heritage Bank';
+        doc.info.Subject = 'Transaction Receipt';
+        doc.info.Keywords = 'heritage, receipt, transaction';
 
-        // Company contact info
-        doc.moveTo(50, doc.y + 10).lineTo(550, doc.y + 10).stroke('#ddd');
+        // Header with optional logo and company info
+        const logoPath = path.resolve(__dirname, '..', 'assets', 'bank-logos', 'logo.png');
+        let hasLogo = false;
+        try {
+          hasLogo = fs.existsSync(logoPath);
+          if (hasLogo) {
+            // place logo at top-left
+            doc.image(logoPath, 50, 50, { width: 100 });
+          }
+        } catch (e) {
+          hasLogo = false;
+        }
+
+        // If no logo image, draw a simple vector brand mark
+        if (!hasLogo) {
+          // green circle with HB initials
+          doc.save();
+          doc.circle(90, 70, 28).fill('#0f5132');
+          doc.fillColor('#fff').font('Helvetica-Bold').fontSize(18).text('HB', 78, 56);
+          doc.restore();
+        }
+
+        // Bank title and short info to the right of logo
+        const headerStartY = 55;
+        const headerX = hasLogo ? 160 : 140;
+        doc.fontSize(20).font('Helvetica-Bold').fillColor('#0f5132').text('Heritage Bank', headerX, headerStartY);
+        doc.moveDown(0.2);
+        doc.fontSize(9).font('Helvetica').fillColor('#666').text('Professional Banking Solutions', { align: 'left' });
+        doc.fontSize(8).fillColor('#777').text('Member FDIC | Equal Housing Lender', { align: 'left' });
+
+        // Company contact info below header
+        doc.moveTo(50, doc.y + 12).lineTo(550, doc.y + 12).stroke('#eee');
         doc.fontSize(9).fillColor('#666');
-        doc.text('📍 Heritage Bank Headquarters', 50, doc.y + 15);
-        doc.text('📧 contact@heritagebank.com | 📞 1-800-HERITAGE', 50);
-        doc.text('🌐 www.heritagebank.com | SWIFT: HBKUUS33', 50);
-
-        doc.moveTo(50, doc.y + 10).lineTo(550, doc.y + 10).stroke('#ddd');
+        doc.text('Heritage Bank Headquarters — 123 Heritage Way, Anytown, USA', 50, doc.y + 8);
+        doc.text('contact@heritagebank.com | 1-800-HERITAGE | www.heritagebank.com', 50);
+        doc.moveTo(50, doc.y + 8).lineTo(550, doc.y + 8).stroke('#eee');
 
         // Transaction header
         doc.fontSize(14).font('Helvetica-Bold').fillColor('#1a472a').text('TRANSACTION RECEIPT', 50, doc.y + 20);
@@ -91,27 +123,62 @@ class ReceiptGenerator {
         // Parties involved
         doc.fontSize(12).font('Helvetica-Bold').fillColor('#1a472a').text('TRANSACTION DETAILS', 50, doc.y + 20);
 
-        doc.fontSize(10).font('Helvetica-Bold').fillColor('#333').text('From Account:', 50, doc.y + 10);
-        doc.fontSize(10).font('Helvetica').fillColor('#666').text(
-          `${user.firstName} ${user.lastName} (${user.email})`,
-          50,
-          doc.y + 5
-        );
-        if (user.accountNumber) {
-          doc.fontSize(9).fillColor('#999').text(`Account: ****${String(user.accountNumber).slice(-4)}`);
+        // Resolve sender and recipient robustly
+        let senderName = null;
+        let senderAcct = null;
+        let recipientName = null;
+        let recipientAcct = null;
+
+        const txFromId = transaction.fromUserId != null ? Number(transaction.fromUserId) : null;
+        const txToId = transaction.toUserId != null ? Number(transaction.toUserId) : null;
+        const meId = user && user.id != null ? Number(user.id) : null;
+
+        // If user is the sender
+        if (meId && txFromId === meId) {
+          senderName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || (user.email || 'You');
+          senderAcct = user.accountNumber;
+          recipientName = transaction.recipientName || `${transaction.toFirstName || ''} ${transaction.toLastName || ''}`.trim() || 'Recipient';
+          recipientAcct = transaction.toAccountNumber;
+        } else if (meId && txToId === meId) {
+          // user is the recipient
+          recipientName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || (user.email || 'You');
+          recipientAcct = user.accountNumber;
+          senderName = transaction.fromLabel || transaction.fromName || `${transaction.fromFirstName || ''} ${transaction.fromLastName || ''}`.trim() || transaction.fromUserEmail || 'Sender';
+          senderAcct = transaction.fromAccountNumber;
+        } else {
+          // fallback: prefer explicit fields
+          senderName = transaction.fromLabel || `${transaction.fromFirstName || ''} ${transaction.fromLastName || ''}`.trim() || transaction.fromUserEmail || 'Sender';
+          senderAcct = transaction.fromAccountNumber || null;
+          recipientName = transaction.recipientName || `${transaction.toFirstName || ''} ${transaction.toLastName || ''}`.trim() || transaction.toUserEmail || 'Recipient';
+          recipientAcct = transaction.toAccountNumber || null;
         }
 
-        doc.fontSize(10).font('Helvetica-Bold').fillColor('#333').text('To Account:', 50, doc.y + 15);
-        const toName = transaction.recipientName || 
-          `${transaction.toFirstName || 'Recipient'} ${transaction.toLastName || 'Name'}`;
-        doc.fontSize(10).font('Helvetica').fillColor('#666').text(toName, 50, doc.y + 5);
-        if (transaction.toAccountNumber) {
-          doc.fontSize(9).fillColor('#999').text(`Account: ****${String(transaction.toAccountNumber).slice(-4)}`);
+        // If description contains "| From: ..." (admin helper), prefer that as label for sender
+        try {
+          const descMatch = String(transaction.description || '').match(/\|\s*From:\s*([^|]+)/i);
+          if (descMatch && descMatch[1]) {
+            senderName = descMatch[1].trim();
+          }
+        } catch (e) { /* ignore */ }
+
+        // sanitize description for printing (remove admin label tags)
+        let printableDescription = String(transaction.description || 'N/A').replace(/\|\s*From:\s*[^|]+/i, '').trim();
+
+        doc.fontSize(10).font('Helvetica-Bold').fillColor('#333').text('From Account:', 50, doc.y + 10);
+        doc.fontSize(10).font('Helvetica').fillColor('#666').text(`${senderName || 'Sender'}`, 50, doc.y + 5);
+        if (senderAcct) {
+          doc.fontSize(9).fillColor('#999').text(`Account: ****${String(senderAcct).slice(-4)}`);
+        }
+
+        doc.fontSize(10).font('Helvetica-Bold').fillColor('#333').text('To Account:', 50, doc.y + 10);
+        doc.fontSize(10).font('Helvetica').fillColor('#666').text(`${recipientName || 'Recipient'}`, 50, doc.y + 5);
+        if (recipientAcct) {
+          doc.fontSize(9).fillColor('#999').text(`Account: ****${String(recipientAcct).slice(-4)}`);
         }
 
         doc.fontSize(10).font('Helvetica-Bold').fillColor('#333').text('Description:', 50, doc.y + 15);
         doc.fontSize(10).font('Helvetica').fillColor('#666').text(
-          transaction.description || 'N/A',
+          printableDescription || 'N/A',
           50,
           doc.y + 5,
           { width: 450 }
@@ -143,20 +210,21 @@ class ReceiptGenerator {
           }
         }
 
-        // Footer
-        doc.moveTo(50, doc.y + 20).lineTo(550, doc.y + 20).stroke('#ddd');
+        // Footer: fixed at bottom of the page
+        const footerY = doc.page.height - doc.page.margins.bottom - 40;
+        doc.moveTo(50, footerY).lineTo(doc.page.width - 50, footerY).stroke('#ddd');
         doc.fontSize(8).fillColor('#999').text(
           'This is an official receipt from Heritage Bank. Please keep for your records.',
           50,
-          doc.y + 20,
-          { align: 'center', width: 450 }
+          footerY + 8,
+          { align: 'center', width: doc.page.width - 100 }
         );
 
         doc.fontSize(7).fillColor('#bbb').text(
           `Generated on ${new Date().toLocaleString('en-US')} | Confidential - For Account Holder Only`,
           50,
-          doc.y + 15,
-          { align: 'center', width: 450 }
+          footerY + 22,
+          { align: 'center', width: doc.page.width - 100 }
         );
 
         doc.end();

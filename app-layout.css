@@ -120,9 +120,10 @@
     object-fit: cover;
 }
 .sidebar-user-name {
-    font-size: 0.85rem;
-    color: rgba(255,255,255,0.85);
-    font-weight: 500;
+    font-size: 0.95rem;
+    line-height: 1.25;
+    color: rgba(255,255,255,0.95);
+    font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
