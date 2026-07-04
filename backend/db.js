@@ -92,6 +92,36 @@ function normalizeUser(row) {
   return row;
 }
 
+async function resetPool() {
+  if (!pool) return;
+  try {
+    await pool.end();
+  } catch (endErr) {
+    console.warn('[DB] Failed to close existing pool during reset:', endErr.message);
+  } finally {
+    pool = null;
+  }
+}
+
+async function executeWithRetry(operation, retries = 2) {
+  let attempt = 0;
+  while (attempt <= retries) {
+    try {
+      return await operation();
+    } catch (error) {
+      const isTransient = !!error && ['ECONNRESET', 'PROTOCOL_CONNECTION_LOST', 'ETIMEDOUT', 'ECONNREFUSED', 'ER_LOCK_WAIT_TIMEOUT'].includes(error.code);
+      if (!isTransient || attempt >= retries) {
+        throw error;
+      }
+
+      attempt += 1;
+      console.warn(`[DB] Transient database error (${error.code || 'unknown'}) on attempt ${attempt}/${retries + 1}: ${error.message}`);
+      await resetPool();
+      await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+    }
+  }
+}
+
 async function initializeSchema() {
   const pool = await initializePool();
   const connection = await pool.getConnection();
@@ -355,16 +385,18 @@ async function initializeSchema() {
  * Get user by email
  */
 async function getUserByEmail(email) {
-  const pool = await initializePool();
-  const connection = await pool.getConnection();
-  try {
-    const [rows] = await connection.execute('SELECT * FROM users WHERE email = ?', [email]);
-    return normalizeUser(rows[0] || null);
-  } finally {
-    if (connection) {
-      await connection.release();
+  return executeWithRetry(async () => {
+    const pool = await initializePool();
+    const connection = await pool.getConnection();
+    try {
+      const [rows] = await connection.execute('SELECT * FROM users WHERE email = ?', [email]);
+      return normalizeUser(rows[0] || null);
+    } finally {
+      if (connection) {
+        await connection.release();
+      }
     }
-  }
+  });
 }
 
 /**
@@ -375,35 +407,39 @@ async function getUserByEmailOrAccountNumber(identifier) {
   const normalizedIdentifier = String(identifier || '').trim();
   if (!normalizedIdentifier) return null;
 
-  const pool = await initializePool();
-  const connection = await pool.getConnection();
-  try {
-    const [rows] = await connection.execute(
-      'SELECT * FROM users WHERE LOWER(email) = LOWER(?) OR accountNumber = ? LIMIT 1',
-      [normalizedIdentifier, normalizedIdentifier]
-    );
-    return normalizeUser(rows[0] || null);
-  } finally {
-    if (connection) {
-      await connection.release();
+  return executeWithRetry(async () => {
+    const pool = await initializePool();
+    const connection = await pool.getConnection();
+    try {
+      const [rows] = await connection.execute(
+        'SELECT * FROM users WHERE LOWER(email) = LOWER(?) OR accountNumber = ? LIMIT 1',
+        [normalizedIdentifier, normalizedIdentifier]
+      );
+      return normalizeUser(rows[0] || null);
+    } finally {
+      if (connection) {
+        await connection.release();
+      }
     }
-  }
+  });
 }
 
 /**
  * Get user by ID
  */
 async function getUserById(id) {
-  const pool = await initializePool();
-  const connection = await pool.getConnection();
-  try {
-    const [rows] = await connection.execute('SELECT * FROM users WHERE id = ?', [id]);
-    return normalizeUser(rows[0] || null);
-  } finally {
-    if (connection) {
-      await connection.release();
+  return executeWithRetry(async () => {
+    const pool = await initializePool();
+    const connection = await pool.getConnection();
+    try {
+      const [rows] = await connection.execute('SELECT * FROM users WHERE id = ?', [id]);
+      return normalizeUser(rows[0] || null);
+    } finally {
+      if (connection) {
+        await connection.release();
+      }
     }
-  }
+  });
 }
 
 /**

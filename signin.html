@@ -201,17 +201,24 @@
         </div>
     </div>
     <script>
-// Heritage Bank API URL - dynamic detection for localhost, file:// pages, Railway, and Vercel
+// Heritage Bank API URL - dynamic detection for local development, file:// pages, Railway, and Vercel
 const API_URL = (function() {
-    const { hostname, protocol } = window.location;
+    const { hostname, protocol, port } = window.location;
 
     // Local development or local file preview
-    if (protocol === 'file:' || hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0') {
-        return 'http://localhost:3001';
+    if (protocol === 'file:') {
+        return 'http://localhost:3000';
+    }
+
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0') {
+        if (port) {
+            return `${protocol}//${hostname}:3000`;
+        }
+        return 'http://localhost:3000';
     }
 
     // Production (Railway, Vercel, etc.) - use current protocol and domain
-    return `${window.location.protocol}//${window.location.host}`;
+    return `${protocol}//${hostname}${port ? ':' + port : ''}`;
 })();
 
 console.log('[Auth] Detected API_URL:', API_URL);
@@ -578,6 +585,6 @@ async function handleLoginSubmit(e) {
             }
         }
     </script>
-    <script src="cookie-consent.js"></script>
+    <script src="cookie-consent.js?v=20260703"></script>
 </body>
 </html>

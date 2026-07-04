@@ -84,6 +84,12 @@
         button.style.display = visible ? 'inline-flex' : 'none';
     }
 
+    function shouldShowBanner() {
+        var path = (window.location.pathname || '').split('/').pop() || '';
+        var hiddenPages = ['signin.html', 'signup.html', 'forgot-password.html'];
+        return hiddenPages.indexOf(path) === -1;
+    }
+
     function openBanner() {
         if (document.getElementById('cookie-consent-banner')) return;
         createBanner(getConsent() || { essential: true, analytics: false, marketing: false });
@@ -200,7 +206,7 @@
 
     if (getConsent()) {
         createSettingsButton();
-    } else {
+    } else if (shouldShowBanner()) {
         openBanner();
     }
 })();

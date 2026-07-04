@@ -68,3 +68,5 @@ receipt_test*.pdf
 .firebaserc
 firestore.rules
 firestore.indexes.json
+.vercel
+.env*.local
