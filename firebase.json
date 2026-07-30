@@ -1,15 +1,10 @@
 {
   "hosting": {
-    "public": ".",
+    "public": "public",
     "ignore": [
       "firebase.json",
       "**/.*",
-      "**/node_modules/**",
-      "**/backend/**",
-      "**/amplify/**",
-      "**/functions/node_modules/**",
-      "**/functions/**/*.js",
-      "!.github/workflows/**"
+      "**/node_modules/**"
     ],
     "rewrites": [
       {
@@ -17,7 +12,7 @@
         "function": "api"
       },
       {
-        "source": "/**/index.html",
+        "source": "**",
         "destination": "/index.html"
       }
     ],
@@ -26,74 +21,21 @@
     "headers": [
       {
         "source": "**/*.@(jpg|jpeg|png|gif|webp|svg|ico)",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "max-age=31536000"
-          }
-        ]
+        "headers": [{ "key": "Cache-Control", "value": "max-age=31536000" }]
       },
       {
-        "source": "**/*.js",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "max-age=86400"
-          }
-        ]
-      },
-      {
-        "source": "**/*.css",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "max-age=86400"
-          }
-        ]
+        "source": "**/*.@(js|css)",
+        "headers": [{ "key": "Cache-Control", "value": "max-age=86400" }]
       }
-    ],
-    "Previews": true,
-    "webFramework": "none"
+    ]
   },
   "functions": {
     "source": "functions",
-    "runtime": "nodejs20",
-    "ignore": [
-      "**/.*",
-      "**/node_modules/**",
-      "**/amplify/**",
-      "**/backend/**"
-    ]
-  },
-  "firestore": {
-    "rules": "firestore.rules",
-    "indexes": "firestore.indexes.json"
-  },
-  "storage": {
-    "rules": "storage.rules"
+    "runtime": "nodejs20"
   },
   "emulators": {
-    "auth": {
-      "port": 9099
-    },
-    "functions": {
-      "port": 5001
-    },
-    "firestore": {
-      "port": 8080
-    },
-    "hosting": {
-      "port": 5000
-    },
-    "ui": {
-      "enabled": true,
-      "port": 4000
-    },
-    "storage": {
-      "port": 9199
-    }
-  },
-  "database": {
-    "rules": "database.rules.json"
+    "functions": { "port": 5001 },
+    "hosting": { "port": 5000 },
+    "ui": { "enabled": true, "port": 4000 }
   }
 }

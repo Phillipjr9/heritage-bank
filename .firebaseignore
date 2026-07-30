@@ -1,0 +1,12 @@
+node_modules
+.git
+.github
+backup-design
+amplify-gen2
+amplify.old
+public
+*.html
+*.css
+*.md
+.env
+.env.*

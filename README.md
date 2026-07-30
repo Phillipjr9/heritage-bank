@@ -2,43 +2,50 @@
 
 A modern digital banking application.
 
-## Deploy to Render.com
+## Deploy to Firebase
 
-### Step 1: Create Web Service
-1. Go to [render.com](https://render.com) and sign up/login
-2. Click **New +** → **Web Service**
-3. Connect your GitHub account
-4. Select repository: `Phillipjr9/heritage-bank`
+### Prerequisites
+- Firebase project on the **Blaze (pay-as-you-go)** plan (required for outbound DB connections)
+- Firebase CLI: `npm install -g firebase-tools`
+- Logged in: `firebase login`
 
-### Step 2: Configure Service
-- **Name**: `heritage-bank` (or any name)
-- **Region**: Choose closest to you
-- **Branch**: `main`
-- **Root Directory**: *(leave empty)*
-- **Runtime**: `Node`
-- **Build Command**: `cd backend && npm install`
-- **Start Command**: `node backend/server.js`
+### Step 1: Install dependencies
+```bash
+cd functions && npm install
+```
 
-> Note: production deploys must use `backend/server.js`. The root `server.js` file exists only for legacy compatibility and is not the intended deployment entrypoint.
+### Step 2: Set environment variables (Secret Manager)
+Run each command and enter the value when prompted:
+```bash
+firebase functions:secrets:set DB_HOST
+firebase functions:secrets:set DB_PORT
+firebase functions:secrets:set DB_USER
+firebase functions:secrets:set DB_PASSWORD
+firebase functions:secrets:set DB_NAME
+firebase functions:secrets:set JWT_SECRET
+firebase functions:secrets:set ADMIN_EMAIL
+firebase functions:secrets:set ADMIN_PASSWORD
+```
 
-### Step 3: Add Environment Variables
-Click **Advanced** → **Add Environment Variable** for each:
+### Step 3: Deploy
+```bash
+firebase deploy
+```
+This deploys both:
+- **Hosting** → your frontend from `public/`
+- **Cloud Function** → your Express API at `/api/**`
 
-| Key | Value |
-|-----|-------|
-| `DB_HOST` | `<your-db-host>` |
-| `DB_PORT` | `4000` |
-| `DB_USER` | `<your-db-user>` |
-| `DB_PASSWORD` | `<your-db-password>` |
-| `DB_NAME` | `<your-db-name>` |
-| `JWT_SECRET` | `<long-random-secret>` |
-| `ADMIN_EMAIL` | `admin@heritagebank.com` |
-| `ADMIN_PASSWORD` | `<strong-admin-password>` |
+Your app will be live at: `https://<your-project>.web.app`
 
-### Step 4: Deploy
-Click **Create Web Service**
+> **Database**: Your MySQL/TiDB database is unchanged. The Cloud Function connects to it using the same env vars.
 
-Your app will be live at: `https://<your-service>.onrender.com`
+### Local development (emulator)
+```bash
+cd functions && npm install
+firebase emulators:start
+```
+Frontend: http://localhost:5000  
+API: http://localhost:5001/<project-id>/us-central1/api
 
 ---
 

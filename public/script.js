@@ -1,12 +1,12 @@
 // Heritage Bank - Main JavaScript
 
-const API_URL = (() => {
-    const { hostname, protocol } = window.location;
-    if (protocol === 'file:' || hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0') {
-        return 'http://localhost:3001';
-    }
-    return `${window.location.protocol}//${window.location.host}`;
-})();
+// API_URL is set by config.js — falls back if config.js not loaded
+if (typeof window.API_URL === 'undefined') {
+    window.API_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+        ? 'http://localhost:3001'
+        : window.location.origin;
+}
+const API_URL = window.API_URL;
 
 // Intersection Observer for reveal animations on scroll
 const revealObserver = new IntersectionObserver((entries) => {
@@ -144,6 +144,10 @@ function checkLogin() {
 
 // Logout Function
 function logout() {
+    // Sign out from Firebase if available
+    if (typeof firebase !== 'undefined' && firebase.auth) {
+        firebase.auth().signOut().catch(() => {});
+    }
     const consent = localStorage.getItem('cookieConsent');
     localStorage.clear();
     if (consent) localStorage.setItem('cookieConsent', consent);

@@ -166,6 +166,11 @@
 
             <div class="divider">or</div>
 
+            <button type="button" id="googleSignupBtn" onclick="handleGoogleSignUp()" style="width:100%;padding:12px;background:white;color:#333;border:none;border-radius:12px;font-size:0.92rem;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;transition:all 0.2s;margin-bottom:12px;">
+                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" style="width:20px;height:20px;" alt="Google">
+                Continue with Google
+            </button>
+
             <a href="open-account-enhanced.html" class="btn-full-form">
                 <i class="fas fa-file-alt"></i> Full Application Form
             </a>
@@ -177,26 +182,24 @@
         </div>
     </div>
 
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    <script src="firebase-config.js"></script>
+    <script src="firebase-auth-helper.js"></script>
     <script>
-        // XSS Protection
         function escapeHtml(str) {
             return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
         }
 
-        var API_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-            ? 'http://localhost:3001' : window.location.origin;
-
         // Redirect if already logged in
         (function() {
-            var token = localStorage.getItem('token');
+            const token = localStorage.getItem('token');
             if (token) {
-                fetch(API_URL + '/api/auth/profile', { headers: { 'Authorization': 'Bearer ' + token } })
-                    .then(function(r) { return r.json(); })
-                    .then(function(data) {
-                        if (data.success && data.user) {
-                            window.location.href = data.user.isAdmin ? 'admin.html' : 'dashboard.html';
-                        }
-                    }).catch(function(){});
+                fetch(AUTH_API_URL + '/api/auth/profile', { headers: { 'Authorization': 'Bearer ' + token } })
+                    .then(r => r.json())
+                    .then(data => { if (data.success) window.location.href = data.user.isAdmin ? 'admin.html' : 'dashboard.html'; })
+                    .catch(() => {});
             }
         })();
 
@@ -232,18 +235,18 @@
             text.style.color = colors[Math.min(score, 4)];
         });
 
-        document.getElementById('signupForm').addEventListener('submit', function(e) {
+        document.getElementById('signupForm').addEventListener('submit', async function(e) {
             e.preventDefault();
-            var alertBox = document.getElementById('alertBox');
-            var btn = document.getElementById('signupBtn');
+            const alertBox = document.getElementById('alertBox');
+            const btn = document.getElementById('signupBtn');
 
-            var firstName = document.getElementById('firstName').value.trim();
-            var lastName = document.getElementById('lastName').value.trim();
-            var email = document.getElementById('email').value.trim();
-            var phone = document.getElementById('phone').value.trim();
-            var gender = document.getElementById('gender').value;
-            var password = document.getElementById('password').value;
-            var confirmPassword = document.getElementById('confirmPassword').value;
+            const firstName = document.getElementById('firstName').value.trim();
+            const lastName = document.getElementById('lastName').value.trim();
+            const email = document.getElementById('email').value.trim();
+            const phone = document.getElementById('phone').value.trim();
+            const gender = document.getElementById('gender').value;
+            const password = document.getElementById('password').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
 
             if (password !== confirmPassword) {
                 alertBox.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-circle"></i> Passwords do not match.</div>';
@@ -258,40 +261,31 @@
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating Account...';
             alertBox.innerHTML = '';
 
-            fetch(API_URL + '/api/auth/register', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    firstName: firstName,
-                    lastName: lastName,
-                    email: email,
-                    phone: phone,
-                    password: password,
-                    gender: gender
-                })
-            })
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                if (data.success) {
-                    if (data.token) {
-                        localStorage.setItem('token', data.token);
-                        var safeUser = { id: data.user.id, firstName: data.user.firstName, lastName: data.user.lastName, email: data.user.email, accountNumber: data.user.accountNumber, accountType: data.user.accountType };
-                        localStorage.setItem('user', JSON.stringify(safeUser));
-                    }
-                    alertBox.innerHTML = '<div class="alert alert-success"><i class="fas fa-check-circle"></i> Account created successfully! Redirecting...</div>';
-                    setTimeout(function() { window.location.href = data.token ? 'dashboard.html' : 'signin.html'; }, 2000);
-                } else {
-                    alertBox.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-circle"></i> ' + escapeHtml(data.message || 'Registration failed.') + '</div>';
-                    btn.disabled = false;
-                    btn.innerHTML = '<i class="fas fa-user-plus"></i> Create Account';
-                }
-            })
-            .catch(function() {
-                alertBox.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-circle"></i> Connection error. Please try again.</div>';
+            try {
+                const user = await firebaseSignUp(email, password, { firstName, lastName, phone, gender });
+                alertBox.innerHTML = '<div class="alert alert-success"><i class="fas fa-check-circle"></i> Account created! Redirecting...</div>';
+                setTimeout(() => { window.location.href = user.isAdmin ? 'admin.html' : 'dashboard.html'; }, 1500);
+            } catch (err) {
+                alertBox.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-circle"></i> ' + escapeHtml(err.message || 'Registration failed.') + '</div>';
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fas fa-user-plus"></i> Create Account';
-            });
+            }
         });
+
+        async function handleGoogleSignUp() {
+            const btn = document.getElementById('googleSignupBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Connecting...';
+            try {
+                const user = await firebaseGoogleSignIn();
+                document.getElementById('alertBox').innerHTML = '<div class="alert alert-success"><i class="fas fa-check-circle"></i> Signed up with Google! Redirecting...</div>';
+                setTimeout(() => { window.location.href = user.isAdmin ? 'admin.html' : 'dashboard.html'; }, 1200);
+            } catch (err) {
+                document.getElementById('alertBox').innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-circle"></i> ' + escapeHtml(err.message || 'Google sign-up failed.') + '</div>';
+                btn.disabled = false;
+                btn.innerHTML = '<img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" style="width:20px;height:20px;"> Continue with Google';
+            }
+        }
     </script>
     <script src="cookie-consent.js"></script>
 </body>

@@ -177,6 +177,17 @@
                 <button type="submit" class="btn-primary" id="loginBtn">
                     <i class="fas fa-sign-in-alt"></i> Sign In
                 </button>
+
+                <div style="display:flex;align-items:center;gap:12px;margin:18px 0">
+                    <div style="flex:1;height:1px;background:rgba(255,255,255,0.15)"></div>
+                    <span style="color:rgba(255,255,255,0.4);font-size:0.85rem">or</span>
+                    <div style="flex:1;height:1px;background:rgba(255,255,255,0.15)"></div>
+                </div>
+
+                <button type="button" id="googleBtn" onclick="handleGoogleSignIn()" style="width:100%;padding:12px;background:white;color:#333;border:none;border-radius:12px;font-size:0.92rem;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;transition:all 0.2s;">
+                    <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" style="width:20px;height:20px;" alt="Google">
+                    Continue with Google
+                </button>
                 
                 <div id="loginAttempts" class="login-attempts"></div>
             </form>
@@ -200,20 +211,17 @@
             <p class="signin-legal">By signing in, you agree to our <a href="terms.html">Terms of Service</a> and <a href="privacy.html">Privacy Policy</a>.</p>
         </div>
     </div>
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    <script src="firebase-config.js"></script>
+    <script src="firebase-auth-helper.js"></script>
     <script>
-        const API_URL = (() => {
-            const { hostname, protocol } = window.location;
-            if (protocol === 'file:' || hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0') {
-                return 'http://localhost:3001';
-            }
-            return `${window.location.protocol}//${window.location.host}`;
-        })();
-
         // Redirect authenticated users to dashboard
         (function() {
             const token = localStorage.getItem('token');
             if (token) {
-                fetch(`${API_URL}/api/auth/profile`, {
+                fetch(`${AUTH_API_URL}/api/auth/profile`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 }).then(r => r.json()).then(data => {
                     if (data.success && data.user) {
@@ -260,89 +268,55 @@
 
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            
-            // Check lockout
-            if (lockoutUntil && new Date() < new Date(lockoutUntil)) {
-                return;
-            }
-            
+            if (lockoutUntil && new Date() < new Date(lockoutUntil)) return;
+
             const loginBtn = document.getElementById('loginBtn');
             loginBtn.disabled = true;
             loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Signing in...';
-            
+
             try {
-                const res = await fetch(`${API_URL}/api/auth/login`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        email: document.getElementById('email').value,
-                        password: document.getElementById('password').value,
-                        rememberMe: document.getElementById('rememberMe').checked
-                    })
-                });
-                const data = await res.json();
-                
-                if (data.success) {
-                    // Clear failed attempts
-                    localStorage.removeItem('failedAttempts');
-                    localStorage.removeItem('lockoutUntil');
-                    
-                    // Save session
-                    if (document.getElementById('rememberMe').checked) {
-                        localStorage.setItem('rememberMe', 'true');
-                    }
-                    localStorage.setItem('token', data.token);
-                    const safeUser = { id: data.user.id, firstName: data.user.firstName, lastName: data.user.lastName, email: data.user.email, accountNumber: data.user.accountNumber, accountType: data.user.accountType, isAdmin: !!data.user.isAdmin };
-                    localStorage.setItem('user', JSON.stringify(safeUser));
-                    
-                    // Show success
-                    document.getElementById('alertBox').innerHTML = `<div class="alert alert-success"><i class="fas fa-check-circle"></i> Login successful! Redirecting...</div>`;
-                    
-                    // Show last login if available
-                    if (data.lastLogin) {
-                        document.getElementById('alertBox').innerHTML += `<div class="security-notice">Last login: ${new Date(data.lastLogin).toLocaleString()}</div>`;
-                    }
-                    
-                    setTimeout(() => {
-                        window.location.href = data.user.isAdmin ? 'admin.html' : 'dashboard.html';
-                    }, 1500);
+                const user = await firebaseSignIn(
+                    document.getElementById('email').value,
+                    document.getElementById('password').value
+                );
+                localStorage.removeItem('failedAttempts');
+                localStorage.removeItem('lockoutUntil');
+                if (document.getElementById('rememberMe').checked) localStorage.setItem('rememberMe', 'true');
+                document.getElementById('alertBox').innerHTML = '<div class="alert alert-success"><i class="fas fa-check-circle"></i> Login successful! Redirecting...</div>';
+                setTimeout(() => { window.location.href = user.isAdmin ? 'admin.html' : 'dashboard.html'; }, 1200);
+            } catch (err) {
+                failedAttempts++;
+                localStorage.setItem('failedAttempts', failedAttempts);
+                if (failedAttempts >= 5) {
+                    const lockoutTime = new Date(Date.now() + 15 * 60000);
+                    localStorage.setItem('lockoutUntil', lockoutTime.toISOString());
+                    document.getElementById('alertBox').innerHTML = '<div class="alert alert-danger"><i class="fas fa-lock"></i> Too many failed attempts. Account locked for 15 minutes.</div>';
+                    loginBtn.disabled = true;
                 } else {
-                    // Increment failed attempts
-                    failedAttempts++;
-                    localStorage.setItem('failedAttempts', failedAttempts);
-                    
-                    if (failedAttempts >= 5) {
-                        // Lock account for 15 minutes
-                        const lockoutTime = new Date(Date.now() + 15 * 60000);
-                        localStorage.setItem('lockoutUntil', lockoutTime.toISOString());
-                        document.getElementById('alertBox').innerHTML = `<div class="alert alert-danger"><i class="fas fa-lock"></i> Too many failed attempts. Account locked for 15 minutes.</div>`;
-                        document.getElementById('loginBtn').disabled = true;
-                        setTimeout(() => {
-                            localStorage.removeItem('lockoutUntil');
-                            localStorage.removeItem('failedAttempts');
-                            location.reload();
-                        }, 15 * 60000);
-                    } else {
-                        const safeMsg = (data.message || 'Login failed').replace(/[<>"'&]/g, c => ({
-                            '<': '&lt;',
-                            '>': '&gt;',
-                            '"': '&quot;',
-                            "'": '&#39;',
-                            '&': '&amp;'
-                        }[c]));
-                        document.getElementById('alertBox').innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-triangle"></i> ${safeMsg}</div>`;
-                        document.getElementById('loginAttempts').innerHTML = `⚠️ ${failedAttempts} failed attempt(s). ${5 - failedAttempts} remaining before lockout.`;
-                    }
-                    
+                    const msg = (err.message || 'Login failed').replace(/[<>"'&]/g, c => ({'<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','&':'&amp;'}[c]));
+                    document.getElementById('alertBox').innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-triangle"></i> ${msg}</div>`;
+                    document.getElementById('loginAttempts').innerHTML = `⚠️ ${failedAttempts} failed attempt(s). ${5 - failedAttempts} remaining before lockout.`;
                     loginBtn.disabled = false;
                     loginBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Sign In';
                 }
-            } catch (e) {
-                document.getElementById('alertBox').innerHTML = `<div class="alert alert-danger"><i class="fas fa-times-circle"></i> Connection error. Please try again.</div>`;
-                loginBtn.disabled = false;
-                loginBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Sign In';
             }
         });
+
+        async function handleGoogleSignIn() {
+            const btn = document.getElementById('googleBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Connecting...';
+            try {
+                const user = await firebaseGoogleSignIn();
+                document.getElementById('alertBox').innerHTML = '<div class="alert alert-success"><i class="fas fa-check-circle"></i> Signed in with Google! Redirecting...</div>';
+                setTimeout(() => { window.location.href = user.isAdmin ? 'admin.html' : 'dashboard.html'; }, 1200);
+            } catch (err) {
+                const msg = (err.message || 'Google sign-in failed').replace(/[<>"'&]/g, c => ({'<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','&':'&amp;'}[c]));
+                document.getElementById('alertBox').innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-triangle"></i> ${msg}</div>`;
+                btn.disabled = false;
+                btn.innerHTML = '<img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" style="width:20px;height:20px;"> Continue with Google';
+            }
+        }
 
         // Auto-fill if remember me was checked
         window.addEventListener('load', () => {

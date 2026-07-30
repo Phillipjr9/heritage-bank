@@ -47,7 +47,9 @@ console.log('[STARTUP] ✓ PDF receipt generator loaded');
 
 console.log('[STARTUP] All dependencies loaded successfully!');
 
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+// Load .env for local development only — in Firebase, env vars come from
+// Firebase Functions configuration / Secret Manager.
+try { require('dotenv').config({ path: path.join(__dirname, '..', '.env') }); } catch (_) {}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -110,27 +112,39 @@ console.log('[MIDDLEWARE] ✓ helmet configured with unsafe-inline scripts');
 
 app.use(cors({
   origin: function(origin, callback) {
-    // Define allowed origins - both local dev and production
+    // Allow requests with no origin (mobile apps, curl, same-origin)
+    if (!origin) return callback(null, true);
+
+    // In production, allow the same host the server is running on (Render, Railway, etc.)
+    // plus any explicitly configured CORS origin via env var
+    const extraOrigin = process.env.CORS_ORIGIN || '';
     const allowedOrigins = [
       'http://localhost:3000',
       'http://localhost:3001',
       'http://localhost:5173',
       'http://127.0.0.1:3000',
       'http://127.0.0.1:3001',
+      'https://heritagebank-3c12d.web.app',
+      'https://heritagebank-3c12d.firebaseapp.com',
       'https://heritage.up.railway.app',
       'https://heritagebank-production.up.railway.app',
-      'https://heritagebank.up.railway.app'
+      'https://heritagebank.up.railway.app',
+      ...(extraOrigin ? [extraOrigin] : [])
     ];
-    
-    // Allow requests with no origin (like mobile apps, curl requests)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.includes(origin)) {
+
+    // Allow any Cloudflare Pages domain automatically
+    if (
+      origin.endsWith('.pages.dev') ||
+      origin.endsWith('.onrender.com') ||
+      origin.endsWith('.web.app') ||
+      origin.endsWith('.firebaseapp.com') ||
+      allowedOrigins.includes(origin)
+    ) {
       return callback(null, true);
-    } else {
-      console.warn(`[CORS] Rejected request from origin: ${origin}`);
-      return callback(new Error('CORS not allowed'));
     }
+
+    console.warn(`[CORS] Rejected request from origin: ${origin}`);
+    return callback(new Error('CORS not allowed'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
@@ -275,6 +289,71 @@ function isValidAmount(amount) {
   const num = parseFloat(amount);
   return !isNaN(num) && num > 0 && num <= 9999999999999999.99;
 }
+
+// ============ FIREBASE AUTH ENDPOINT ============
+
+app.post('/api/auth/firebase-verify', async (req, res) => {
+  try {
+    const { idToken, firstName, lastName, phone, gender } = req.body;
+    if (!idToken) return res.status(400).json({ success: false, message: 'ID token required' });
+
+    // Verify the Firebase ID token using Firebase Admin SDK
+    let firebaseAdmin;
+    try {
+      firebaseAdmin = require('firebase-admin');
+      if (!firebaseAdmin.apps.length) {
+        firebaseAdmin.initializeApp({
+          credential: firebaseAdmin.credential.applicationDefault()
+        });
+      }
+    } catch (e) {
+      return res.status(500).json({ success: false, message: 'Firebase Admin not available' });
+    }
+
+    let decoded;
+    try {
+      decoded = await firebaseAdmin.auth().verifyIdToken(idToken);
+    } catch (e) {
+      return res.status(401).json({ success: false, message: 'Invalid or expired Firebase token' });
+    }
+
+    const email = decoded.email;
+    if (!email) return res.status(400).json({ success: false, message: 'No email in Firebase token' });
+
+    // Find or create user in MySQL
+    let user = await db.getUserByEmail(email);
+    if (!user) {
+      // New user — create with profile from Firebase or request body
+      const displayName = decoded.name || '';
+      const [fbFirst, ...fbRest] = displayName.split(' ');
+      const resolvedFirst = firstName || fbFirst || email.split('@')[0];
+      const resolvedLast = lastName || fbRest.join(' ') || 'User';
+      const randomPassword = require('crypto').randomBytes(32).toString('hex');
+      const hashedPassword = await bcrypt.hash(randomPassword, 10);
+      user = await db.createUser(null, email, resolvedFirst, resolvedLast, hashedPassword, false, phone || null, gender || null);
+    }
+
+    // Issue backend JWT
+    const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        balance: parseFloat(user.balance),
+        isAdmin: !!user.isAdmin,
+        accountNumber: user.accountNumber || null
+      }
+    });
+  } catch (error) {
+    console.error('[API] firebase-verify error:', error);
+    res.status(500).json({ success: false, message: 'Authentication failed' });
+  }
+});
 
 // ============ AUTHENTICATION ENDPOINTS ============
 
@@ -946,7 +1025,8 @@ app.get('/api/notifications', authenticateToken, async (req, res) => {
     }
     
     // Get user-specific notifications from transactions
-    const [transactions] = await db.pool.query(
+    const _pool = await db.initializePool();
+    const [transactions] = await _pool.query(
       'SELECT * FROM transactions WHERE fromUserId = ? OR toUserId = ? ORDER BY createdAt DESC LIMIT ?',
       [currentUser.id, currentUser.id, limit]
     );
@@ -3485,6 +3565,24 @@ app.post('/api/admin/request-documents/:userId', authenticateToken, requireAdmin
 async function ensureCardsTable(connection) {
   console.log('[DB] Ensuring cards table exists...');
   try {
+    // Ensure bank_accounts table exists (required for card issuance)
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS bank_accounts (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        userId INT NOT NULL,
+        accountNumber VARCHAR(64),
+        accountType VARCHAR(30) DEFAULT 'checking',
+        accountName VARCHAR(100) DEFAULT 'Primary Checking',
+        ledgerBalance DECIMAL(19,2) DEFAULT 0,
+        availableBalance DECIMAL(19,2) DEFAULT 0,
+        status VARCHAR(20) DEFAULT 'active',
+        isPrimary TINYINT(1) DEFAULT 0,
+        openedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (userId) REFERENCES users(id),
+        INDEX idx_userId (userId)
+      )
+    `).catch(() => {});
+
     const createTableSQL = `
       CREATE TABLE IF NOT EXISTS cards (
         id INT PRIMARY KEY AUTO_INCREMENT,

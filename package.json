@@ -8,5 +8,7 @@
     "dev": "node backend/server.js",
     "postinstall": "npm ci --prefix backend --omit=dev"
   },
-  "dependencies": {}
+  "dependencies": {
+    "firebase": "^12.17.0"
+  }
 }
