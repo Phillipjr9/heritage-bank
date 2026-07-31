@@ -1589,9 +1589,13 @@
 
     <script>
         if(localStorage.getItem('darkMode')==='true')document.body.classList.add('dark-mode');
-        const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-            ? 'http://localhost:3001'
-            : window.location.origin;
+        const API_BASE = (() => {
+            const { hostname, protocol } = window.location;
+            if (protocol === 'file:' || hostname === 'localhost' || hostname === '127.0.0.1') {
+                return 'http://localhost:3001';
+            }
+            return 'https://heritage-bank-production.up.railway.app';
+        })();
 
         function getToken() {
             return localStorage.getItem('token');
