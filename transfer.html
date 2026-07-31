@@ -488,26 +488,34 @@
         }
         
         .amount-input {
-            position: relative;
-        }
-        .amount-input span {
-            position: absolute;
-            left: 15px;
-            top: 0;
-            bottom: 0;
             display: flex;
             align-items: center;
+            gap: 10px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 0 14px;
+            background: white;
+        }
+        .amount-input .amount-prefix {
             color: #64748b;
             font-size: 1.2rem;
-            pointer-events: none;
-            z-index: 1;
+            font-weight: 600;
+            flex-shrink: 0;
+            line-height: 1;
         }
         .amount-input input {
-            padding-left: 42px;
+            padding: 14px 0;
             font-size: 1.3rem;
             font-weight: 600;
             width: 100%;
             box-sizing: border-box;
+            border: none;
+            background: transparent;
+            box-shadow: none;
+        }
+        .amount-input:focus-within {
+            border-color: #d4af37;
+            box-shadow: 0 0 0 3px rgba(212,175,55,0.12);
         }
         
         .quick-amounts {
@@ -835,7 +843,7 @@
                 <div class="form-group">
                     <label>Amount</label>
                     <div class="amount-input">
-                        <span>$</span>
+                        <span class="amount-prefix">$</span>
                         <input type="number" id="amount" min="1" step="0.01" placeholder="0.00" required oninput="updateSummary()">
                     </div>
                     <div class="quick-amounts">
@@ -855,12 +863,12 @@
                             <span class="cur-label">US Dollar</span>
                         </div>
                         <div class="currency-option" onclick="setRecipientCurrency('GBP', this)">
-                            <span class="cur-symbol">?</span>
+                            <span class="cur-symbol">£</span>
                             GBP
                             <span class="cur-label">British Pound</span>
                         </div>
                         <div class="currency-option" onclick="setRecipientCurrency('EUR', this)">
-                            <span class="cur-symbol">?</span>
+                            <span class="cur-symbol">€</span>
                             EUR
                             <span class="cur-label">Euro</span>
                         </div>

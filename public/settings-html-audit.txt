@@ -1,0 +1,1 @@
+Audit note: settings.html includes activeSessionsContainer but currently lacks loginHistoryContainer. Need to insert login history section near security/auth layout.
