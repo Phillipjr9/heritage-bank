@@ -333,10 +333,11 @@ body.dark-mode .main-content { background: #0f172a; }
     color: white;
     position: relative;
     overflow: hidden;
-    min-height: 250px;
+    min-height: 280px;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
+    padding: 42px 40px;
 }
 .balance-card::before {
     content: '';
@@ -351,6 +352,7 @@ body.dark-mode .main-content { background: #0f172a; }
     align-items: center;
     position: relative;
     z-index: 1;
+    gap: 16px;
 }
 .summary-pill {
     display: inline-flex;
@@ -378,6 +380,9 @@ body.dark-mode .main-content { background: #0f172a; }
     align-items: center;
     text-align: center;
     gap: 18px;
+    max-width: 640px;
+    margin-left: auto;
+    margin-right: auto;
 }
 .summary-label {
     color: rgba(255,255,255,0.75);
@@ -388,17 +393,23 @@ body.dark-mode .main-content { background: #0f172a; }
     margin-bottom: 8px;
 }
 .summary-balance {
-    font-size: 3.2rem;
-    font-weight: 700;
+    font-size: 4rem;
+    font-weight: 800;
     letter-spacing: -0.04em;
-    line-height: 1.05;
+    line-height: 1.02;
+}
+.summary-note {
+    color: rgba(255,255,255,0.8);
+    font-size: 0.98rem;
+    max-width: 520px;
+    margin: 0 auto;
 }
 .summary-meta {
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
     gap: 10px;
-    margin-top: 14px;
+    margin-top: 18px;
 }
 .summary-chip {
     display: inline-flex;
