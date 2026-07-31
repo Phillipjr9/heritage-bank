@@ -71,6 +71,49 @@
             justify-content: center;
             margin-bottom: 20px;
         }
+        .dialog-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            backdrop-filter: blur(4px);
+            z-index: 1100;
+            align-items: center;
+            justify-content: center;
+        }
+        .dialog-overlay.active { display: flex; }
+        .dialog-box {
+            background: white;
+            border-radius: 18px;
+            width: min(460px, calc(100% - 32px));
+            max-width: 100%;
+            padding: 24px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+        }
+        body.dark-mode .dialog-box { background: #1f2b47; color: #eee; }
+        .dialog-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 10px; }
+        .dialog-message { color: #4a5568; margin-bottom: 18px; line-height: 1.6; }
+        body.dark-mode .dialog-message { color: #cbd5e1; }
+        .dialog-input-container input {
+            width: 100%;
+            padding: 12px 14px;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            font-size: 1rem;
+            color: inherit;
+            background: white;
+        }
+        body.dark-mode .dialog-input-container input {
+            background: #18304a;
+            border-color: #334155;
+            color: #eee;
+        }
+        .dialog-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 20px;
+        }
         .pin-input input {
             width: 50px;
             height: 50px;
@@ -1021,11 +1064,27 @@
             <div class="settings-card" id="security-auth">
                 <h2><i class="fas fa-shield-alt"></i> Security & Authentication</h2>
 
+                <!-- Login History -->
+                <div class="login-history-section">
+                    <h3 class="login-history-heading"><i class="fas fa-history"></i> Login History</h3>
+                    <div id="loginHistoryContainer" class="login-history-container">
+                        <p class="login-history-loading">Loading login history...</p>
+                    </div>
+                </div>
+
                 <!-- Active Sessions -->
                 <div class="active-sessions-section">
                     <h3 class="active-sessions-heading"><i class="fas fa-laptop"></i> Active Sessions</h3>
                     <div id="activeSessionsContainer" class="active-sessions-container">
                         <p class="active-sessions-loading">Loading active sessions...</p>
+                    </div>
+                </div>
+
+                <!-- Recent Activity -->
+                <div class="login-history-section">
+                    <h3 class="login-history-heading"><i class="fas fa-stream"></i> Recent Activity</h3>
+                    <div id="activityList" class="activity-list">
+                        <p class="active-sessions-loading">Loading recent activity...</p>
                     </div>
                 </div>
                 
@@ -1041,7 +1100,7 @@
                 </div>
                 
                 <div id="passwordForm" class="password-form-section">
-                    <form onsubmit="changePassword(event)">
+                    <form id="passwordChangeForm" onsubmit="changePassword(event)">
                         <div class="form-group">
                             <label>Current Password</label>
                             <input type="password" id="currentPassword" required title="Current Password">
@@ -1079,15 +1138,19 @@
 
                 <div id="twoFASetup" class="twofa-setup">
                     <h4>2FA Setup</h4>
-                    <div class="form-group">
-                        <label>2FA Method</label>
-                        <select id="twoFAMethod" onchange="handleUpdate2FAMethod()" title="2FA Method">
-                            <option value="sms">SMS (Text Message)</option>
-                            <option value="email">Email</option>
-                            <option value="authenticator">Authenticator App</option>
-                        </select>
-                    </div>
-                    <button class="btn btn-primary" onclick="generateBackupCodes()"><i class="fas fa-key"></i> Generate Backup Codes</button>
+                    <form id="twoFactorSetupForm">
+                        <div class="form-group">
+                            <label>2FA Method</label>
+                            <select id="twoFAMethod" onchange="handleUpdate2FAMethod()" title="2FA Method">
+                                <option value="sms">SMS (Text Message)</option>
+                                <option value="email">Email</option>
+                                <option value="authenticator">Authenticator App</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save 2FA Settings</button>
+                    </form>
+                    <button type="button" class="btn btn-secondary" onclick="generateBackupCodes()"><i class="fas fa-key"></i> Generate Backup Codes</button>
+                    <div id="backupCodesContainer" class="backup-codes-container" style="margin-top: 15px;"></div>
                 </div>
 
                 <!-- Biometric / Passkey Login -->
@@ -1296,7 +1359,17 @@
             </form>
         </div>
     </div>
-    
+    <div class="dialog-overlay" id="globalDialog" aria-hidden="true" role="dialog" aria-modal="true">
+        <div class="dialog-box">
+            <div id="dialogTitle" class="dialog-title">Confirm action</div>
+            <div id="dialogMessage" class="dialog-message"></div>
+            <div id="dialogInputContainer" class="dialog-input-container"></div>
+            <div class="dialog-actions">
+                <button type="button" class="btn btn-secondary" id="dialogCancelBtn">Cancel</button>
+                <button type="button" class="btn btn-primary" id="dialogConfirmBtn">Confirm</button>
+            </div>
+        </div>
+    </div>
     <script>
         // Auth guard – redirect immediately if not logged in
         if (!localStorage.getItem('token')) { window.location.href = 'signin.html'; }
@@ -1342,6 +1415,7 @@
             });
         })();
     </script>
+    <script src="config.js"></script>
     <script src="settings-enhanced.js"></script>
     <footer class="app-footer">
         <div class="app-footer-inner">

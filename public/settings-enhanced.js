@@ -4,7 +4,7 @@
  * security, 2FA, login history, sessions, data export, and account controls
  */
 
-const API_URL = (() => {
+const API_URL = window.API_URL || (() => {
     const { hostname, protocol } = window.location;
     if (protocol === 'file:' || hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0') {
         return 'http://localhost:3001';
@@ -89,6 +89,9 @@ async function populateAllSections(user) {
     
     // Load document verification status
     await loadDocumentStatus(user);
+
+    // Load recent activity
+    await loadActivity();
     
     // Load account controls state
     populateAccountControls(user);
@@ -186,9 +189,8 @@ async function sendEmailVerification() {
         });
         const data = await res.json();
         if (data.success) {
-            showAlert(data.message || 'Email verified!', 'success');
-            // Refresh badges
-            loadProfile();
+            showAlert(data.message || 'Verification email sent!', 'success');
+            await checkAuth();
         } else {
             showAlert(data.message || 'Verification failed', 'error');
         }
@@ -207,8 +209,8 @@ async function sendPhoneVerification() {
         });
         const data = await res.json();
         if (data.success) {
-            showAlert(data.message || 'Phone verified!', 'success');
-            loadProfile();
+            showAlert(data.message || 'Phone verification sent!', 'success');
+            await checkAuth();
         } else {
             showAlert(data.message || 'Verification failed', 'error');
         }
@@ -399,14 +401,6 @@ function updateSidebarAvatar(profileImage, gender) {
     }
 }
 
-// File input change handler
-document.addEventListener('DOMContentLoaded', function() {
-    const input = document.getElementById('profilePictureInput');
-    if (input) {
-        input.addEventListener('change', handleProfilePictureSelect);
-    }
-});
-
 function handleProfilePictureSelect(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -569,27 +563,50 @@ function displayLoginHistory(logins) {
     const container = document.getElementById('loginHistoryContainer');
     if (!container) return;
     
+    container.innerHTML = '';
     if (!logins || logins.length === 0) {
-        container.innerHTML = '<p style="color: #999; text-align: center;">No login history</p>';
+        const empty = document.createElement('p');
+        empty.style.color = '#999';
+        empty.style.textAlign = 'center';
+        empty.textContent = 'No login history';
+        container.appendChild(empty);
         return;
     }
-    
-    container.innerHTML = logins.slice(0, 10).map(login => `
-        <div class="history-item" style="padding: 10px; border-bottom: 1px solid #eee;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <strong>${escapeHtml(login.device || 'Unknown Device')}</strong>
-                    <p style="margin: 5px 0 0 0; color: #666; font-size: 0.85rem;">
-                        <i class="fas fa-map-marker-alt"></i> ${escapeHtml(login.location || 'Unknown Location')}<br>
-                        <i class="fas fa-globe"></i> IP: ${maskIP(login.ip || 'N/A')}
-                    </p>
-                </div>
-                <div style="text-align: right; color: #999; font-size: 0.85rem;">
-                    ${formatTimeAgo(login.timestamp || login.createdAt || new Date())}
-                </div>
-            </div>
-        </div>
-    `).join('');
+
+    logins.slice(0, 10).forEach(login => {
+        const card = document.createElement('div');
+        card.className = 'history-item';
+        card.style.padding = '10px';
+        card.style.borderBottom = '1px solid #eee';
+
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.justifyContent = 'space-between';
+        row.style.alignItems = 'center';
+
+        const left = document.createElement('div');
+        const title = document.createElement('strong');
+        title.textContent = login.device || 'Unknown Device';
+        left.appendChild(title);
+
+        const detail = document.createElement('p');
+        detail.style.margin = '5px 0 0 0';
+        detail.style.color = '#666';
+        detail.style.fontSize = '0.85rem';
+        detail.innerHTML = `<i class="fas fa-map-marker-alt"></i> ${escapeHtml(login.location || 'Unknown Location')}<br><i class="fas fa-globe"></i> IP: ${maskIP(login.ip || 'N/A')}`;
+        left.appendChild(detail);
+
+        const right = document.createElement('div');
+        right.style.textAlign = 'right';
+        right.style.color = '#999';
+        right.style.fontSize = '0.85rem';
+        right.textContent = formatTimeAgo(login.timestamp || login.createdAt || new Date());
+
+        row.appendChild(left);
+        row.appendChild(right);
+        card.appendChild(row);
+        container.appendChild(card);
+    });
 }
 
 function maskIP(ip) {
@@ -643,28 +660,61 @@ function displayActiveSessions(sessions) {
     const container = document.getElementById('activeSessionsContainer');
     if (!container) return;
     
+    container.innerHTML = '';
     if (!sessions || sessions.length === 0) {
-        container.innerHTML = '<p style="color: #999; text-align: center;">No active sessions</p>';
+        const empty = document.createElement('p');
+        empty.style.color = '#999';
+        empty.style.textAlign = 'center';
+        empty.textContent = 'No active sessions';
+        container.appendChild(empty);
         return;
     }
-    
-    container.innerHTML = sessions.map(session => `
-        <div class="session-item" style="padding: 15px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
-            <div>
-                <strong>${session.deviceName || 'Device'}</strong> 
-                <span style="color: #999; font-size: 0.85rem;">${session.browserName || 'Browser'}</span>
-                <p style="margin: 5px 0 0 0; color: #666; font-size: 0.85rem;">
-                    <i class="fas fa-map-marker-alt"></i> ${session.location || 'Unknown Location'}
-                </p>
-                <p style="margin: 5px 0 0 0; color: #999; font-size: 0.8rem;">
-                    Last active: ${formatTimeAgo(session.lastActivity || new Date())}
-                </p>
-            </div>
-            <button class="btn btn-secondary btn-sm" onclick="logoutSession('${session.id || session._id}')">
-                <i class="fas fa-sign-out-alt"></i> Logout
-            </button>
-        </div>
-    `).join('');
+
+    sessions.forEach(session => {
+        const card = document.createElement('div');
+        card.className = 'session-item';
+        card.style.padding = '15px';
+        card.style.borderBottom = '1px solid #eee';
+        card.style.display = 'flex';
+        card.style.justifyContent = 'space-between';
+        card.style.alignItems = 'center';
+
+        const left = document.createElement('div');
+        const title = document.createElement('strong');
+        title.textContent = session.deviceName || 'Device';
+        left.appendChild(title);
+
+        const browserInfo = document.createElement('span');
+        browserInfo.style.color = '#999';
+        browserInfo.style.fontSize = '0.85rem';
+        browserInfo.style.display = 'block';
+        browserInfo.textContent = session.browserName || 'Browser';
+        left.appendChild(browserInfo);
+
+        const location = document.createElement('p');
+        location.style.margin = '5px 0 0 0';
+        location.style.color = '#666';
+        location.style.fontSize = '0.85rem';
+        location.innerHTML = `<i class="fas fa-map-marker-alt"></i> ${escapeHtml(session.location || 'Unknown Location')}`;
+        left.appendChild(location);
+
+        const lastActive = document.createElement('p');
+        lastActive.style.margin = '5px 0 0 0';
+        lastActive.style.color = '#999';
+        lastActive.style.fontSize = '0.8rem';
+        lastActive.textContent = `Last active: ${formatTimeAgo(session.lastActivity || new Date())}`;
+        left.appendChild(lastActive);
+
+        const button = document.createElement('button');
+        button.className = 'btn btn-secondary btn-sm';
+        button.type = 'button';
+        button.innerHTML = '<i class="fas fa-sign-out-alt"></i> Logout';
+        button.addEventListener('click', () => logoutSession(session.id || session._id));
+
+        card.appendChild(left);
+        card.appendChild(button);
+        container.appendChild(card);
+    });
 }
 
 async function logoutSession(sessionId) {
@@ -689,7 +739,8 @@ async function logoutSession(sessionId) {
 }
 
 async function logoutAllSessions() {
-    if (!confirm('This will log you out of all devices. Continue?')) return;
+    const confirmed = await showConfirmDialog('This will log you out of all devices. Continue?', 'Log out of all devices', 'Log out', 'Cancel');
+    if (!confirmed) return;
     
     const token = localStorage.getItem('token');
     
@@ -860,7 +911,7 @@ function requestLimitIncrease() {
 
 async function enable2FA(e) {
     e?.preventDefault();
-    const method = document.getElementById('twoFactorMethod')?.value || 'sms';
+    const method = document.getElementById('twoFAMethod')?.value || 'sms';
     const token = localStorage.getItem('token');
     
     try {
@@ -887,7 +938,8 @@ async function enable2FA(e) {
 }
 
 async function disable2FA() {
-    if (!confirm('Disable Two-Factor Authentication? This reduces your account security.')) return;
+    const confirmed = await showConfirmDialog('Disable Two-Factor Authentication? This reduces your account security.', 'Disable Two-Factor Authentication', 'Disable', 'Cancel');
+    if (!confirmed) return;
     
     const token = localStorage.getItem('token');
     
@@ -930,23 +982,53 @@ async function generateBackupCodes() {
 function displayBackupCodes(codes) {
     const container = document.getElementById('backupCodesContainer');
     if (!container) return;
-    
-    container.innerHTML = `
-        <div style="background: #f9f9f9; padding: 15px; border-radius: 8px; border-left: 4px solid #ff9800;">
-            <h4><i class="fas fa-shield-alt"></i> Backup Codes</h4>
-            <p style="color: #666; font-size: 0.9rem;">Save these codes in a safe place. Use them if you lose access to your 2FA device.</p>
-            <div style="background: white; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 0.85rem; line-height: 1.8;">
-                ${codes.map(code => `<div>${code}</div>`).join('')}
-            </div>
-            <button class="btn btn-secondary btn-sm" onclick="downloadBackupCodes()" style="margin-top: 10px;">
-                <i class="fas fa-download"></i> Download
-            </button>
-        </div>
-    `;
+    container.innerHTML = '';
+
+    const card = document.createElement('div');
+    card.style.background = '#f9f9f9';
+    card.style.padding = '15px';
+    card.style.borderRadius = '8px';
+    card.style.borderLeft = '4px solid #ff9800';
+
+    const heading = document.createElement('h4');
+    heading.innerHTML = '<i class="fas fa-shield-alt"></i> Backup Codes';
+    card.appendChild(heading);
+
+    const help = document.createElement('p');
+    help.style.color = '#666';
+    help.style.fontSize = '0.9rem';
+    help.textContent = 'Save these codes in a safe place. Use them if you lose access to your 2FA device.';
+    card.appendChild(help);
+
+    const codesWrapper = document.createElement('div');
+    codesWrapper.style.background = 'white';
+    codesWrapper.style.padding = '10px';
+    codesWrapper.style.borderRadius = '4px';
+    codesWrapper.style.fontFamily = 'monospace';
+    codesWrapper.style.fontSize = '0.85rem';
+    codesWrapper.style.lineHeight = '1.8';
+
+    codes.forEach(code => {
+        const codeLine = document.createElement('div');
+        codeLine.className = 'backup-code';
+        codeLine.textContent = code;
+        codesWrapper.appendChild(codeLine);
+    });
+    card.appendChild(codesWrapper);
+
+    const downloadButton = document.createElement('button');
+    downloadButton.className = 'btn btn-secondary btn-sm';
+    downloadButton.type = 'button';
+    downloadButton.style.marginTop = '10px';
+    downloadButton.innerHTML = '<i class="fas fa-download"></i> Download';
+    downloadButton.addEventListener('click', downloadBackupCodes);
+    card.appendChild(downloadButton);
+
+    container.appendChild(card);
 }
 
 function downloadBackupCodes() {
-    const codes = document.querySelectorAll('[style*="monospace"] div');
+    const codes = document.querySelectorAll('#backupCodesContainer .backup-code');
     const text = Array.from(codes).map(el => el.textContent).join('\n');
     const blob = new Blob([text], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
@@ -1017,21 +1099,45 @@ function displayDocuments(documents) {
     const container = document.getElementById('uploadedDocsList');
     if (!container) return;
     
+    container.innerHTML = '';
     if (!documents || documents.length === 0) return;
-    
-    container.innerHTML = '<h4 style="margin-bottom: 10px; color: #333;">Uploaded Documents</h4>' + documents.map(doc => `
-        <div style="padding: 12px; background: #f9f9f9; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
-            <div>
-                <strong>${doc.documentType || 'Document'}</strong>
-                <p style="margin: 4px 0 0; color: #666; font-size: 0.85rem;">
-                    Uploaded: ${new Date(doc.uploadedAt || Date.now()).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                    &bull; Status: <span style="color: ${doc.verified ? '#4caf50' : '#ff9800'};">
-                        ${doc.verified ? '<i class="fas fa-check-circle"></i> Verified' : '<i class="fas fa-clock"></i> Under Review'}
-                    </span>
-                </p>
-            </div>
-        </div>
-    `).join('');
+
+    const header = document.createElement('h4');
+    header.style.marginBottom = '10px';
+    header.style.color = '#333';
+    header.textContent = 'Uploaded Documents';
+    container.appendChild(header);
+
+    documents.forEach(doc => {
+        const card = document.createElement('div');
+        card.style.padding = '12px';
+        card.style.background = '#f9f9f9';
+        card.style.borderRadius = '6px';
+        card.style.display = 'flex';
+        card.style.justifyContent = 'space-between';
+        card.style.alignItems = 'center';
+        card.style.marginBottom = '10px';
+
+        const left = document.createElement('div');
+        const title = document.createElement('strong');
+        title.textContent = doc.documentType || 'Document';
+        left.appendChild(title);
+
+        const meta = document.createElement('p');
+        meta.style.margin = '4px 0 0';
+        meta.style.color = '#666';
+        meta.style.fontSize = '0.85rem';
+        const uploadedDate = new Date(doc.uploadedAt || Date.now()).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        const status = document.createElement('span');
+        status.style.color = doc.verified ? '#4caf50' : '#ff9800';
+        status.textContent = doc.verified ? 'Verified' : 'Under Review';
+        meta.innerHTML = `Uploaded: ${uploadedDate} • Status: `;
+        meta.appendChild(status);
+        left.appendChild(meta);
+
+        card.appendChild(left);
+        container.appendChild(card);
+    });
 }
 
 async function uploadDocument(e) {
@@ -1095,36 +1201,72 @@ function displayBeneficiaries(beneficiaries) {
     const container = document.getElementById('beneficiariesList');
     if (!container) return;
     
+    container.innerHTML = '';
     if (!beneficiaries || beneficiaries.length === 0) {
-        container.innerHTML = '<p style="text-align: center; color: #999;">No beneficiaries added yet</p>';
+        const empty = document.createElement('p');
+        empty.style.textAlign = 'center';
+        empty.style.color = '#999';
+        empty.textContent = 'No beneficiaries added yet';
+        container.appendChild(empty);
         return;
     }
-    
-    container.innerHTML = beneficiaries.map(ben => {
+
+    beneficiaries.forEach(ben => {
         const safeId = escapeHtml(String(ben.id || ben._id));
-        return `
-        <div class="beneficiary-item" style="padding: 15px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
-            <div>
-                <strong>${escapeHtml(ben.name)}</strong>
-                ${ben.nickname ? `<span style="color: #999; font-size: 0.9rem;"> (${escapeHtml(ben.nickname)})</span>` : ''}
-                <p style="margin: 5px 0 0 0; color: #666; font-size: 0.85rem;">
-                    Account: ${maskAccountNumber(ben.accountNumber)}<br>
-                    Routing: ${escapeHtml(ben.routingNumber)} | Bank: ${escapeHtml(ben.bankName || 'N/A')}<br>
-                    Status: <span style="color: ${ben.verified ? '#4caf50' : '#ff9800'};">
-                        ${ben.verified ? 'Verified' : 'Pending Verification'}
-                    </span>
-                </p>
-            </div>
-            <div>
-                <button class="btn btn-secondary btn-sm" onclick="editBeneficiary('${safeId}')">
-                    <i class="fas fa-edit"></i>
-                </button>
-                <button class="btn btn-danger btn-sm" onclick="deleteBeneficiary('${safeId}')" style="margin-left: 5px;">
-                    <i class="fas fa-trash"></i>
-                </button>
-            </div>
-        </div>
-    `; }).join('');
+        const card = document.createElement('div');
+        card.className = 'beneficiary-item';
+        card.style.padding = '15px';
+        card.style.borderBottom = '1px solid #eee';
+        card.style.display = 'flex';
+        card.style.justifyContent = 'space-between';
+        card.style.alignItems = 'center';
+
+        const left = document.createElement('div');
+        const nameEl = document.createElement('strong');
+        nameEl.textContent = ben.name;
+        left.appendChild(nameEl);
+
+        if (ben.nickname) {
+            const nicknameEl = document.createElement('span');
+            nicknameEl.style.color = '#999';
+            nicknameEl.style.fontSize = '0.9rem';
+            nicknameEl.textContent = ` (${ben.nickname})`;
+            left.appendChild(nicknameEl);
+        }
+
+        const details = document.createElement('p');
+        details.style.margin = '5px 0 0 0';
+        details.style.color = '#666';
+        details.style.fontSize = '0.85rem';
+        details.innerHTML = `Account: ${maskAccountNumber(ben.accountNumber)}<br>Routing: ${escapeHtml(ben.routingNumber)} | Bank: ${escapeHtml(ben.bankName || 'N/A')}<br>`;
+
+        const status = document.createElement('span');
+        status.style.color = ben.verified ? '#4caf50' : '#ff9800';
+        status.textContent = ben.verified ? 'Verified' : 'Pending Verification';
+        details.appendChild(status);
+        left.appendChild(details);
+
+        const right = document.createElement('div');
+        const editButton = document.createElement('button');
+        editButton.className = 'btn btn-secondary btn-sm';
+        editButton.type = 'button';
+        editButton.innerHTML = '<i class="fas fa-edit"></i>';
+        editButton.addEventListener('click', () => editBeneficiary(safeId));
+
+        const deleteButton = document.createElement('button');
+        deleteButton.className = 'btn btn-danger btn-sm';
+        deleteButton.type = 'button';
+        deleteButton.style.marginLeft = '5px';
+        deleteButton.innerHTML = '<i class="fas fa-trash"></i>';
+        deleteButton.addEventListener('click', () => deleteBeneficiary(safeId));
+
+        right.appendChild(editButton);
+        right.appendChild(deleteButton);
+
+        card.appendChild(left);
+        card.appendChild(right);
+        container.appendChild(card);
+    });
 }
 
 function maskAccountNumber(account) {
@@ -1132,36 +1274,40 @@ function maskAccountNumber(account) {
     return '*'.repeat(account.length - 4) + account.slice(-4);
 }
 
-function editBeneficiary(benId) {
+async function editBeneficiary(benId) {
     const token = localStorage.getItem('token');
     const userId = localStorage.getItem('userId');
-    fetch(`${API_URL}/api/user/${userId}/beneficiaries`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-    })
-    .then(r => r.json())
-    .then(data => {
+
+    try {
+        const res = await fetch(`${API_URL}/api/user/${userId}/beneficiaries`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
         const ben = (data.beneficiaries || []).find(b => (b.id || b._id) == benId);
         if (!ben) return showAlert('Beneficiary not found', 'error');
-        const name = prompt('Beneficiary Name:', ben.name || '');
+
+        const name = await showPromptDialog('Beneficiary Name:', ben.name || '', 'Edit Beneficiary', 'Save', 'Cancel');
         if (name === null) return;
-        const nickname = prompt('Nickname (optional):', ben.nickname || '');
-        fetch(`${API_URL}/api/user/${userId}/beneficiaries/${benId}`, {
+
+        const nickname = await showPromptDialog('Nickname (optional):', ben.nickname || '', 'Edit Beneficiary', 'Save', 'Cancel');
+        if (nickname === null) return;
+
+        const updateRes = await fetch(`${API_URL}/api/user/${userId}/beneficiaries/${benId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify({ name, nickname })
-        })
-        .then(r => r.json())
-        .then(res => {
-            if (res.success) {
-                showAlert('Beneficiary updated', 'success');
-                loadBeneficiaries();
-            } else {
-                showAlert(res.message || 'Update failed', 'error');
-            }
-        })
-        .catch(e => showAlert('Error: ' + e.message, 'error'));
-    })
-    .catch(e => showAlert('Error: ' + e.message, 'error'));
+        });
+        const result = await updateRes.json();
+
+        if (result.success) {
+            showAlert('Beneficiary updated', 'success');
+            await loadBeneficiaries();
+        } else {
+            showAlert(result.message || 'Update failed', 'error');
+        }
+    } catch (e) {
+        showAlert('Error: ' + e.message, 'error');
+    }
 }
 
 function showAddBeneficiaryForm() {
@@ -1227,7 +1373,8 @@ async function addBeneficiary() {
 }
 
 async function deleteBeneficiary(benId) {
-    if (!confirm('Delete this beneficiary?')) return;
+    const confirmed = await showConfirmDialog('Delete this beneficiary?', 'Delete Beneficiary', 'Delete', 'Cancel');
+    if (!confirmed) return;
     
     const token = localStorage.getItem('token');
     
@@ -1421,7 +1568,8 @@ async function saveTransactionPin(e) {
 }
 
 async function removeTransactionPin() {
-    if (!confirm('Are you sure you want to remove your transaction PIN?')) return;
+    const confirmed = await showConfirmDialog('Are you sure you want to remove your transaction PIN?', 'Remove Transaction PIN', 'Remove', 'Cancel');
+    if (!confirmed) return;
     
     const token = localStorage.getItem('token');
     try {
@@ -1515,7 +1663,8 @@ async function exportData() {
 }
 
 async function requestAccountDeletion() {
-    if (!confirm('Request account deletion? You will have 30 days to cancel this request.')) return;
+    const confirmed = await showConfirmDialog('Request account deletion? You will have 30 days to cancel this request.', 'Request Account Deletion', 'Request', 'Cancel');
+    if (!confirmed) return;
     
     const token = localStorage.getItem('token');
     
@@ -1536,11 +1685,13 @@ async function requestAccountDeletion() {
     }
 }
 
-function confirmCloseAccount() {
-    if (confirm('Are you sure you want to close your account? This action cannot be undone.')) {
-        if (confirm('All your funds will need to be withdrawn. Type "CLOSE" to confirm.')) {
-            showAlert('Please contact customer support to close your account.', 'error');
-        }
+async function confirmCloseAccount() {
+    const firstConfirm = await showConfirmDialog('Are you sure you want to close your account? This action cannot be undone.', 'Close Account', 'Continue', 'Cancel');
+    if (!firstConfirm) return;
+
+    const code = await showPromptDialog('To confirm account closure, type CLOSE below.', 'CLOSE', 'Confirm Account Closure', 'Confirm', 'Cancel');
+    if (code && code.trim().toUpperCase() === 'CLOSE') {
+        showAlert('Please contact customer support to close your account.', 'error');
     }
 }
 
@@ -1563,6 +1714,89 @@ function logout() {
     localStorage.clear();
     if (consent) localStorage.setItem('cookieConsent', consent);
     window.location.href = 'signin.html';
+}
+
+async function showDialog({ title = 'Confirm action', message = '', type = 'confirm', defaultValue = '', confirmText = 'Confirm', cancelText = 'Cancel' }) {
+    return new Promise((resolve) => {
+        const overlay = document.getElementById('globalDialog');
+        const titleEl = document.getElementById('dialogTitle');
+        const messageEl = document.getElementById('dialogMessage');
+        const inputContainer = document.getElementById('dialogInputContainer');
+        const confirmBtn = document.getElementById('dialogConfirmBtn');
+        const cancelBtn = document.getElementById('dialogCancelBtn');
+
+        if (!overlay || !messageEl || !confirmBtn || !cancelBtn || !inputContainer) {
+            resolve(type === 'prompt' ? null : false);
+            return;
+        }
+
+        titleEl.textContent = title;
+        messageEl.textContent = message;
+        inputContainer.innerHTML = '';
+        overlay.classList.add('active');
+        overlay.setAttribute('aria-hidden', 'false');
+
+        let input;
+        if (type === 'prompt') {
+            input = document.createElement('input');
+            input.type = 'text';
+            input.value = defaultValue;
+            input.placeholder = defaultValue || 'Enter value';
+            input.className = 'dialog-input';
+            inputContainer.appendChild(input);
+            setTimeout(() => input.focus(), 0);
+        }
+
+        confirmBtn.textContent = confirmText;
+        cancelBtn.textContent = cancelText;
+
+        const cleanup = () => {
+            overlay.classList.remove('active');
+            overlay.setAttribute('aria-hidden', 'true');
+            confirmBtn.removeEventListener('click', onConfirm);
+            cancelBtn.removeEventListener('click', onCancel);
+            overlay.removeEventListener('click', onBackdropClick);
+            document.removeEventListener('keydown', onKeyDown);
+        };
+
+        const onConfirm = () => {
+            cleanup();
+            resolve(type === 'prompt' ? input.value : true);
+        };
+
+        const onCancel = () => {
+            cleanup();
+            resolve(type === 'prompt' ? null : false);
+        };
+
+        const onBackdropClick = (event) => {
+            if (event.target === overlay) onCancel();
+        };
+
+        const onKeyDown = (event) => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                onCancel();
+            }
+            if (event.key === 'Enter' && type === 'prompt') {
+                event.preventDefault();
+                onConfirm();
+            }
+        };
+
+        confirmBtn.addEventListener('click', onConfirm);
+        cancelBtn.addEventListener('click', onCancel);
+        overlay.addEventListener('click', onBackdropClick);
+        document.addEventListener('keydown', onKeyDown);
+    });
+}
+
+function showConfirmDialog(message, title = 'Confirm', confirmText = 'Confirm', cancelText = 'Cancel') {
+    return showDialog({ title, message, type: 'confirm', confirmText, cancelText });
+}
+
+function showPromptDialog(message, defaultValue = '', title = 'Input Required', confirmText = 'Save', cancelText = 'Cancel') {
+    return showDialog({ title, message, type: 'prompt', defaultValue, confirmText, cancelText });
 }
 
 // ============================================================================
@@ -1599,6 +1833,14 @@ document.addEventListener('DOMContentLoaded', function() {
         twoFactorForm.addEventListener('submit', enable2FA);
     }
     
+    const profilePictureInput = document.getElementById('profilePictureInput');
+    if (profilePictureInput) {
+        profilePictureInput.addEventListener('change', handleProfilePictureSelect);
+    }
+
+    // Load biometric credentials after DOM is ready
+    loadBiometricCredentials();
+
     // Check auth and load profile
     checkAuth();
 });
@@ -1633,40 +1875,60 @@ function displayActivity(activities) {
     const container = document.getElementById('activityList');
     if (!container) return;
 
+    container.innerHTML = '';
     if (!activities || activities.length === 0) {
-        container.innerHTML = `
-            <div class="activity-item">
-                <div class="activity-dot"></div>
-                <div class="activity-content">
-                    <p>No recent activity yet</p>
-                    <span>New logins and transactions will appear here</span>
-                </div>
-            </div>
-        `;
+        const item = document.createElement('div');
+        item.className = 'activity-item';
+
+        const dot = document.createElement('div');
+        dot.className = 'activity-dot';
+        item.appendChild(dot);
+
+        const content = document.createElement('div');
+        content.className = 'activity-content';
+
+        const message = document.createElement('p');
+        message.textContent = 'No recent activity yet';
+        content.appendChild(message);
+
+        const hint = document.createElement('span');
+        hint.textContent = 'New logins and transactions will appear here';
+        content.appendChild(hint);
+
+        item.appendChild(content);
+        container.appendChild(item);
         return;
     }
-    
-    container.innerHTML = activities.map(activity => {
+
+    activities.forEach(activity => {
         const date = new Date(activity.timestamp || activity.createdAt);
         const timeAgo = (!isNaN(date.getTime())) ? getTimeAgo(date) : '-';
 
         const actionText = activity.action || activity.title || activity.description || 'Activity';
-        const descText = (activity.action && activity.description)
-            ? String(activity.description)
-            : '';
-
+        const descText = (activity.action && activity.description) ? String(activity.description) : '';
         const meta = [descText, timeAgo].filter(Boolean).join(' • ');
-        
-        return `
-            <div class="activity-item">
-                <div class="activity-dot"></div>
-                <div class="activity-content">
-                    <p>${escapeHtml(actionText)}</p>
-                    <span>${escapeHtml(meta || timeAgo)}</span>
-                </div>
-            </div>
-        `;
-    }).join('');
+
+        const item = document.createElement('div');
+        item.className = 'activity-item';
+
+        const dot = document.createElement('div');
+        dot.className = 'activity-dot';
+        item.appendChild(dot);
+
+        const content = document.createElement('div');
+        content.className = 'activity-content';
+
+        const title = document.createElement('p');
+        title.textContent = actionText;
+        content.appendChild(title);
+
+        const span = document.createElement('span');
+        span.textContent = meta || timeAgo;
+        content.appendChild(span);
+
+        item.appendChild(content);
+        container.appendChild(item);
+    });
 }
 
 function getTimeAgo(date) {
@@ -1679,16 +1941,6 @@ function getTimeAgo(date) {
     if (diff < 604800) return Math.floor(diff / 86400) + ' days ago';
     
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-function escapeHtml(str) {
-    if (str === null || str === undefined) return '';
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
 }
 
 // Export for testing
@@ -1731,20 +1983,48 @@ async function loadBiometricCredentials() {
             container.innerHTML = '<p style="color:#94a3b8;font-size:0.85rem;padding:10px 0 0;">No passkeys registered yet. Add one to enable passwordless sign-in.</p>';
             return;
         }
-        container.innerHTML = data.credentials.map((c, i) => {
+
+        container.innerHTML = '';
+        data.credentials.forEach((c, i) => {
             const dateStr = new Date(c.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-            return `
-            <div class="biometric-cred-item">
-                <div class="biometric-cred-info">
-                    <div class="biometric-cred-icon"><i class="fas fa-fingerprint"></i></div>
-                    <div>
-                        <div class="biometric-cred-name">Passkey ${i + 1}</div>
-                        <div class="biometric-cred-date"><i class="fas fa-calendar-alt"></i> Added ${dateStr}</div>
-                    </div>
-                </div>
-                <button class="btn btn-danger" style="padding:6px 14px;font-size:0.8rem;border-radius:8px;" onclick="removeBiometricCredential(${c.id})"><i class="fas fa-trash"></i> Remove</button>
-            </div>`;
-        }).join('');
+
+            const item = document.createElement('div');
+            item.className = 'biometric-cred-item';
+
+            const info = document.createElement('div');
+            info.className = 'biometric-cred-info';
+
+            const icon = document.createElement('div');
+            icon.className = 'biometric-cred-icon';
+            icon.innerHTML = '<i class="fas fa-fingerprint"></i>';
+            info.appendChild(icon);
+
+            const details = document.createElement('div');
+            const nameEl = document.createElement('div');
+            nameEl.className = 'biometric-cred-name';
+            nameEl.textContent = `Passkey ${i + 1}`;
+            details.appendChild(nameEl);
+
+            const dateEl = document.createElement('div');
+            dateEl.className = 'biometric-cred-date';
+            dateEl.innerHTML = `<i class="fas fa-calendar-alt"></i> Added ${escapeHtml(dateStr)}`;
+            details.appendChild(dateEl);
+
+            info.appendChild(details);
+            item.appendChild(info);
+
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'btn btn-danger';
+            removeBtn.type = 'button';
+            removeBtn.style.padding = '6px 14px';
+            removeBtn.style.fontSize = '0.8rem';
+            removeBtn.style.borderRadius = '8px';
+            removeBtn.innerHTML = '<i class="fas fa-trash"></i> Remove';
+            removeBtn.addEventListener('click', () => removeBiometricCredential(c.id));
+
+            item.appendChild(removeBtn);
+            container.appendChild(item);
+        });
     } catch (e) {
         container.innerHTML = '';
     }
@@ -1837,7 +2117,8 @@ async function registerBiometric() {
 }
 
 async function removeBiometricCredential(credId) {
-    if (!confirm('Remove this passkey? You won\'t be able to use it for biometric login anymore.')) return;
+    const confirmed = await showConfirmDialog('Remove this passkey? You won\'t be able to use it for biometric login anymore.', 'Remove Passkey', 'Remove', 'Cancel');
+    if (!confirmed) return;
     const token = localStorage.getItem('token');
     try {
         const res = await fetch(`${API_URL}/api/auth/webauthn/credentials/${credId}`, {
@@ -1856,7 +2137,3 @@ async function removeBiometricCredential(credId) {
     }
 }
 
-// Load biometric credentials on page load
-document.addEventListener('DOMContentLoaded', function() {
-    setTimeout(loadBiometricCredentials, 500);
-});
