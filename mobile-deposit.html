@@ -491,10 +491,11 @@
         </div>
     </div>
 
+    <script src="config.js"></script>
     <script>
         if(localStorage.getItem('darkMode')==='true')document.body.classList.add('dark-mode');
-        const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-            ? 'http://localhost:3001' : window.location.origin;
+        const API_URL = window.API_URL || (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+            ? 'http://localhost:3001' : window.location.origin);
 
         let userId = null;
         let currentBalance = 0;

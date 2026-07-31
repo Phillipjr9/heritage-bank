@@ -331,7 +331,6 @@
         .biller-info-box { background: #f0f7f2; border: 1px solid rgba(26,71,42,0.1); border-radius: 10px; padding: 14px 18px; margin-bottom: 20px; }
         .biller-info-name { color: #1a472a; font-size: 1.05rem; margin: 0; }
     </style>
-    <script src="config.js"></script>
 </head>
 <body>
     <div class="page-loader" id="pageLoader"><div class="loader-content"><div class="loader-ring"><div class="loader-logo"><img src="assets/logo.png" alt="Heritage Bank"></div></div><div class="loader-text">Loading</div></div></div>
@@ -417,11 +416,12 @@
         </div>
     </div>
     
+    <script src="config.js"></script>
     <script>
         if(localStorage.getItem('darkMode')==='true')document.body.classList.add('dark-mode');
-        const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+        const API_URL = window.API_URL || (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
             ? 'http://localhost:3001' 
-            : window.location.origin;
+            : window.location.origin);
         let userId = null;
         let currentBalance = 0;
         let selectedBiller = null;

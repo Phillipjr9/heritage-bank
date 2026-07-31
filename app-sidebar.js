@@ -11,7 +11,6 @@
         'investment.html':   { label: 'Investments',    icon: 'fa-chart-line',        section: 'products' },
         'retirement.html':   { label: 'Retirement',     icon: 'fa-umbrella-beach',    section: 'products' },
         'request-loan.html': { label: 'Loans',          icon: 'fa-hand-holding-usd',  section: 'products' },
-        'savings-goals.html':{ label: 'Savings Goals',  icon: 'fa-piggy-bank',        section: 'products' },
         'analytics.html':    { label: 'Analytics',      icon: 'fa-chart-pie',         section: 'others' },
         'statements.html':   { label: 'Statements',     icon: 'fa-file-alt',          section: 'others' },
         'messages.html':     { label: 'Messages',       icon: 'fa-envelope',          section: 'others' },

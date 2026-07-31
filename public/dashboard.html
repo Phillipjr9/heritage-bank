@@ -49,7 +49,6 @@
                 <li onclick="location.href='cards.html'"><i class="fas fa-credit-card"></i> Cards</li>
                 <li onclick="location.href='investment.html'"><i class="fas fa-chart-line"></i> Investments</li>
                 <li onclick="location.href='request-loan.html'"><i class="fas fa-hand-holding-usd"></i> Loans</li>
-                <li onclick="location.href='savings-goals.html'"><i class="fas fa-piggy-bank"></i> Savings Goals</li>
             </ul>
             <div class="sidebar-divider"></div>
             <div class="sidebar-section">Others</div>
@@ -104,19 +103,11 @@
                     </div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-icon savings"><i class="fas fa-piggy-bank"></i></div>
+                    <div class="metric-icon"><i class="fas fa-history"></i></div>
                     <div class="metric-info">
-                        <span class="metric-label">Savings Goal</span>
-                        <h2 class="metric-value" id="savingsGoal">Loading...</h2>
-                        <span class="metric-sub"><span id="savingsProgress">0%</span> achieved</span>
-                    </div>
-                </div>
-                <div class="metric-card">
-                    <div class="metric-icon secure"><i class="fas fa-lock"></i></div>
-                    <div class="metric-info">
-                        <span class="metric-label">Secure Access</span>
-                        <h2 class="metric-value">24/7</h2>
-                        <span class="metric-sub">Protected banking anytime</span>
+                        <span class="metric-label">Recent Activity</span>
+                        <h2 class="metric-value" id="activitySummary">Live</h2>
+                        <span class="metric-sub">Transactions and payments stay up to date instantly</span>
                     </div>
                 </div>
             </div>
@@ -124,17 +115,12 @@
             <div class="dashboard-hero">
                 <div class="hero-main">
                     <p class="hero-eyebrow"><i class="fas fa-shield-alt"></i> Protected banking experience</p>
-                    <h2>Everything you need to stay in control of your money.</h2>
-                    <p>Move funds, review recent activity and keep your savings goals on track from one polished workspace.</p>
+                    <h2>Banking that feels clear and effortless.</h2>
+                    <p>Move money, review recent activity, and manage your account from one calm workspace.</p>
                     <div class="hero-actions">
                         <a class="hero-btn hero-btn-primary" href="transfer.html"><i class="fas fa-paper-plane"></i> Transfer money</a>
                         <a class="hero-btn hero-btn-secondary" href="transactions.html"><i class="fas fa-list-ul"></i> Review activity</a>
                     </div>
-                </div>
-                <div class="hero-side">
-                    <div class="hero-badge"><i class="fas fa-lock"></i> Secure & encrypted</div>
-                    <div class="hero-badge"><i class="fas fa-bolt"></i> Instant transfers</div>
-                    <div class="hero-badge"><i class="fas fa-chart-line"></i> Goals at a glance</div>
                 </div>
             </div>
 
@@ -197,10 +183,6 @@
                             <div class="action-card" onclick="location.href='pay-bills.html'">
                                 <i class="fas fa-file-invoice-dollar"></i>
                                 <h4>Pay Bills</h4>
-                            </div>
-                            <div class="action-card" onclick="location.href='savings-goals.html'">
-                                <i class="fas fa-piggy-bank"></i>
-                                <h4>Savings Goals</h4>
                             </div>
                             <div class="action-card" onclick="location.href='analytics.html'">
                                 <i class="fas fa-chart-pie"></i>
@@ -389,10 +371,6 @@
                     if (swiftEl && data.user.swiftCode) swiftEl.textContent = data.user.swiftCode;
                     document.getElementById('accountType').textContent = (data.user.accountType || 'Savings') + ' Account';
                     document.getElementById('accType').textContent = data.user.accountType || 'Savings';
-                    
-                    // Load savings goals from API to calculate progress
-                    const balance = data.user.balance || 0;
-                    loadSavingsGoalProgress(balance, token);
                     
                     // Load transactions and activity
                     loadTransactions();
