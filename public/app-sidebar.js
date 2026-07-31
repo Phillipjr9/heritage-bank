@@ -148,8 +148,8 @@
         // Load user avatar into sidebar
         var token = localStorage.getItem('token');
         if (token) {
-            var sidebarApiUrl = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-                ? 'http://localhost:3001' : window.location.origin;
+            var sidebarApiUrl = window.API_URL || ((window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+                ? 'http://localhost:3001' : window.location.origin);
             fetch(sidebarApiUrl + '/api/user/profile', {
                 headers: { 'Authorization': 'Bearer ' + token }
             }).then(function(r) { return r.json(); }).then(function(data) {

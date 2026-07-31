@@ -218,9 +218,9 @@
     </div>
     
     <script>
-        const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
-            ? 'http://localhost:3001' 
-            : window.location.origin;
+        const API_URL = window.API_URL || (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+            ? 'http://localhost:3001'
+            : window.location.origin);
         let userId = null;
         
         // Session timeout variables (15 minutes idle = warning, 2 more minutes = logout)
@@ -351,9 +351,9 @@
                     }
 
                     document.getElementById('balance').textContent = '$' + (data.user.balance || 0).toLocaleString(undefined, {minimumFractionDigits: 2});
-                    document.getElementById('accountNumber').textContent = data.user.accountNumber ? ('****' + data.user.accountNumber.slice(-4)) : '-';
+                    document.getElementById('accountNumber').textContent = data.user.accountNumber || '-';
                     document.getElementById('accountNumber').dataset.full = data.user.accountNumber || '';
-                    document.getElementById('accountNumber').dataset.masked = 'true';
+                    document.getElementById('accountNumber').dataset.masked = 'false';
                     var routingEl = document.getElementById('routingNumber');
                     if (routingEl && data.user.routingNumber) routingEl.textContent = data.user.routingNumber;
                     var swiftEl = document.getElementById('swiftCode');
