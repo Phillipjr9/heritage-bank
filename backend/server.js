@@ -1138,7 +1138,7 @@ app.get('/api/notifications', authenticateToken, async (req, res) => {
         createdAt: tx.createdAt
       };
     });
-    
+
     // Add account notifications only for this user
     if (currentUser.createdAt) {
       const daysSinceCreation = Math.floor((Date.now() - new Date(currentUser.createdAt).getTime()) / (1000 * 60 * 60 * 24));
@@ -1153,8 +1153,9 @@ app.get('/api/notifications', authenticateToken, async (req, res) => {
         });
       }
     }
-    
-    res.json({ success: true, notifications: notifications.slice(0, limit) });
+
+    const unreadCount = notifications.filter(n => !n.read).length;
+    res.json({ success: true, notifications: notifications.slice(0, limit), unreadCount });
   } catch (e) {
     console.error('[API] notifications error', e);
     res.status(500).json({ success: false, message: 'Failed to fetch notifications' });

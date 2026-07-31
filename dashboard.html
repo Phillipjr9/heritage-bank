@@ -424,42 +424,63 @@
 
         async function loadNotifications() {
             const token = localStorage.getItem('token');
+            if (!window._shownNotificationIds) window._shownNotificationIds = new Set();
+            if (!window._readNotificationKeys) {
+                const stored = localStorage.getItem('dashboardReadNotifications');
+                window._readNotificationKeys = new Set(stored ? JSON.parse(stored) : []);
+            }
+
             try {
                 const res = await fetch(`${API_URL}/api/notifications?limit=10`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 const data = await res.json();
                 if (data.success) {
-                    const unread = data.unreadCount || 0;
+                    const notifications = Array.isArray(data.notifications) ? data.notifications : [];
+                    const prepared = notifications.map(n => {
+                        const key = getNotificationKey(n);
+                        return {
+                            ...n,
+                            key,
+                            read: n.read || window._readNotificationKeys.has(key)
+                        };
+                    });
+
+                    const unread = prepared.reduce((count, n) => count + (n.read ? 0 : 1), 0);
                     const badge = document.getElementById('notifBadge');
                     const notifBtn = document.getElementById('notifBtn');
                     badge.textContent = unread;
                     badge.style.display = unread > 0 ? 'flex' : 'none';
-                    // Animate bell when there are unread notifications
                     if (notifBtn) {
                         if (unread > 0) notifBtn.classList.add('has-unread');
                         else notifBtn.classList.remove('has-unread');
                     }
+
                     const list = document.getElementById('notifList');
-                    if (data.notifications && data.notifications.length > 0) {
-                        list.innerHTML = data.notifications.map(n => `
-                            <div style="padding:12px 15px; border-bottom:1px solid #f0f0f0; ${n.read ? '' : 'background:#f0f8ff;'}">
+                    if (prepared.length > 0) {
+                        list.innerHTML = prepared.map(n => `
+                            <div data-notif-key="${escapeHtmlDash(n.key)}" style="padding:12px 15px; border-bottom:1px solid #f0f0f0; ${n.read ? '' : 'background:#f0f8ff;'}">
                                 <div style="font-size:0.9rem; color:#333;">${escapeHtmlDash(n.message || n.title || 'Notification')}</div>
                                 <div style="font-size:0.75rem; color:#999; margin-top:4px;">${new Date(n.createdAt).toLocaleDateString()}</div>
                             </div>
                         `).join('');
-
-                        // Show toast for new unread notifications
-                        if (typeof window._lastNotifCheck !== 'undefined') {
-                            const newOnes = data.notifications.filter(n => !n.read && new Date(n.createdAt) > window._lastNotifCheck);
-                            newOnes.forEach(n => showAlertToast(n.title || 'New Alert', n.message || n.title));
-                        }
-                        window._lastNotifCheck = new Date();
+                    } else {
+                        list.innerHTML = '<p class="notif-empty">No notifications</p>';
                     }
+
+                    const newOnes = prepared.filter(n => !n.read && !window._shownNotificationIds.has(n.key));
+                    newOnes.forEach(n => {
+                        window._shownNotificationIds.add(n.key);
+                        showAlertToast(n.title || 'New Alert', n.message || n.title);
+                    });
                 }
             } catch (e) {
                 console.error('Notifications load error:', e);
             }
+        }
+
+        function getNotificationKey(n) {
+            return n.id != null ? `id:${n.id}` : `ts:${n.createdAt}:${n.title || ''}:${n.message || ''}`;
         }
 
         // Real-time alert toast system
@@ -509,11 +530,19 @@
                     method: 'PUT',
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
+
+                if (!window._readNotificationKeys) window._readNotificationKeys = new Set();
+                document.querySelectorAll('#notifList > div[data-notif-key]').forEach(d => {
+                    const key = d.dataset.notifKey;
+                    if (key) window._readNotificationKeys.add(key);
+                    d.style.background = '';
+                });
+
+                localStorage.setItem('dashboardReadNotifications', JSON.stringify([...window._readNotificationKeys]));
                 document.getElementById('notifBadge').textContent = '0';
                 document.getElementById('notifBadge').style.display = 'none';
-                var notifBtn = document.getElementById('notifBtn');
+                const notifBtn = document.getElementById('notifBtn');
                 if (notifBtn) notifBtn.classList.remove('has-unread');
-                document.querySelectorAll('#notifList > div').forEach(d => d.style.background = '');
             } catch (e) { console.error(e); }
         }
 

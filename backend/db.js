@@ -149,7 +149,7 @@ async function initializeSchema() {
           routingNumber VARCHAR(32) DEFAULT NULL,
           accountType VARCHAR(30) DEFAULT 'checking',
           swiftCode VARCHAR(64) DEFAULT NULL,
-          balance DECIMAL(19, 2) DEFAULT 1000,
+          balance DECIMAL(19, 2) DEFAULT 0,
           accountStatus VARCHAR(50) DEFAULT 'active',
           transferRestricted BOOLEAN DEFAULT FALSE,
           isAdmin BOOLEAN DEFAULT FALSE,
@@ -460,14 +460,14 @@ async function getUserById(id) {
 /**
  * Create user
  */
-async function createUser(id, email, firstName, lastName, passwordHash, isAdmin = false, phone = null, gender = null) {
+async function createUser(id, email, firstName, lastName, passwordHash, isAdmin = false, phone = null, gender = null, initialBalance = 0) {
   const pool = await initializePool();
   const connection = await pool.getConnection();
   try {
     const actualPasswordColumn = await detectPasswordColumn();
-    console.log(`[DB] Creating user: ${email}, passwordColumn: ${actualPasswordColumn}, phone: ${phone}, gender: ${gender}`);
+    console.log(`[DB] Creating user: ${email}, passwordColumn: ${actualPasswordColumn}, phone: ${phone}, gender: ${gender}, initialBalance: ${initialBalance}`);
     const columns = ['email', 'firstName', 'lastName', actualPasswordColumn, 'balance', 'isAdmin'];
-    const values = [email, firstName, lastName, passwordHash, 1000, isAdmin ? 1 : 0];
+    const values = [email, firstName, lastName, passwordHash, initialBalance, isAdmin ? 1 : 0];
 
     if (phone) {
       columns.push('phone');

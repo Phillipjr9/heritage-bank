@@ -118,6 +118,24 @@
             background: rgba(0,0,0,0.4);
             z-index: 190;
         }
+        .sidebar-close {
+            display: none;
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            border: none;
+            background: rgba(255,255,255,0.08);
+            color: #fff;
+            font-size: 1rem;
+            cursor: pointer;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+        .sidebar-close:hover { background: rgba(255,255,255,0.14); }
 
         /* ═══════ MAIN CONTENT ═══════ */
         .admin-main {
@@ -495,6 +513,7 @@
             .admin-sidebar { transform: translateX(-100%); }
             .admin-sidebar.open { transform: translateX(0); }
             .sidebar-toggle { display: flex; }
+            .sidebar-close { display: flex; }
             .sidebar-overlay.active { display: block; }
             .admin-main { margin-left: 0; }
             .admin-topbar { padding: 16px 20px 16px 64px; }
@@ -551,6 +570,7 @@
                 <div class="brand-sub">Admin Portal</div>
             </div>
         </div>
+        <button class="sidebar-close" onclick="closeAdminSidebar()" aria-label="Close sidebar"><i class="fas fa-times"></i></button>
         <nav class="sidebar-nav">
             <div class="sidebar-nav-label">Main</div>
             <div class="nav-item active" onclick="showSection('dashboard', this)">
@@ -1592,6 +1612,11 @@
         function toggleAdminSidebar() {
             document.querySelector('.admin-sidebar').classList.toggle('open');
             document.querySelector('.sidebar-overlay').classList.toggle('active');
+        }
+
+        function closeAdminSidebar() {
+            document.querySelector('.admin-sidebar').classList.remove('open');
+            document.querySelector('.sidebar-overlay').classList.remove('active');
         }
 
         // Set topbar date
@@ -3682,9 +3707,6 @@
             loadAdminAccount();
             loadDashboardStats();
             loadTransactions();
-            
-            // Auto-refresh every 60 seconds
-            setInterval(refreshAllData, 60000);
         }
     </script>
     <script src="cookie-consent.js"></script>
