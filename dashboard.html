@@ -99,34 +99,42 @@
                 </div>
             </div>
 
-            <!-- Metric Cards -->
-            <div class="metric-cards">
-                <div class="metric-card primary">
-                    <div class="metric-icon"><i class="fas fa-wallet"></i></div>
-                    <div class="metric-info">
-                        <span class="metric-label">Available Balance</span>
-                        <h2 class="metric-value" id="balance">$0.00</h2>
-                        <span class="metric-sub" id="accountType">Savings Account</span>
+            <div class="dashboard-summary">
+                <div class="summary-card balance-card">
+                    <div class="summary-card-head">
+                        <span class="card-kicker">Primary balance</span>
+                        <span class="summary-pill"><i class="fas fa-circle"></i> Active</span>
+                    </div>
+                    <div class="balance-content">
+                        <div>
+                            <p class="summary-label">Available balance</p>
+                            <h2 class="summary-balance" id="balance">$0.00</h2>
+                        </div>
+                        <div class="summary-meta">
+                            <span class="summary-chip" id="accountType">Savings Account</span>
+                            <span class="summary-chip soft">Protected</span>
+                        </div>
                     </div>
                 </div>
-                <div class="metric-card">
-                    <div class="metric-icon secure"><i class="fas fa-shield-alt"></i></div>
-                    <div class="metric-info">
-                        <span class="metric-label">Security</span>
-                        <h2 class="metric-value">Protected</h2>
-                        <span class="metric-sub">Your account stays monitored around the clock</span>
-                    </div>
-                </div>
-            </div>
 
-            <div class="dashboard-hero">
-                <div class="hero-main">
-                    <p class="hero-eyebrow"><i class="fas fa-shield-alt"></i> Everyday banking</p>
-                    <h2>A calmer way to manage your money.</h2>
-                    <p>Review balances, move funds, and stay on top of your account from one streamlined view.</p>
-                    <div class="hero-actions">
-                        <a class="hero-btn hero-btn-primary" href="transfer.html"><i class="fas fa-paper-plane"></i> Transfer money</a>
-                        <a class="hero-btn hero-btn-secondary" href="transactions.html"><i class="fas fa-list-ul"></i> Review activity</a>
+                <div class="summary-card info-card">
+                    <div class="summary-card-head">
+                        <span class="card-kicker">What you can do</span>
+                        <span class="summary-pill muted">Fast</span>
+                    </div>
+                    <div class="info-list">
+                        <div class="info-row">
+                            <span><i class="fas fa-shield-alt"></i> Security</span>
+                            <strong>24/7 monitoring</strong>
+                        </div>
+                        <div class="info-row">
+                            <span><i class="fas fa-paper-plane"></i> Transfers</span>
+                            <strong>Instant</strong>
+                        </div>
+                        <div class="info-row">
+                            <span><i class="fas fa-file-invoice-dollar"></i> Bills</span>
+                            <strong>Scheduled</strong>
+                        </div>
                     </div>
                 </div>
             </div>
