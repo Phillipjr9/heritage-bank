@@ -74,6 +74,7 @@ async function firebaseSignUp(email, password, profile = {}) {
 
 /**
  * Sign in with Google popup via Firebase Auth.
+ * Falls back to redirect when the browser blocks the popup.
  */
 async function firebaseGoogleSignIn() {
     const auth = firebase.auth();
@@ -85,7 +86,35 @@ async function firebaseGoogleSignIn() {
         const cred = await auth.signInWithPopup(provider);
         return syncFirebaseUserWithBackend(cred.user);
     } catch (e) {
-        if (e && (e.code === 'auth/configuration-not-found' || /configuration-not-found/i.test(e.message || ''))) {
+        const msg = e?.message || '';
+
+        if (e && (e.code === 'auth/configuration-not-found' || /configuration-not-found/i.test(msg))) {
+            throw new Error('Google sign-in is not configured for this browser origin. Please add heritage-bank.pages.dev to Firebase Authentication authorized domains and ensure Google Sign-In is enabled for this project.');
+        }
+
+        if (e && (e.code === 'auth/popup-blocked' || /popup|blocked|cancelled|denied/i.test(msg))) {
+            await auth.signInWithRedirect(provider);
+            return { redirecting: true };
+        }
+
+        throw e;
+    }
+}
+
+/**
+ * Complete the Google redirect flow on the page the browser lands on after auth.
+ */
+async function handleFirebaseGoogleRedirectResult() {
+    const auth = firebase.auth();
+    try {
+        const result = await auth.getRedirectResult();
+        if (!result || !result.user) {
+            return null;
+        }
+        return syncFirebaseUserWithBackend(result.user);
+    } catch (e) {
+        const msg = e?.message || '';
+        if (e && (e.code === 'auth/configuration-not-found' || /configuration-not-found/i.test(msg))) {
             throw new Error('Google sign-in is not configured for this browser origin. Please add heritage-bank.pages.dev to Firebase Authentication authorized domains and ensure Google Sign-In is enabled for this project.');
         }
         throw e;
@@ -107,5 +136,6 @@ async function firebaseSignOut() {
 window.firebaseSignIn = firebaseSignIn;
 window.firebaseSignUp = firebaseSignUp;
 window.firebaseGoogleSignIn = firebaseGoogleSignIn;
+window.handleFirebaseGoogleRedirectResult = handleFirebaseGoogleRedirectResult;
 window.firebaseSignOut = firebaseSignOut;
 window.syncFirebaseUserWithBackend = syncFirebaseUserWithBackend;
