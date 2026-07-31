@@ -264,7 +264,7 @@ function formatAccountType(type) {
         'money-market': 'Money Market Account',
         'cd': 'Certificate of Deposit'
     };
-    return types[type] || type;
+    return types[type] || types['checking'];
 }
 
 function getStatusBadge(status) {

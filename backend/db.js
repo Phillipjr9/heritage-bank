@@ -147,6 +147,7 @@ async function initializeSchema() {
           passwordHash VARCHAR(255),
           accountNumber VARCHAR(64) DEFAULT NULL,
           routingNumber VARCHAR(32) DEFAULT NULL,
+          accountType VARCHAR(30) DEFAULT 'checking',
           swiftCode VARCHAR(64) DEFAULT NULL,
           balance DECIMAL(19, 2) DEFAULT 1000,
           accountStatus VARCHAR(50) DEFAULT 'active',
@@ -290,6 +291,20 @@ async function initializeSchema() {
         console.log('[DB] ✓ Backfilled accountNumber for existing users');
       } catch (backfillErr) {
         console.error('[DB] ✗ Backfill accountNumber failed:', backfillErr.message);
+      }
+      try {
+        console.log('[DB] Ensuring accountType column exists on users table');
+        await connection.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS accountType VARCHAR(30) DEFAULT 'checking'");
+        console.log('[DB] ✓ accountType column verified');
+      } catch (columnErr) {
+        console.error('[DB] ✗ Failed to verify accountType column:', columnErr.message);
+      }
+      try {
+        console.log('[DB] Ensuring isVerified column exists on users table');
+        await connection.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS isVerified BOOLEAN DEFAULT FALSE");
+        console.log('[DB] ✓ isVerified column verified');
+      } catch (columnErr) {
+        console.error('[DB] ✗ Failed to verify isVerified column:', columnErr.message);
       }
       // Create new feature tables if missing
       try {
@@ -571,7 +586,7 @@ async function getAllUsers() {
     // Select columns that exist across different production schemas.
     // Some deployments use `isLocked` while others do not; select a safe subset.
     const [rows] = await connection.execute(`SELECT id, email, firstName, lastName, balance, isAdmin,
-      accountNumber, accountStatus, transferRestricted, createdAt
+      accountNumber, routingNumber, accountType, accountStatus, transferRestricted, isVerified, createdAt
       FROM users ORDER BY createdAt DESC`);
     return rows;
   } finally {

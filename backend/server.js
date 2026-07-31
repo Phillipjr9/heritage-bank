@@ -689,6 +689,8 @@ app.get('/api/auth/profile', authenticateToken, async (req, res) => {
         accountNumber: user.accountNumber || null,
         routingNumber: user.routingNumber || null,
         swiftCode: user.swiftCode || null,
+        accountType: user.accountType || 'checking',
+        accountStatus: user.accountStatus || 'active',
         isVerified: !!user.isVerified
       }
     });
@@ -722,6 +724,8 @@ app.get('/api/user/profile/complete', authenticateToken, async (req, res) => {
         createdAt: user.createdAt,
         accountNumber: user.accountNumber || null,
         routingNumber: user.routingNumber || null,
+        accountType: user.accountType || 'checking',
+        accountStatus: user.accountStatus || 'active',
         swiftCode: user.swiftCode || null,
         phoneNumber: user.phoneNumber || '',
         address: user.address || '',
@@ -824,13 +828,98 @@ app.get('/api/admin/users-with-balances', authenticateToken, requireAdmin, async
       lastName: u.lastName,
       balance: parseFloat(u.balance || 0),
       accountNumber: u.accountNumber || null,
+      routingNumber: u.routingNumber || null,
+      accountType: u.accountType || 'checking',
       accountStatus: u.accountStatus || 'active',
-      transferRestricted: !!u.transferRestricted
+      createdAt: u.createdAt,
+      transferRestricted: !!u.transferRestricted,
+      isVerified: !!u.isVerified
     }));
     res.json({ success: true, users: mapped });
   } catch (e) {
     console.error('[ADMIN] users-with-balances error', e);
     res.status(500).json({ success: false, message: 'Failed to fetch users' });
+  }
+});
+
+app.put('/api/admin/users/:userId', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const userId = Number(req.params.userId);
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ success: false, message: 'Valid user id is required' });
+    }
+
+    const { accountType, routingNumber, accountStatus, createdAt } = req.body;
+    if (accountType === undefined && routingNumber === undefined && accountStatus === undefined && createdAt === undefined) {
+      return res.status(400).json({ success: false, message: 'At least one editable field is required' });
+    }
+
+    const targetUser = await db.getUserById(userId);
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const allowedAccountTypes = ['checking', 'savings', 'money-market', 'cd'];
+    const allowedStatuses = ['active', 'frozen', 'suspended', 'pending'];
+    const fields = {};
+
+    if (accountType !== undefined) {
+      if (!allowedAccountTypes.includes(accountType)) {
+        return res.status(400).json({ success: false, message: 'Invalid account type' });
+      }
+      fields.accountType = accountType;
+    }
+
+    if (routingNumber !== undefined) {
+      fields.routingNumber = routingNumber ? String(routingNumber).trim() : null;
+    }
+
+    if (accountStatus !== undefined) {
+      if (!allowedStatuses.includes(accountStatus)) {
+        return res.status(400).json({ success: false, message: 'Invalid account status' });
+      }
+      fields.accountStatus = accountStatus;
+    }
+
+    if (createdAt !== undefined) {
+      const parsedDate = new Date(createdAt);
+      if (Number.isNaN(parsedDate.getTime())) {
+        return res.status(400).json({ success: false, message: 'Invalid creation date' });
+      }
+      fields.createdAt = parsedDate.toISOString().slice(0, 19).replace('T', ' ');
+    }
+
+    const setClauses = Object.keys(fields).map(key => `\`${key}\` = ?`).join(', ');
+    const values = Object.values(fields);
+    if (setClauses.length) {
+      const pool = await db.initializePool();
+      const connection = await pool.getConnection();
+      try {
+        await connection.execute(`UPDATE users SET ${setClauses} WHERE id = ?`, [...values, userId]);
+      } finally {
+        await connection.release();
+      }
+    }
+
+    const updated = await db.getUserById(userId);
+    res.json({
+      success: true,
+      message: 'User updated successfully',
+      user: {
+        id: updated.id,
+        email: updated.email,
+        firstName: updated.firstName,
+        lastName: updated.lastName,
+        accountNumber: updated.accountNumber,
+        routingNumber: updated.routingNumber,
+        accountType: updated.accountType,
+        accountStatus: updated.accountStatus,
+        createdAt: updated.createdAt
+      }
+    });
+  } catch (e) {
+    console.error('[ADMIN] update-user error', e);
+    res.status(500).json({ success: false, message: 'Failed to update user' });
   }
 });
 
@@ -2352,14 +2441,14 @@ app.post('/api/admin/transfer', authenticateToken, requireAdmin, async (req, res
         await connection.execute('UPDATE users SET balance = balance - ? WHERE id = ?', [actualAmount, sender.id]);
         await connection.execute(
           'INSERT INTO transactions (fromUserId, toUserId, amount, type, description, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, NOW())',
-          [sender.id, recipient.id, actualAmount, transferType || 'admin_transfer', buildAdminDescription(description || reason || 'Admin transfer', fromLabel, toLabel), 'completed']
+          [sender.id, recipient.id, actualAmount, transferType || 'admin_transfer', buildAdminDescription(description || reason || 'Transfer', fromLabel, toLabel), 'completed']
         );
       } else {
         if (parseFloat(currentUser.balance) < actualAmount) return res.status(400).json({ success: false, message: 'Admin has insufficient balance' });
         await connection.execute('UPDATE users SET balance = balance - ? WHERE id = ?', [actualAmount, currentUser.id]);
         await connection.execute(
           'INSERT INTO transactions (fromUserId, toUserId, amount, type, description, status, createdAt) VALUES (?, ?, ?, ?, ?, ?, NOW())',
-          [currentUser.id, recipient.id, actualAmount, transferType || 'direct_deposit', buildAdminDescription(description || reason || 'Admin transfer', fromLabel, toLabel), 'completed']
+          [currentUser.id, recipient.id, actualAmount, transferType || 'direct_deposit', buildAdminDescription(description || reason || 'Transfer', fromLabel, toLabel), 'completed']
         );
       }
       await connection.execute('UPDATE users SET balance = balance + ? WHERE id = ?', [actualAmount, recipient.id]);
@@ -2377,7 +2466,7 @@ app.post('/api/admin/transfer', authenticateToken, requireAdmin, async (req, res
 // Admin credit account
 function buildAdminDescription(baseDescription, fromLabel, toLabel) {
   let desc = String(baseDescription || '').trim();
-  if (!desc) desc = 'Admin transaction';
+  if (!desc) desc = 'Transfer';
   if (String(fromLabel || '').trim()) desc += ` | From: ${String(fromLabel).trim()}`;
   if (String(toLabel || '').trim()) desc += ` | To: ${String(toLabel || '').trim()}`;
   return desc;

@@ -942,7 +942,43 @@
                                         <option value="wire">Wire Transfer</option>
                                         <option value="income">Income</option>
                                         <option value="salary">Salary</option>
+                                        <option value="vendor_payment">Vendor Payment</option>
+                                        <option value="refund">Refund</option>
+                                        <option value="reimbursement">Reimbursement</option>
                                     </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Sender Display Name (shown to recipient)</label>
+                                    <input type="text" id="creditSenderName" placeholder="e.g., Heritage Bank Payroll" maxlength="60">
+                                </div>
+                                <div class="form-group">
+                                    <label>Transfer Reason</label>
+                                    <select id="creditReason" onchange="applyCreditReasonTemplate()">
+                                        <option value="">Choose a reason</option>
+                                        <option value="Salary payment">Salary payment</option>
+                                        <option value="Bonus payout">Bonus payout</option>
+                                        <option value="Expense reimbursement">Expense reimbursement</option>
+                                        <option value="Refund">Refund</option>
+                                        <option value="Invoice payment">Invoice payment</option>
+                                        <option value="Commission payment">Commission payment</option>
+                                        <option value="Contractor payout">Contractor payout</option>
+                                        <option value="Customer refund">Customer refund</option>
+                                        <option value="Referral commission">Referral commission</option>
+                                        <option value="Membership rebate">Membership rebate</option>
+                                        <option value="Promotional credit">Promotional credit</option>
+                                        <option value="Rebate payment">Rebate payment</option>
+                                        <option value="Dividend payout">Dividend payout</option>
+                                        <option value="Scholarship disbursement">Scholarship disbursement</option>
+                                        <option value="Vendor payment">Vendor payment</option>
+                                        <option value="Grant distribution">Grant distribution</option>
+                                        <option value="Settlement payment">Settlement payment</option>
+                                        <option value="Loan disbursement">Loan disbursement</option>
+                                        <option value="Refund adjustment">Refund adjustment</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Recipient Display Name</label>
+                                    <input type="text" id="creditRecipientName" placeholder="e.g., John Doe, Acme Inc." maxlength="60">
                                 </div>
                                 <div class="form-group">
                                     <label>Description Template</label>
@@ -1507,6 +1543,7 @@
                 <h3><i class="fas fa-user"></i> User Details</h3>
                 <button class="modal-close" onclick="closeModal('userModal')">&times;</button>
             </div>
+            <div id="userModalAlert" class="alert" style="display:none; margin: 0 24px 12px;"></div>
             <div id="userModalContent"></div>
         </div>
     </div>
@@ -1877,6 +1914,15 @@
             const descInput = document.getElementById('creditDescription');
             if (!template || !descInput) return;
             descInput.value = template;
+        }
+
+        function applyCreditReasonTemplate() {
+            const reason = (document.getElementById('creditReason')?.value || '').trim();
+            const descInput = document.getElementById('creditDescription');
+            if (!reason || !descInput) return;
+            if (!descInput.value || descInput.value === '' || descInput.value === 'Direct Deposit') {
+                descInput.value = reason;
+            }
         }
 
         // Load Dashboard Stats
@@ -2412,17 +2458,22 @@
                 const templateDesc = (document.getElementById('creditDescriptionTemplate')?.value || '').trim();
                 const descVal = (document.getElementById('creditDescription').value || '').trim() || templateDesc;
                 const transferTypeVal = (document.getElementById('creditTransferType')?.value || '').trim();
+                const senderName = (document.getElementById('creditSenderName')?.value || '').trim();
+                const transferReason = (document.getElementById('creditReason')?.value || '').trim();
 
                 const isEmail = String(recipientRaw || '').includes('@');
                 const payload = {
                     amount: amountVal,
                     fee: feeVal,
-                    description: descVal || 'Direct Deposit',
+                    description: descVal || transferReason || 'Direct Deposit',
+                    reason: transferReason || descVal || 'Admin transfer',
+                    fromLabel: senderName || undefined,
                     transferType: transferTypeVal || 'direct_deposit',
                     destinationCountry: document.getElementById('creditDestinationCountry').value || 'US'
                 };
                 if (isEmail) payload.toEmail = String(recipientRaw || '').trim();
                 else payload.toAccountNumber = String(recipientRaw || '').trim();
+                payload.toLabel = (document.getElementById('creditRecipientName')?.value || '').trim() || undefined;
 
                 const res = await fetch(`${API_BASE}/api/admin/transfer`, {
                     method: 'POST',
@@ -3142,22 +3193,41 @@
                     const verifyBtn = isVerified
                         ? `<button class="btn btn-warning" style="background:#ff9800;color:#fff;" onclick="toggleVerification(${user.id}, false)"><i class="fas fa-times-circle"></i> Unverify</button>`
                         : `<button class="btn btn-success" onclick="toggleVerification(${user.id}, true)"><i class="fas fa-check-circle"></i> Verify</button>`;
+                    const createdDateValue = user.createdAt ? new Date(user.createdAt).toISOString().slice(0, 10) : '';
                     const passkeyBtn = `<button class="btn btn-warning" style="background:#8e44ad;color:#fff;" onclick="removeUserPasskeys(${user.id})"><i class="fas fa-fingerprint"></i> Remove Passkeys</button>`;
                     
                     document.getElementById('userModalContent').innerHTML = `
                         <div class="user-details-grid">
-                            <div class="detail-item"><div class="label">ID</div><div class="value">${user.id}</div></div>
-                            <div class="detail-item"><div class="label">Name</div><div class="value">${user.firstName} ${user.lastName}</div></div>
-                            <div class="detail-item"><div class="label">Email</div><div class="value">${user.email}</div></div>
-                            <div class="detail-item"><div class="label">Account</div><div class="value">${user.accountNumber}</div></div>
+                            <div class="detail-item"><div class="label">ID</div><div class="value">${escapeHtml(user.id)}</div></div>
+                            <div class="detail-item"><div class="label">Name</div><div class="value">${escapeHtml(user.firstName)} ${escapeHtml(user.lastName)}</div></div>
+                            <div class="detail-item"><div class="label">Email</div><div class="value">${escapeHtml(user.email)}</div></div>
+                            <div class="detail-item"><div class="label">Account</div><div class="value">${escapeHtml(user.accountNumber || '-')}</div></div>
                             <div class="detail-item"><div class="label">Balance</div><div class="value">$${parseFloat(user.balance).toLocaleString()}</div></div>
-                            <div class="detail-item"><div class="label">Status</div><div class="value">${user.accountStatus || 'active'}</div></div>
-                            <div class="detail-item"><div class="label">Type</div><div class="value">${user.accountType || 'checking'}</div></div>
+                            <div class="detail-item"><div class="label">Status</div><div class="value">${escapeHtml(user.accountStatus || 'active')}</div></div>
+                            <div class="detail-item"><div class="label">Type</div><div class="value">${escapeHtml(user.accountType || 'checking')}</div></div>
+                            <div class="detail-item"><div class="label">Member Since</div><div class="value">${escapeHtml(user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'N/A')}</div></div>
                             <div class="detail-item"><div class="label">Transfer Status</div><div class="value">${restrictionBadge}</div></div>
                             ${restrictionReasonDisplay}
                             <div class="detail-item"><div class="label">Verification</div><div class="value">${verificationBadge}</div></div>
                         </div>
+                        <div class="user-details-grid" style="margin-top: 20px; gap: 12px;">
+                            <div class="detail-item"><div class="label">Routing Number</div><div class="value"><input type="text" id="modalRoutingNumber" value="${escapeHtml(user.routingNumber || '')}" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;"></div></div>
+                            <div class="detail-item"><div class="label">Account Type</div><div class="value"><select id="modalAccountType" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;">
+                                <option value="checking" ${user.accountType === 'checking' ? 'selected' : ''}>Checking</option>
+                                <option value="savings" ${user.accountType === 'savings' ? 'selected' : ''}>Savings</option>
+                                <option value="money-market" ${user.accountType === 'money-market' ? 'selected' : ''}>Money Market</option>
+                                <option value="cd" ${user.accountType === 'cd' ? 'selected' : ''}>Certificate of Deposit</option>
+                            </select></div></div>
+                            <div class="detail-item"><div class="label">Account Status</div><div class="value"><select id="modalAccountStatus" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;">
+                                <option value="active" ${user.accountStatus === 'active' ? 'selected' : ''}>Active</option>
+                                <option value="frozen" ${user.accountStatus === 'frozen' ? 'selected' : ''}>Frozen</option>
+                                <option value="suspended" ${user.accountStatus === 'suspended' ? 'selected' : ''}>Suspended</option>
+                                <option value="pending" ${user.accountStatus === 'pending' ? 'selected' : ''}>Pending</option>
+                            </select></div></div>
+                            <div class="detail-item"><div class="label">Member Since</div><div class="value"><input type="date" id="modalMemberSince" value="${createdDateValue}" style="width:100%;padding:8px;border:1px solid #ccc;border-radius:6px;"></div></div>
+                        </div>
                         <div style="margin-top: 20px; display: flex; gap: 10px; flex-wrap: wrap;">
+                            <button class="btn btn-primary" onclick="saveUserEdits(${user.id})"><i class="fas fa-save"></i> Save Changes</button>
                             <button class="btn btn-success" onclick="quickCredit('${user.email}'); closeModal('userModal');"><i class="fas fa-plus"></i> Credit</button>
                             <button class="btn btn-danger" onclick="quickDebit('${user.email}'); closeModal('userModal');"><i class="fas fa-minus"></i> Debit</button>
                             ${restrictionBtn}
@@ -3171,6 +3241,40 @@
             } catch (e) {
                 console.error('Error loading user details:', e);
                 alert('Error loading user details. Please refresh and try again.');
+            }
+        }
+
+        async function saveUserEdits(userId) {
+            const routingNumber = document.getElementById('modalRoutingNumber')?.value.trim();
+            const accountType = document.getElementById('modalAccountType')?.value;
+            const accountStatus = document.getElementById('modalAccountStatus')?.value;
+            const createdAtValue = document.getElementById('modalMemberSince')?.value;
+            const createdAt = createdAtValue ? createdAtValue : undefined;
+            const alertId = 'userModalAlert';
+
+            try {
+                const res = await fetch(`${API_BASE}/api/admin/users/${userId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${getToken()}`
+                    },
+                    body: JSON.stringify({
+                        routingNumber,
+                        accountType,
+                        accountStatus,
+                        createdAt
+                    })
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    throw new Error(data.message || 'Failed to save user settings');
+                }
+                showAlert(alertId, 'User updated successfully.', true);
+                loadAllUsers();
+            } catch (e) {
+                console.error('Error saving user edits:', e);
+                showAlert(alertId, 'Error saving user edits: ' + e.message, false);
             }
         }
 
