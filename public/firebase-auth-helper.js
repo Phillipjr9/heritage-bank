@@ -80,8 +80,16 @@ async function firebaseGoogleSignIn() {
     const provider = new firebase.auth.GoogleAuthProvider();
     provider.addScope('email');
     provider.addScope('profile');
-    const cred = await auth.signInWithPopup(provider);
-    return syncFirebaseUserWithBackend(cred.user);
+
+    try {
+        const cred = await auth.signInWithPopup(provider);
+        return syncFirebaseUserWithBackend(cred.user);
+    } catch (e) {
+        if (e && (e.code === 'auth/configuration-not-found' || /configuration-not-found/i.test(e.message || ''))) {
+            throw new Error('Google sign-in is not configured for this browser origin. Please add heritage-bank.pages.dev to Firebase Authentication authorized domains and ensure Google Sign-In is enabled for this project.');
+        }
+        throw e;
+    }
 }
 
 /**

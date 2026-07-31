@@ -307,7 +307,9 @@
             } catch (e) {
                 console.error('Google sign-up error:', e);
                 let msg = e.message || 'Google sign-up failed.';
-                if (/popup|blocked|cancelled|denied/i.test(msg)) {
+                if (/configuration-not-found|authorized domain|heritage-bank\.pages\.dev/i.test(msg)) {
+                    msg = 'Google sign-in is not enabled for this deployed domain. In Firebase Console, add heritage-bank.pages.dev to Authentication > Settings > Authorized domains and enable Google Sign-In for the project.';
+                } else if (/popup|blocked|cancelled|denied/i.test(msg)) {
                     msg = 'Google popup was blocked or cancelled by the browser. Allow popups and try again.';
                 } else if (/network|fetch/i.test(msg)) {
                     msg = 'Google sign-up hit a network issue while contacting the backend. Please try again.';
