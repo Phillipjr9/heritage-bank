@@ -290,8 +290,10 @@
         async function handleGoogleSignUp() {
             const alertBox = document.getElementById('alertBox');
             const googleBtn = document.getElementById('googleSignupBtn');
-            if (!window.firebaseGoogleSignIn) {
-                alertBox.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle"></i> Google authentication is unavailable right now.</div>';
+            const googleLabel = '<img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" style="width:20px;height:20px;" alt="Google"> Continue with Google';
+
+            if (!window.firebaseGoogleSignIn || typeof firebase === 'undefined' || !firebase.auth) {
+                alertBox.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle"></i> Google authentication is unavailable because the Firebase auth SDK did not initialize.</div>';
                 return;
             }
 
@@ -304,9 +306,15 @@
                 window.location.href = user.isAdmin ? 'admin.html' : 'dashboard.html';
             } catch (e) {
                 console.error('Google sign-up error:', e);
-                alertBox.innerHTML = `<div class="alert alert-danger"><i class="fas fa-times-circle"></i> ${e.message || 'Google sign-up failed.'}</div>`;
+                let msg = e.message || 'Google sign-up failed.';
+                if (/popup|blocked|cancelled|denied/i.test(msg)) {
+                    msg = 'Google popup was blocked or cancelled by the browser. Allow popups and try again.';
+                } else if (/network|fetch/i.test(msg)) {
+                    msg = 'Google sign-up hit a network issue while contacting the backend. Please try again.';
+                }
+                alertBox.innerHTML = `<div class="alert alert-danger"><i class="fas fa-times-circle"></i> ${msg}</div>`;
                 googleBtn.disabled = false;
-                googleBtn.innerHTML = '<img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" style="width:20px;height:20px;" alt="Google"> Continue with Google';
+                googleBtn.innerHTML = googleLabel;
             }
         }
     </script>
