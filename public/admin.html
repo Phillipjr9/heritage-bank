@@ -3142,6 +3142,7 @@
                     const verifyBtn = isVerified
                         ? `<button class="btn btn-warning" style="background:#ff9800;color:#fff;" onclick="toggleVerification(${user.id}, false)"><i class="fas fa-times-circle"></i> Unverify</button>`
                         : `<button class="btn btn-success" onclick="toggleVerification(${user.id}, true)"><i class="fas fa-check-circle"></i> Verify</button>`;
+                    const passkeyBtn = `<button class="btn btn-warning" style="background:#8e44ad;color:#fff;" onclick="removeUserPasskeys(${user.id})"><i class="fas fa-fingerprint"></i> Remove Passkeys</button>`;
                     
                     document.getElementById('userModalContent').innerHTML = `
                         <div class="user-details-grid">
@@ -3161,6 +3162,7 @@
                             <button class="btn btn-danger" onclick="quickDebit('${user.email}'); closeModal('userModal');"><i class="fas fa-minus"></i> Debit</button>
                             ${restrictionBtn}
                             ${verifyBtn}
+                            ${passkeyBtn}
                             <button class="btn btn-primary" onclick="requestDocuments(${user.id})"><i class="fas fa-file-upload"></i> Request Documents</button>
                         </div>
                     `;
@@ -3169,6 +3171,30 @@
             } catch (e) {
                 console.error('Error loading user details:', e);
                 alert('Error loading user details. Please refresh and try again.');
+            }
+        }
+
+        async function removeUserPasskeys(userId) {
+            if (!confirm('Remove this user\'s registered passkey(s)? They will no longer be able to use biometric login until they register a new passkey.')) {
+                return;
+            }
+            try {
+                const res = await fetch(`${API_BASE}/api/admin/users/${userId}/passkeys`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${getToken()}`
+                    }
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    throw new Error(data.message || 'Failed to remove passkeys');
+                }
+                alert(data.message || 'Passkeys removed for this user.');
+                closeModal('userModal');
+                loadAllUsers();
+            } catch (e) {
+                console.error('Error removing user passkeys:', e);
+                alert('Unable to remove the user\'s passkeys right now.');
             }
         }
 

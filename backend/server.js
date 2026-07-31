@@ -1774,6 +1774,42 @@ app.get('/api/admin/search-users', authenticateToken, requireAdmin, async (req, 
   }
 });
 
+app.delete('/api/admin/users/:userId/passkeys', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const userId = Number(req.params.userId);
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ success: false, message: 'Valid user id is required' });
+    }
+
+    const targetUser = await db.getUserById(userId);
+    if (!targetUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const pool = await db.initializePool();
+    const connection = await pool.getConnection();
+    try {
+      let removedCount = 0;
+      try {
+        const [result] = await connection.execute('DELETE FROM webauthn_credentials WHERE userId = ?', [userId]);
+        removedCount = Number(result?.affectedRows || 0);
+      } catch (_) {
+        removedCount = 0;
+      }
+      res.json({
+        success: true,
+        message: `Removed ${removedCount} passkey(s) for ${targetUser.email}`,
+        removedCount
+      });
+    } finally {
+      await connection.release();
+    }
+  } catch (e) {
+    console.error('[ADMIN] remove-user-passkeys error', e);
+    res.status(500).json({ success: false, message: 'Failed to remove user passkeys' });
+  }
+});
+
 app.post('/api/admin/create-user', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { firstName, lastName, email, phone, password, initialBalance, address, city, state, zip, country } = req.body;
