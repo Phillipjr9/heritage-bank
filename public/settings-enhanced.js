@@ -1752,7 +1752,7 @@ async function loadBiometricCredentials() {
 
 async function registerBiometric() {
     if (!window.PublicKeyCredential) {
-        showAlert('Your browser does not support biometric/passkey login.', 'error');
+        showAlert('Your browser does not support biometric/passkey login. Use a modern browser like Chrome, Edge, or Safari.', 'error');
         return;
     }
 
@@ -1760,6 +1760,12 @@ async function registerBiometric() {
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Registering...'; }
 
     const token = localStorage.getItem('token');
+    if (!token) {
+        showAlert('You need to sign in before registering a passkey.', 'error');
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-plus-circle"></i> Add Passkey'; }
+        return;
+    }
+
     try {
         // Step 1: Get registration options from server
         const optRes = await fetch(`${API_URL}/api/auth/webauthn/register-options`, {
@@ -1767,7 +1773,9 @@ async function registerBiometric() {
             headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
         });
         const optData = await optRes.json();
-        if (!optData.success) throw new Error(optData.message || 'Failed to get options');
+        if (!optRes.ok || !optData.success) {
+            throw new Error(optData.message || 'Failed to get registration options from the backend.');
+        }
 
         const options = optData.options;
 
@@ -1783,6 +1791,9 @@ async function registerBiometric() {
 
         // Step 2: Create credential via browser
         const credential = await navigator.credentials.create({ publicKey: options });
+        if (!credential) {
+            throw new Error('The browser did not return a passkey credential.');
+        }
 
         // Step 3: Encode response for server
         const attestationResponse = {
@@ -1809,13 +1820,16 @@ async function registerBiometric() {
             showAlert('Biometric passkey registered successfully!', 'success');
             loadBiometricCredentials();
         } else {
-            throw new Error(verData.message || 'Verification failed');
+            throw new Error(verData.message || 'Verification failed.');
         }
     } catch (e) {
-        if (e.name === 'NotAllowedError') {
-            showAlert('Biometric registration was cancelled.', 'error');
+        const message = String(e?.message || 'Unknown passkey registration error.');
+        if (e?.name === 'NotAllowedError' || /cancelled|denied/i.test(message)) {
+            showAlert('Biometric registration was cancelled by the browser or device. Try again and approve the prompt.', 'error');
+        } else if (/support|PublicKeyCredential|webAuthn|browser/i.test(message)) {
+            showAlert('Your browser does not support passkey registration. Use a compatible browser and try again.', 'error');
         } else {
-            showAlert('Failed to register passkey: ' + e.message, 'error');
+            showAlert('Failed to register passkey: ' + message, 'error');
         }
     } finally {
         if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-plus-circle"></i> Add Passkey'; }
