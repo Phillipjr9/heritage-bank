@@ -192,11 +192,13 @@
             return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
         }
 
+        const API_URL = window.API_URL || 'https://heritage-bank-production.up.railway.app';
+
         // Redirect if already logged in
         (function() {
             const token = localStorage.getItem('token');
             if (token) {
-                fetch(AUTH_API_URL + '/api/auth/profile', { headers: { 'Authorization': 'Bearer ' + token } })
+                fetch(API_URL + '/api/auth/profile', { headers: { 'Authorization': 'Bearer ' + token } })
                     .then(r => r.json())
                     .then(data => { if (data.success) window.location.href = data.user.isAdmin ? 'admin.html' : 'dashboard.html'; })
                     .catch(() => {});
@@ -262,28 +264,49 @@
             alertBox.innerHTML = '';
 
             try {
-                const user = await firebaseSignUp(email, password, { firstName, lastName, phone, gender });
-                alertBox.innerHTML = '<div class="alert alert-success"><i class="fas fa-check-circle"></i> Account created! Redirecting...</div>';
-                setTimeout(() => { window.location.href = user.isAdmin ? 'admin.html' : 'dashboard.html'; }, 1500);
+                const res = await fetch(API_URL + '/api/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ firstName, lastName, email, phone, password, gender })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    localStorage.setItem('token', data.token);
+                    localStorage.setItem('user', JSON.stringify({ id: data.user.id, firstName: data.user.firstName, lastName: data.user.lastName, email: data.user.email, isAdmin: !!data.user.isAdmin }));
+                    alertBox.innerHTML = '<div class="alert alert-success"><i class="fas fa-check-circle"></i> Account created! Redirecting...</div>';
+                    setTimeout(() => { window.location.href = data.user.isAdmin ? 'admin.html' : 'dashboard.html'; }, 1500);
+                } else {
+                    alertBox.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-circle"></i> ' + escapeHtml(data.message || 'Registration failed.') + '</div>';
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-user-plus"></i> Create Account';
+                }
             } catch (err) {
-                alertBox.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-circle"></i> ' + escapeHtml(err.message || 'Registration failed.') + '</div>';
+                alertBox.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-circle"></i> Connection error. Please try again.</div>';
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fas fa-user-plus"></i> Create Account';
             }
         });
 
         async function handleGoogleSignUp() {
-            const btn = document.getElementById('googleSignupBtn');
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Connecting...';
+            const alertBox = document.getElementById('alertBox');
+            const googleBtn = document.getElementById('googleSignupBtn');
+            if (!window.firebaseGoogleSignIn) {
+                alertBox.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle"></i> Google authentication is unavailable right now.</div>';
+                return;
+            }
+
+            googleBtn.disabled = true;
+            googleBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Connecting to Google...';
+            alertBox.innerHTML = '<div class="alert alert-warning"><i class="fas fa-info-circle"></i> Creating your account with Google...</div>';
+
             try {
-                const user = await firebaseGoogleSignIn();
-                document.getElementById('alertBox').innerHTML = '<div class="alert alert-success"><i class="fas fa-check-circle"></i> Signed up with Google! Redirecting...</div>';
-                setTimeout(() => { window.location.href = user.isAdmin ? 'admin.html' : 'dashboard.html'; }, 1200);
-            } catch (err) {
-                document.getElementById('alertBox').innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-circle"></i> ' + escapeHtml(err.message || 'Google sign-up failed.') + '</div>';
-                btn.disabled = false;
-                btn.innerHTML = '<img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" style="width:20px;height:20px;"> Continue with Google';
+                const user = await window.firebaseGoogleSignIn();
+                window.location.href = user.isAdmin ? 'admin.html' : 'dashboard.html';
+            } catch (e) {
+                console.error('Google sign-up error:', e);
+                alertBox.innerHTML = `<div class="alert alert-danger"><i class="fas fa-times-circle"></i> ${e.message || 'Google sign-up failed.'}</div>`;
+                googleBtn.disabled = false;
+                googleBtn.innerHTML = '<img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" style="width:20px;height:20px;" alt="Google"> Continue with Google';
             }
         }
     </script>

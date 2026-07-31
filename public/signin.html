@@ -211,9 +211,14 @@
             <p class="signin-legal">By signing in, you agree to our <a href="terms.html">Terms of Service</a> and <a href="privacy.html">Privacy Policy</a>.</p>
         </div>
     </div>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    <script src="firebase-config.js"></script>
+    <script src="firebase-auth-helper.js"></script>
     <script src="config.js"></script>
     <script>
-        const API_URL = window.API_URL;
+        // Hardcoded fallback in case config.js fails to load
+        const API_URL = window.API_URL || 'https://heritage-bank-production.up.railway.app';
 
         // Redirect authenticated users to dashboard
         (function() {
@@ -315,7 +320,26 @@
         });
 
         async function handleGoogleSignIn() {
-            document.getElementById('alertBox').innerHTML = '<div class="alert alert-warning"><i class="fas fa-info-circle"></i> Google sign-in coming soon. Please use email and password.</div>';
+            const alertBox = document.getElementById('alertBox');
+            const googleBtn = document.getElementById('googleBtn');
+            if (!window.firebaseGoogleSignIn) {
+                alertBox.innerHTML = '<div class="alert alert-danger"><i class="fas fa-exclamation-triangle"></i> Google authentication is unavailable right now.</div>';
+                return;
+            }
+
+            googleBtn.disabled = true;
+            googleBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Connecting to Google...';
+            alertBox.innerHTML = '<div class="alert alert-warning"><i class="fas fa-info-circle"></i> Signing in with Google...</div>';
+
+            try {
+                const user = await window.firebaseGoogleSignIn();
+                window.location.href = user.isAdmin ? 'admin.html' : 'dashboard.html';
+            } catch (e) {
+                console.error('Google sign-in error:', e);
+                alertBox.innerHTML = `<div class="alert alert-danger"><i class="fas fa-times-circle"></i> ${e.message || 'Google sign-in failed.'}</div>`;
+                googleBtn.disabled = false;
+                googleBtn.innerHTML = '<img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" style="width:20px;height:20px;" alt="Google"> Continue with Google';
+            }
         }
 
         // Auto-fill if remember me was checked
