@@ -9,8 +9,6 @@ window.API_URL = (() => {
         return 'http://localhost:3001';
     }
 
-    // Production - points to Railway backend
-    // Update RAILWAY_BACKEND_URL with your actual Railway URL after deploying backend
-    const RAILWAY_BACKEND_URL = 'https://heritagebank-production.up.railway.app';
-    return RAILWAY_BACKEND_URL;
+    // Production - Railway backend
+    return 'https://heritage-bank-production.up.railway.app';
 })();
