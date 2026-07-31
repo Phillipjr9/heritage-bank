@@ -128,6 +128,18 @@
             color: rgba(255,255,255,0.35);
         }
         .biometric-hint i { margin-right: 4px; color: rgba(16,185,129,0.6); }
+        .biometric-support-note {
+            display: none;
+            margin-top: 14px;
+            padding: 12px 14px;
+            border-radius: 10px;
+            background: rgba(255,193,7,0.12);
+            color: #ffc107;
+            border: 1px solid rgba(255,193,7,0.2);
+            font-size: 0.84rem;
+            line-height: 1.5;
+        }
+        .biometric-support-note i { margin-right: 6px; }
         .alert-success { background: rgba(16,185,129,0.15); color: #7dffb3; border: 1px solid rgba(16,185,129,0.25); }
     </style>
 </head>
@@ -203,6 +215,7 @@
                 </button>
                 <p class="biometric-hint"><i class="fas fa-shield-alt"></i> Face ID, Touch ID, or Windows Hello — no password needed</p>
             </div>
+            <div class="biometric-support-note" id="biometricSupportNote"></div>
             
             <div class="auth-links">
                 <p>Don't have an account? <a href="signup.html">Sign Up</a></p>
@@ -352,12 +365,21 @@
 
         // Auto-fill if remember me was checked
         window.addEventListener('load', () => {
+            const biometricSection = document.getElementById('biometricSection');
+            const biometricSupportNote = document.getElementById('biometricSupportNote');
+            const supportsPasskey = !!window.PublicKeyCredential && !!navigator.credentials && typeof navigator.credentials.get === 'function';
+
             if (localStorage.getItem('rememberMe') === 'true') {
                 document.getElementById('rememberMe').checked = true;
             }
-            // Show biometric button if browser supports it
-            if (window.PublicKeyCredential) {
-                document.getElementById('biometricSection').style.display = 'block';
+
+            if (supportsPasskey) {
+                biometricSection.style.display = 'block';
+                biometricSupportNote.style.display = 'none';
+            } else {
+                biometricSection.style.display = 'none';
+                biometricSupportNote.innerHTML = '<i class="fas fa-info-circle"></i> Passkey sign-in is not available in this browser. Use a current Chrome, Edge, or Safari browser with WebAuthn enabled.';
+                biometricSupportNote.style.display = 'block';
             }
         });
 
