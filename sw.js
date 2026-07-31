@@ -1,8 +1,7 @@
 // Heritage Bank Service Worker - Offline support & caching
-const CACHE_VERSION = 4;
+const CACHE_VERSION = 5;
 const CACHE_NAME = 'heritage-bank-v' + CACHE_VERSION;
 const STATIC_ASSETS = [
-  '/',
   '/index.html',
   '/signin.html',
   '/signup.html',
@@ -53,6 +52,17 @@ self.addEventListener('fetch', function(event) {
   // API calls - network only (don't cache sensitive banking data)
   if (url.pathname.startsWith('/api/')) return;
 
+  // Navigation requests should bypass the cache and never store redirect responses.
+  // This avoids stale '/' -> '/index.html' style redirect responses being replayed.
+  if (event.request.mode === 'navigate' || event.request.destination === 'document') {
+    event.respondWith(
+      fetch(event.request).catch(function() {
+        return caches.match('/404.html') || new Response('Offline', { status: 503 });
+      })
+    );
+    return;
+  }
+
   // HTML pages behind auth - network only (never serve stale dashboard/account pages)
   var authPages = ['/dashboard', '/admin', '/analytics', '/settings', '/messages',
     '/statements', '/transactions', '/transfer', '/pay-bills', '/cards',
@@ -70,7 +80,7 @@ self.addEventListener('fetch', function(event) {
   event.respondWith(
     caches.match(event.request).then(function(cached) {
       var fetched = fetch(event.request).then(function(response) {
-        if (response && response.status === 200 && response.type !== 'opaque') {
+        if (response && response.ok && response.type !== 'opaque' && !response.redirected && response.type !== 'opaqueredirect') {
           var clone = response.clone();
           caches.open(CACHE_NAME).then(function(cache) {
             cache.put(event.request, clone);
