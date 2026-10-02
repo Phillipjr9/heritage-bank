@@ -1,5 +1,6 @@
 // Heritage Bank - API Configuration
-// Frontend auto-detects whether it's running locally or on Cloudflare Pages
+// Frontend auto-detects local dev vs deployed. In production the API is
+// served same-origin by the Render web service, so no host is hard-coded.
 
 window.API_URL = (() => {
     const { hostname, protocol } = window.location;
@@ -9,6 +10,6 @@ window.API_URL = (() => {
         return 'http://localhost:3001';
     }
 
-    // Production - Railway backend
-    return 'https://heritage-bank-production.up.railway.app';
+    // Production - same origin (Render serves the API and frontend together)
+    return window.location.origin;
 })();

@@ -12,7 +12,7 @@ const AUTH_API_URL = (() => {
     if (protocol === 'file:' || hostname === 'localhost' || hostname === '127.0.0.1') {
         return 'http://localhost:3001';
     }
-    return 'https://heritage-bank-production.up.railway.app';
+    return window.location.origin;
 })();
 
 /**

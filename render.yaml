@@ -1,0 +1,56 @@
+# Render Blueprint — Heritage Bank
+#
+# One Web Service hosts BOTH the Express API and the static frontend:
+# backend/server.js serves the HTML/CSS/JS from the repository root, so the
+# frontend calls the API same-origin (window.location.origin) and there is no
+# backend URL to hard-code or keep in sync.
+#
+# Deploy:
+#   1. Push this branch to GitHub.
+#   2. Render Dashboard -> New -> Blueprint -> pick this repo.
+#   3. Fill in the database secrets marked `sync: false` when prompted.
+#
+services:
+  - type: web
+    name: heritage-bank
+    runtime: node
+    plan: free
+    region: oregon
+    branch: main
+    # Installs backend dependencies (the root postinstall also runs this,
+    # but being explicit keeps the build readable in Render's logs).
+    buildCommand: npm install --prefix backend --omit=dev
+    startCommand: node backend/server.js
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "20"
+
+      # Render injects PORT automatically; server.js reads process.env.PORT.
+
+      # ── Secrets: set these in the Render dashboard (never commit them) ──
+      - key: JWT_SECRET
+        generateValue: true          # Render generates a strong random secret
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+
+      # ── Database (TiDB / MySQL) ──
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_NAME
+        sync: false
+
+      # ── Banking config ──
+      - key: ROUTING_NUMBER
+        value: "091238946"

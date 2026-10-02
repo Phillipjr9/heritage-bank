@@ -1023,7 +1023,7 @@
         if(localStorage.getItem('darkMode')==='true')document.body.classList.add('dark-mode');
 const API_URL = window.API_URL || (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
             ? 'http://localhost:3001'
-            : 'https://heritage-bank-production.up.railway.app');
+            : window.location.origin);
         
         function escapeHtml(str) {
             if (str == null) return '';
