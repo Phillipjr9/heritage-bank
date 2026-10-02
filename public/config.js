@@ -12,7 +12,7 @@
 // ►► SET THIS to your Render service URL after deploying (no trailing slash).
 //    Find it in the Render dashboard, e.g. https://heritage-bank-api.onrender.com
 // ============================================================================
-const BACKEND_URL = 'https://heritage-bank-api.onrender.com';
+const BACKEND_URL = 'https://heritage-bank-zr16.onrender.com';
 
 window.API_URL = (() => {
     const { hostname, protocol, origin } = window.location;
