@@ -7,13 +7,7 @@
 // Firebase SDK loaded via CDN before this script runs.
 // Config is in firebase-config.js which must be loaded first.
 
-const AUTH_API_URL = (() => {
-    const { hostname, protocol } = window.location;
-    if (protocol === 'file:' || hostname === 'localhost' || hostname === '127.0.0.1') {
-        return 'http://localhost:3001';
-    }
-    return window.location.origin;
-})();
+const AUTH_API_URL = window.API_URL;  // single source of truth: config.js
 
 /**
  * After Firebase Auth succeeds, exchange the Firebase ID token for a

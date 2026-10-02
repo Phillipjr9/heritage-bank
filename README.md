@@ -2,12 +2,30 @@
 
 A modern digital banking application.
 
-## Deploy to Render (recommended)
+## Architecture
 
-A **single Render Web Service** hosts both the API and the frontend:
-`backend/server.js` serves the static HTML/CSS/JS from the repository root, so
-the frontend talks to the API **same-origin** — there is no backend URL to
-hard-code anywhere.
+The frontend and backend are hosted **separately**:
+
+| Part | Host | Serves |
+|---|---|---|
+| Frontend | **Vercel** (static) | the `public/` folder |
+| Backend | **Render** (Node web service) | `backend/server.js` — Express API + MySQL/TiDB |
+
+Vercel is static-only and cannot run Express, so the frontend calls the API
+**cross-origin** by absolute URL. That URL is defined in exactly one place:
+
+```js
+// public/config.js
+const BACKEND_URL = 'https://heritage-bank-api.onrender.com';  // ← set to your Render URL
+```
+
+Every page loads `config.js` and reads `window.API_URL` from it. **Never
+hard-code a backend URL in an individual page.**
+
+> To test against a different backend without redeploying, run this in the
+> browser console: `localStorage.setItem('apiUrl', 'https://other.onrender.com')`
+
+## Deploy the backend to Render
 
 ### Option A — Blueprint (uses `render.yaml`)
 1. Push this repo to GitHub.
@@ -60,7 +78,28 @@ routes return `503 DB_UNAVAILABLE`) instead of killing the process — which is
 what previously turned a database problem into a completely dead host.
 
 > **Free plan note:** Render free web services sleep after ~15 minutes idle; the
-> first request afterwards takes ~30-60s to wake. Use a paid instance to avoid this.
+> first request afterwards takes ~30-60s to wake. The first login of the day
+> will look like a hang. Use a paid instance to avoid this.
+
+### CORS
+The backend automatically trusts `*.vercel.app` (production **and** preview
+deploys), `*.pages.dev`, `*.netlify.app` and `*.onrender.com`. For a custom
+domain, set `CORS_ORIGIN=https://yourdomain.com` on the Render service.
+
+## Deploy the frontend to Vercel
+
+1. Set `BACKEND_URL` in `public/config.js` to your Render URL and commit.
+2. Vercel → **New Project** → import this repo. `vercel.json` does the rest:
+   - `outputDirectory: public` — only the frontend is uploaded
+   - `cleanUrls: true` — `/signin` serves `signin.html`
+   - `config.js` is sent `no-store` so a changed backend URL takes effect immediately
+
+### Checklist when login fails
+1. `curl https://<render-service>.onrender.com/api/health` → expect `"database":"connected"`.
+2. Browser console on the sign-in page → `[Config] API_URL = ...` must show the
+   Render URL, **not** the Vercel/Pages domain.
+3. Network tab → the login POST must go to the Render host and return JSON.
+   HTML back means the request hit the static host instead of the API.
 
 ---
 

@@ -372,13 +372,7 @@
 
     <script src="app-sidebar.js?v=b7dd216"></script>
     <script>
-        const API_URL = (() => {
-            const { hostname, protocol } = window.location;
-            if (protocol === 'file:' || hostname === 'localhost' || hostname === '127.0.0.1') {
-                return 'http://localhost:3001';
-            }
-            return window.location.origin;
-        })();
+        const API_URL = window.API_URL;  // single source of truth: config.js
 
         async function loadSettings() {
             const loading = document.getElementById('loadingMsg');

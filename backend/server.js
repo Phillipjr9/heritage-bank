@@ -156,10 +156,14 @@ app.use(cors({
       ...(renderOrigin ? [renderOrigin.replace(/\/$/, '')] : [])
     ];
 
-    // Allow any Cloudflare Pages domain automatically
+    // The frontend is hosted on a STATIC host (Vercel / Cloudflare Pages) and
+    // calls this API cross-origin, so the whole preview+production domain
+    // family of each provider is trusted. Add custom domains via CORS_ORIGIN.
     if (
-      origin.endsWith('.pages.dev') ||
-      origin.endsWith('.onrender.com') ||
+      origin.endsWith('.vercel.app') ||       // Vercel production + preview deploys
+      origin.endsWith('.pages.dev') ||        // Cloudflare Pages
+      origin.endsWith('.netlify.app') ||      // Netlify
+      origin.endsWith('.onrender.com') ||     // Render (same-origin / other services)
       origin.endsWith('.web.app') ||
       origin.endsWith('.firebaseapp.com') ||
       allowedOrigins.includes(origin)

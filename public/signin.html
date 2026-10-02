@@ -231,7 +231,7 @@
     <script src="config.js"></script>
     <script>
         // Hardcoded fallback in case config.js fails to load
-        const API_URL = window.API_URL || window.location.origin;
+        const API_URL = window.API_URL;  // set by config.js
 
         // Redirect authenticated users to dashboard
         (function() {

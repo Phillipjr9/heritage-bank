@@ -192,8 +192,7 @@
     if (typeof window.logout !== 'function') {
         window.logout = function() {
             var token = localStorage.getItem('token');
-            var API_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-                ? 'http://localhost:3001' : window.location.origin;
+            var API_URL = window.API_URL;  // set by config.js
             if (token) {
                 fetch(API_URL + '/api/auth/logout', {
                     method: 'POST',

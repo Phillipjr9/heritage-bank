@@ -1592,13 +1592,7 @@
 
     <script>
         if(localStorage.getItem('darkMode')==='true')document.body.classList.add('dark-mode');
-        const API_BASE = (() => {
-            const { hostname, protocol } = window.location;
-            if (protocol === 'file:' || hostname === 'localhost' || hostname === '127.0.0.1') {
-                return 'http://localhost:3001';
-            }
-            return window.location.origin;
-        })();
+        const API_BASE = window.API_URL;  // single source of truth: config.js
 
         function getToken() {
             return localStorage.getItem('token');
