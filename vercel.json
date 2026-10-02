@@ -1,23 +1,37 @@
 {
-  "version": 2,
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "installCommand": "echo 'Skipping install for static frontend'",
-  "buildCommand": "echo 'Static frontend only'",
-  "outputDirectory": "public",
-  "builds": [
+  "installCommand": "echo 'Static frontend - no install needed'",
+  "buildCommand": "set -e; OUT=.vercel-static; echo \"[build] pwd=$(pwd)\"; echo \"[build] ls:\"; ls -1 | head -30; if [ -f public/index.html ]; then SRC=public; elif [ -f index.html ]; then SRC=.; else echo \"[build] ERROR: no index.html in ./public or .\"; ls -la; exit 1; fi; echo \"[build] source=$SRC\"; rm -rf \"$OUT\"; mkdir -p \"$OUT\"; tar -cf - --exclude=./$OUT --exclude=./backend --exclude=./functions --exclude=./node_modules --exclude=./.git --exclude=./scripts -C \"$SRC\" . | tar -xf - -C \"$OUT\"; echo \"[build] files=$(find $OUT -type f | wc -l)\"; test -f \"$OUT/index.html\" || { echo \"[build] ERROR: index.html missing in $OUT\"; exit 1; }; echo \"[build] OK\"",
+  "outputDirectory": ".vercel-static",
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "headers": [
     {
-      "src": "public/**",
-      "use": "@vercel/static"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*\\..*)",
-      "dest": "/$1"
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "SAMEORIGIN"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
+      ]
     },
     {
-      "src": "/(.*)",
-      "dest": "/index.html"
+      "source": "/config.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, must-revalidate"
+        }
+      ]
     }
   ]
 }

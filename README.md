@@ -2,6 +2,134 @@
 
 A modern digital banking application.
 
+## Architecture
+
+The frontend and backend are hosted **separately**:
+
+| Part | Host | Serves |
+|---|---|---|
+| Frontend | **Vercel** (static) | the `public/` folder |
+| Backend | **Render** (Node web service) | `backend/server.js` — Express API + MySQL/TiDB |
+
+Vercel is static-only and cannot run Express, so the frontend calls the API
+**cross-origin** by absolute URL. That URL is defined in exactly one place:
+
+```js
+// public/config.js
+const BACKEND_URL = 'https://heritage-bank-api.onrender.com';  // ← set to your Render URL
+```
+
+Every page loads `config.js` and reads `window.API_URL` from it. **Never
+hard-code a backend URL in an individual page.**
+
+> To test against a different backend without redeploying, run this in the
+> browser console: `localStorage.setItem('apiUrl', 'https://other.onrender.com')`
+
+## Deploy the backend to Render
+
+### Option A — Blueprint (uses `render.yaml`)
+1. Push this repo to GitHub.
+2. Render Dashboard → **New** → **Blueprint** → select this repository.
+3. Render reads `render.yaml` and prompts for the secret env vars below.
+
+### Option B — Manual
+Render Dashboard → **New** → **Web Service** → connect the repo, then set:
+
+| Setting | Value |
+|---|---|
+| Runtime | Node |
+| Build Command | `npm install --prefix backend --omit=dev` |
+| Start Command | `node backend/server.js` |
+| Health Check Path | `/api/health` |
+
+### Required environment variables
+Set these in **Render → your service → Environment**:
+
+```
+NODE_ENV=production
+JWT_SECRET=<long random string>
+ADMIN_EMAIL=<your admin email>
+ADMIN_PASSWORD=<strong password>
+DATABASE_URL=postgresql://USER:PASSWORD@ep-xxxx-pooler.REGION.aws.neon.tech/neondb?sslmode=require
+```
+
+### Database: Neon (PostgreSQL)
+Use the **pooled** connection string (the host containing `-pooler`) — Render
+can open more connections than a direct Neon endpoint allows.
+
+The app was originally written for MySQL/TiDB. Rather than rewrite ~210 query
+call sites, `backend/pg-compat.js` presents the mysql2 API on top of `pg` and
+translates each statement: `?` → `$n` placeholders, `AUTO_INCREMENT` → `SERIAL`,
+inline `INDEX` → `CREATE INDEX`, `TINYINT(1)`/`BOOLEAN` → `SMALLINT`,
+`insertId`/`affectedRows` via `RETURNING id` and `rowCount`.
+
+> **Identifier case:** Postgres folds unquoted identifiers to lowercase, so
+> `SELECT firstName` returns the key `firstname`. The compat layer maps result
+> keys back to camelCase using the dictionary at the top of `pg-compat.js`.
+> **If you add a new mixed-case column, add it to `CAMEL_IDENTIFIERS`** or it
+> will read back as `undefined`.
+
+Tables and any missing columns are created automatically on first boot.
+
+> Do **not** set `PORT` — Render injects it and the server reads `process.env.PORT`.
+> `NODE_ENV=production` makes the server refuse to boot without `JWT_SECRET`,
+> `ADMIN_EMAIL` and `ADMIN_PASSWORD`, which is intentional.
+> TLS to the database is on by default; set `DB_SSL=false` only if your
+> provider doesn't support it.
+
+### Verifying a deploy
+```bash
+curl https://<your-service>.onrender.com/api/health
+```
+```jsonc
+{ "status": "ok", "database": "connected" }   // ✅ logins will work
+{ "status": "ok", "database": "disconnected", "databaseError": "..." }  // ⚠️ API is up, DB is not
+```
+
+The server **binds its port before connecting to the database** and retries the
+connection every 30s. A database outage therefore degrades the app (DB-backed
+routes return `503 DB_UNAVAILABLE`) instead of killing the process — which is
+what previously turned a database problem into a completely dead host.
+
+> **Free plan note:** Render free web services sleep after ~15 minutes idle; the
+> first request afterwards takes ~30-60s to wake. The first login of the day
+> will look like a hang. Use a paid instance to avoid this.
+
+### CORS
+The backend automatically trusts `*.vercel.app` (production **and** preview
+deploys), `*.pages.dev`, `*.netlify.app` and `*.onrender.com`. For a custom
+domain, set `CORS_ORIGIN=https://yourdomain.com` on the Render service.
+
+## Deploy the frontend to Vercel
+
+1. Set `BACKEND_URL` in `public/config.js` to your Render URL and commit.
+2. Vercel → **New Project** → import this repo. `vercel.json` does the rest:
+   - `buildCommand` copies the frontend into `.vercel-static`, which is the
+     `outputDirectory`
+   - `cleanUrls: true` — `/signin` serves `signin.html`
+   - `config.js` is sent `no-store` so a changed backend URL takes effect immediately
+
+> **Why the build command is an inline shell snippet rather than a script file:**
+> a `bash scripts/vercel-build.sh` build failed on Vercel with
+> `No such file or directory` (exit 127) even though the file was committed,
+> executable and not matched by `.vercelignore`. Inlining removes the
+> dependency on a file being present in the build context. It also prints
+> `[build]` diagnostics (working directory + file listing) so a future failure
+> says what it actually saw.
+>
+> It copies rather than publishing `public/` directly because `outputDirectory`
+> is resolved against the dashboard's **Root Directory** setting: the snippet
+> detects whether the frontend is at `public/` or `.` and works from either.
+
+### Checklist when login fails
+1. `curl https://<render-service>.onrender.com/api/health` → expect `"database":"connected"`.
+2. Browser console on the sign-in page → `[Config] API_URL = ...` must show the
+   Render URL, **not** the Vercel/Pages domain.
+3. Network tab → the login POST must go to the Render host and return JSON.
+   HTML back means the request hit the static host instead of the API.
+
+---
+
 ## Deploy to Firebase
 
 ### Prerequisites

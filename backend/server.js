@@ -77,6 +77,26 @@ if (process.env.NODE_ENV === 'production') {
   }
 }
 
+// Tracks database reachability so the process can stay alive (and keep serving
+// the frontend + /api/health) even when the database is down. Previously any
+// DB failure at boot called process.exit(1), which made the whole host look
+// dead instead of reporting a database problem.
+const dbStatus = {
+  connected: false,
+  error: null,
+  lastAttempt: null
+};
+
+// Error codes that mean "the database is unreachable", not "bad query".
+const DB_CONNECTION_ERROR_CODES = new Set([
+  'ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'EHOSTUNREACH', 'ECONNRESET',
+  'PROTOCOL_CONNECTION_LOST', 'ER_ACCESS_DENIED_ERROR', 'ER_BAD_DB_ERROR'
+]);
+
+function isDbConnectionError(error) {
+  return !!error && DB_CONNECTION_ERROR_CODES.has(error.code);
+}
+
 console.log(`[STARTUP] Port configured: ${PORT}`);
 console.log('[STARTUP] JWT_SECRET: ' + (process.env.JWT_SECRET ? 'set' : 'using default'));
 console.log('[STARTUP] Admin email: ' + (process.env.ADMIN_EMAIL ? 'set from env' : 'using default'));
@@ -118,6 +138,9 @@ app.use(cors({
     // In production, allow the same host the server is running on (Render, Railway, etc.)
     // plus any explicitly configured CORS origin via env var
     const extraOrigin = process.env.CORS_ORIGIN || '';
+    // Render exposes the service's own public URL here, so the deployed
+    // frontend is always trusted without hard-coding the domain.
+    const renderOrigin = process.env.RENDER_EXTERNAL_URL || '';
     const allowedOrigins = [
       'http://localhost:3000',
       'http://localhost:3001',
@@ -129,13 +152,18 @@ app.use(cors({
       'https://heritage.up.railway.app',
       'https://heritagebank-production.up.railway.app',
       'https://heritagebank.up.railway.app',
-      ...(extraOrigin ? [extraOrigin] : [])
+      ...(extraOrigin ? [extraOrigin] : []),
+      ...(renderOrigin ? [renderOrigin.replace(/\/$/, '')] : [])
     ];
 
-    // Allow any Cloudflare Pages domain automatically
+    // The frontend is hosted on a STATIC host (Vercel / Cloudflare Pages) and
+    // calls this API cross-origin, so the whole preview+production domain
+    // family of each provider is trusted. Add custom domains via CORS_ORIGIN.
     if (
-      origin.endsWith('.pages.dev') ||
-      origin.endsWith('.onrender.com') ||
+      origin.endsWith('.vercel.app') ||       // Vercel production + preview deploys
+      origin.endsWith('.pages.dev') ||        // Cloudflare Pages
+      origin.endsWith('.netlify.app') ||      // Netlify
+      origin.endsWith('.onrender.com') ||     // Render (same-origin / other services)
       origin.endsWith('.web.app') ||
       origin.endsWith('.firebaseapp.com') ||
       allowedOrigins.includes(origin)
@@ -216,8 +244,14 @@ app.get('/favicon.ico', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
+  // The server stays up even when the database is unreachable, so the health
+  // payload reports the two states separately. Render's health check only
+  // needs the process to answer; `database` tells you if logins can succeed.
   res.json({
     status: 'ok',
+    database: dbStatus.connected ? 'connected' : 'disconnected',
+    databaseError: dbStatus.error || undefined,
+    lastDbAttempt: dbStatus.lastAttempt || undefined,
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
     version: 'fb1609f'  // Latest commit for tracking deployed version
@@ -525,6 +559,20 @@ app.post('/api/auth/login', async (req, res) => {
     });
   } catch (error) {
     console.error('[API] Login error:', error);
+
+    // Distinguish "the database is down" from "the login logic broke" so the
+    // sign-in page can show something actionable instead of a blank failure.
+    if (isDbConnectionError(error)) {
+      dbStatus.connected = false;
+      dbStatus.error = `${error.code}: ${error.message}`;
+      return res.status(503).json({
+        success: false,
+        message: 'Service temporarily unavailable: cannot reach the database. Please try again shortly.',
+        code: 'DB_UNAVAILABLE',
+        error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: 'Login failed',
@@ -4443,47 +4491,88 @@ async function initializeSeedData() {
 
 // ============ START SERVER ============
 
-if (require.main === module) {
-  // Initialize database, then seed data, then start server
-  async function startup() {
-    try {
-      console.log('\n[STARTUP] *** DATABASE INITIALIZATION SEQUENCE ***\n');
-      
-      // Initialize database connection pool
-      await db.initializePool();
-      console.log('[STARTUP] ✓ Database connection pool ready');
-      
-      // Create tables if they don't exist
-      await db.initializeSchema();
-      console.log('[STARTUP] ✓ Database schema initialized');
-      
-      // Initialize seed data (admin account)
-      await initializeSeedData();
-      console.log('[STARTUP] ✓ Seed data initialized');
-      
-      console.log('[STARTUP] *** DATABASE INITIALIZATION COMPLETE ***\n');
-      
-      // Start server
-      app.listen(PORT, '0.0.0.0', () => {
-        console.log('\n========================================');
-        console.log('[SERVER] ✓ Server started successfully!');
-        console.log(`[SERVER] Listening on port: ${PORT}`);
-        console.log(`[SERVER] Address: 0.0.0.0:${PORT}`);
-        console.log(`[SERVER] Environment: ${process.env.NODE_ENV || 'development'}`);
-        console.log('[SERVER] Health check: GET /api/health');
-        console.log(`[SERVER] Timestamp: ${new Date().toISOString()}`);
-        console.log('========================================\n');
-      }).on('error', (err) => {
-        console.error('[SERVER] ✗ Failed to start server:', err);
-        process.exit(1);
-      });
-    } catch (error) {
-      console.error('[STARTUP] ✗ Startup failed:', error);
-      process.exit(1);
-    }
+// Connect to the database, create the schema and seed the admin account.
+// Returns true on success. Never throws — callers decide how to react.
+async function connectDatabase() {
+  dbStatus.lastAttempt = new Date().toISOString();
+  try {
+    console.log('\n[STARTUP] *** DATABASE INITIALIZATION SEQUENCE ***\n');
+
+    // Initialize database connection pool
+    await db.initializePool();
+    console.log('[STARTUP] ✓ Database connection pool ready');
+
+    // Create tables if they don't exist
+    await db.initializeSchema();
+    console.log('[STARTUP] ✓ Database schema initialized');
+
+    // Initialize seed data (admin account)
+    await initializeSeedData();
+    console.log('[STARTUP] ✓ Seed data initialized');
+
+    console.log('[STARTUP] *** DATABASE INITIALIZATION COMPLETE ***\n');
+    dbStatus.connected = true;
+    dbStatus.error = null;
+    return true;
+  } catch (error) {
+    dbStatus.connected = false;
+    dbStatus.error = `${error.code || 'ERROR'}: ${error.message}`;
+    console.error('[STARTUP] ✗ Database initialization failed:', dbStatus.error);
+    console.error('[STARTUP]   The API is still listening, but any request that');
+    console.error('[STARTUP]   needs the database (login, signup, transfers) will');
+    console.error('[STARTUP]   return 503 until the connection recovers.');
+    console.error('[STARTUP]   Check DB_HOST / DB_PORT / DB_USER / DB_PASSWORD / DB_NAME.');
+    return false;
   }
-  
-  startup();
+}
+
+if (require.main === module) {
+  // Start listening FIRST, then connect to the database in the background.
+  //
+  // Render (and every other PaaS) marks a deploy as failed when the process
+  // exits or never binds its port. Binding up front means a database outage
+  // degrades the app instead of taking the entire host offline, and
+  // /api/health can report exactly what is broken.
+  const server = app.listen(PORT, '0.0.0.0', async () => {
+    console.log('\n========================================');
+    console.log('[SERVER] ✓ Server started successfully!');
+    console.log(`[SERVER] Listening on port: ${PORT}`);
+    console.log(`[SERVER] Address: 0.0.0.0:${PORT}`);
+    console.log(`[SERVER] Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log('[SERVER] Health check: GET /api/health');
+    console.log(`[SERVER] Timestamp: ${new Date().toISOString()}`);
+    console.log('========================================\n');
+
+    const connected = await connectDatabase();
+
+    // Retry in the background so a database that comes back up (or a
+    // corrected env var) recovers without a manual redeploy.
+    if (!connected) {
+      const RETRY_MS = 30000;
+      const retry = setInterval(async () => {
+        console.log('[STARTUP] Retrying database connection...');
+        if (await connectDatabase()) {
+          console.log('[STARTUP] ✓ Database recovered');
+          clearInterval(retry);
+        }
+      }, RETRY_MS);
+      retry.unref();
+    }
+  });
+
+  server.on('error', (err) => {
+    console.error('[SERVER] ✗ Failed to start server:', err);
+    process.exit(1);
+  });
+
+  // Let Render replace instances cleanly during a deploy.
+  for (const signal of ['SIGTERM', 'SIGINT']) {
+    process.on(signal, () => {
+      console.log(`[SERVER] ${signal} received, shutting down gracefully...`);
+      server.close(() => process.exit(0));
+      setTimeout(() => process.exit(0), 10000).unref();
+    });
+  }
 }
 
 module.exports = app;

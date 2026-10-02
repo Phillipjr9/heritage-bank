@@ -1,9 +1,18 @@
 /**
- * TiDB Database Module
- * Handles all database connections and queries for Heritage Bank
+ * Database Module — PostgreSQL (Neon)
+ *
+ * Migrated from MySQL/TiDB. Queries are still written in MySQL syntax and are
+ * translated at runtime by ./pg-compat, which also presents the mysql2 API
+ * (pool.execute, getConnection/release, insertId, affectedRows).
+ *
+ * Connection comes from DATABASE_URL (Neon), falling back to PGHOST/DB_HOST
+ * style variables.
  */
 
-const mysql = require('mysql2/promise');
+// PostgreSQL (Neon) accessed through a mysql2-compatible facade, so the
+// ~210 existing query call sites keep working unchanged.
+// See backend/pg-compat.js for the dialect translation.
+const mysql = require('./pg-compat');
 
 let pool = null;
 let passwordColumn = null;
@@ -34,8 +43,15 @@ async function initializePool() {
   };
 
   try {
-    console.log(`[DB] Connecting to database: ${config.host}:${config.port}/${config.database}`);
-    console.log(`[DB] Database env: DB_HOST=${Boolean(process.env.DB_HOST)}, MYSQLHOST=${Boolean(process.env.MYSQLHOST)}, DB_NAME=${Boolean(process.env.DB_NAME)}, MYSQLDATABASE=${Boolean(process.env.MYSQLDATABASE)}`);
+    const url = process.env.DATABASE_URL || process.env.POSTGRES_URL || '';
+    if (url) {
+      // Log the destination without leaking the password.
+      const safe = url.replace(/\/\/([^:]+):[^@]*@/, '//$1:****@');
+      console.log(`[DB] Connecting to PostgreSQL via DATABASE_URL: ${safe}`);
+    } else {
+      console.log(`[DB] Connecting to PostgreSQL: ${process.env.PGHOST || config.host}:${process.env.PGPORT || 5432}/${process.env.PGDATABASE || config.database}`);
+      console.warn('[DB] No DATABASE_URL set — falling back to discrete host/user variables.');
+    }
     pool = mysql.createPool(config);
     console.log('[DB] ✓ Connection pool created successfully');
     return pool;
@@ -120,6 +136,30 @@ async function executeWithRetry(operation, retries = 2) {
       await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
     }
   }
+}
+
+/**
+ * Columns referenced by the application but missing from the base users DDL.
+ * Added with ADD COLUMN IF NOT EXISTS so this is safe to re-run.
+ */
+const USER_COLUMN_MIGRATIONS = [
+  ['phone', 'VARCHAR(40)'],
+  ['gender', 'VARCHAR(20)'],
+  ['dateOfBirth', 'DATE'],
+  ['isVerified', 'SMALLINT DEFAULT 0'],
+  ['profileImage', 'TEXT'],
+  ['transferRestrictionReason', 'TEXT']
+];
+
+async function ensureUserColumns(connection) {
+  for (const [name, type] of USER_COLUMN_MIGRATIONS) {
+    try {
+      await connection.execute(`ALTER TABLE users ADD COLUMN IF NOT EXISTS ${name} ${type}`);
+    } catch (err) {
+      console.warn(`[DB] Could not ensure users.${name}: ${err.message}`);
+    }
+  }
+  console.log('[DB] ✓ User columns verified');
 }
 
 async function initializeSchema() {
@@ -388,6 +428,12 @@ async function initializeSchema() {
       }
     }
 
+    // Columns the application reads/writes that were never part of the
+    // original CREATE TABLE (they existed only on the old production MySQL
+    // box). On a fresh database these must be added or queries fail with
+    // "column does not exist". Idempotent, so it is safe on every boot.
+    await ensureUserColumns(connection);
+
   } catch (error) {
     console.error('[DB] ✗ Schema initialization error:', error);
     throw error;
@@ -496,7 +542,7 @@ async function createUser(id, email, firstName, lastName, passwordHash, isAdmin 
       // account number generation / formatting rules.
       try {
         const generatedAcct = String(1000000000 + result.insertId);
-        await connection.execute('UPDATE users SET accountNumber = ? WHERE id = ? AND (accountNumber IS NULL OR accountNumber = "")', [generatedAcct, result.insertId]);
+        await connection.execute("UPDATE users SET accountNumber = ? WHERE id = ? AND (accountNumber IS NULL OR accountNumber = '')", [generatedAcct, result.insertId]);
       } catch (acctErr) {
         console.error('[DB] Failed to set accountNumber for new user:', acctErr.message);
       }
