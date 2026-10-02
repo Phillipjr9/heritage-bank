@@ -104,9 +104,22 @@ domain, set `CORS_ORIGIN=https://yourdomain.com` on the Render service.
 
 1. Set `BACKEND_URL` in `public/config.js` to your Render URL and commit.
 2. Vercel → **New Project** → import this repo. `vercel.json` does the rest:
-   - `outputDirectory: public` — only the frontend is uploaded
+   - `buildCommand` copies the frontend into `.vercel-static`, which is the
+     `outputDirectory`
    - `cleanUrls: true` — `/signin` serves `signin.html`
    - `config.js` is sent `no-store` so a changed backend URL takes effect immediately
+
+> **Why the build command is an inline shell snippet rather than a script file:**
+> a `bash scripts/vercel-build.sh` build failed on Vercel with
+> `No such file or directory` (exit 127) even though the file was committed,
+> executable and not matched by `.vercelignore`. Inlining removes the
+> dependency on a file being present in the build context. It also prints
+> `[build]` diagnostics (working directory + file listing) so a future failure
+> says what it actually saw.
+>
+> It copies rather than publishing `public/` directly because `outputDirectory`
+> is resolved against the dashboard's **Root Directory** setting: the snippet
+> detects whether the frontend is at `public/` or `.` and works from either.
 
 ### Checklist when login fails
 1. `curl https://<render-service>.onrender.com/api/health` → expect `"database":"connected"`.
