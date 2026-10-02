@@ -326,7 +326,8 @@
                     }
                 }
             } catch (err) {
-                document.getElementById('alertBox').innerHTML = '<div class="alert alert-danger"><i class="fas fa-times-circle"></i> Connection error. Please try again.</div>';
+                const apiHost = (() => { try { return new URL(API_URL).host; } catch (_) { return API_URL; } })();
+                document.getElementById('alertBox').innerHTML = `<div class="alert alert-danger"><i class="fas fa-times-circle"></i> Can't reach the server (${apiHost}). It may be starting up &mdash; please wait ~30 seconds and try again. If this keeps happening, the backend may be down.</div>`;
                 loginBtn.disabled = false;
                 loginBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Sign In';
             }

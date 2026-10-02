@@ -10,7 +10,7 @@
 
 // ==================== CONFIGURATION ====================
 // Your Render backend URL (already running)
-const API_BASE_URL = 'https://heritagebank-ku1y.onrender.com/api';
+const API_BASE_URL = 'https://heritage-bank-zr16.onrender.com/api';
 
 // For local development, use:
 // const API_BASE_URL = 'http://localhost:3001/api';
