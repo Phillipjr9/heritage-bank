@@ -50,12 +50,26 @@ NODE_ENV=production
 JWT_SECRET=<long random string>
 ADMIN_EMAIL=<your admin email>
 ADMIN_PASSWORD=<strong password>
-DB_HOST=<mysql/tidb host>
-DB_PORT=4000          # 3306 for plain MySQL
-DB_USER=<db user>
-DB_PASSWORD=<db password>
-DB_NAME=heritage_bank
+DATABASE_URL=postgresql://USER:PASSWORD@ep-xxxx-pooler.REGION.aws.neon.tech/neondb?sslmode=require
 ```
+
+### Database: Neon (PostgreSQL)
+Use the **pooled** connection string (the host containing `-pooler`) — Render
+can open more connections than a direct Neon endpoint allows.
+
+The app was originally written for MySQL/TiDB. Rather than rewrite ~210 query
+call sites, `backend/pg-compat.js` presents the mysql2 API on top of `pg` and
+translates each statement: `?` → `$n` placeholders, `AUTO_INCREMENT` → `SERIAL`,
+inline `INDEX` → `CREATE INDEX`, `TINYINT(1)`/`BOOLEAN` → `SMALLINT`,
+`insertId`/`affectedRows` via `RETURNING id` and `rowCount`.
+
+> **Identifier case:** Postgres folds unquoted identifiers to lowercase, so
+> `SELECT firstName` returns the key `firstname`. The compat layer maps result
+> keys back to camelCase using the dictionary at the top of `pg-compat.js`.
+> **If you add a new mixed-case column, add it to `CAMEL_IDENTIFIERS`** or it
+> will read back as `undefined`.
+
+Tables and any missing columns are created automatically on first boot.
 
 > Do **not** set `PORT` — Render injects it and the server reads `process.env.PORT`.
 > `NODE_ENV=production` makes the server refuse to boot without `JWT_SECRET`,

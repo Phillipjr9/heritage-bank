@@ -39,16 +39,12 @@ services:
       - key: ADMIN_PASSWORD
         sync: false
 
-      # ── Database (TiDB / MySQL) ──
-      - key: DB_HOST
-        sync: false
-      - key: DB_PORT
-        sync: false
-      - key: DB_USER
-        sync: false
-      - key: DB_PASSWORD
-        sync: false
-      - key: DB_NAME
+      # ── Database: Neon PostgreSQL ──
+      # Paste the POOLED connection string from the Neon dashboard, e.g.
+      #   postgresql://USER:PASSWORD@ep-xxxx-pooler.REGION.aws.neon.tech/neondb?sslmode=require
+      # Use the -pooler host: Render may open more connections than a
+      # direct Neon endpoint allows.
+      - key: DATABASE_URL
         sync: false
 
       # ── Banking config ──
