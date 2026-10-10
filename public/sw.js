@@ -1,5 +1,5 @@
 // Heritage Bank Service Worker - Offline support & caching
-const CACHE_VERSION = 5;
+const CACHE_VERSION = 9;
 const CACHE_NAME = 'heritage-bank-v' + CACHE_VERSION;
 const STATIC_ASSETS = [
   '/index.html',

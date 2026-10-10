@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="no-js">
+<html lang="en" class="no-js home-page">
 <head>
     <script>document.documentElement.classList.remove('no-js')</script>
     <meta charset="UTF-8">
@@ -65,9 +65,10 @@
 
     <!-- Hero Section -->
     <section class="hero" id="home">
-        <div class="hero-background">
-            <img src="./assets/landscape-hero.jpg" alt="Heritage Bank" class="hero-img" fetchpriority="high">
-            <div class="hero-overlay"></div>
+        <div class="hero-background" aria-hidden="true">
+            <div class="hero-glow hero-glow-one"></div>
+            <div class="hero-glow hero-glow-two"></div>
+            <div class="hero-grid-pattern"></div>
         </div>
         
         <div class="container">
@@ -87,6 +88,17 @@
                             <div class="hero-benefit"><i class="fas fa-clock"></i> Open in minutes</div>
                         </div>
                     </div>
+                </div>
+                <div class="hero-visual reveal-up">
+                    <div class="hero-photo-frame">
+                        <img src="./assets/landscape-hero.jpg" alt="A family spending time together outdoors" class="hero-family-photo" fetchpriority="high">
+                        <div class="hero-photo-shade"></div>
+                        <div class="hero-photo-caption">
+                            <span class="hero-caption-icon"><i class="fas fa-heart" aria-hidden="true"></i></span>
+                            <span><strong>Here for every chapter</strong><small>Banking that grows with you</small></span>
+                        </div>
+                    </div>
+                    <div class="hero-floating-note"><span class="hero-note-dot"></span> A more personal way to bank</div>
                 </div>
             </div>
         </div>

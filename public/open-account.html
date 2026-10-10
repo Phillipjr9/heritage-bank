@@ -14,6 +14,38 @@
     <meta property="og:description" content="Create a new Heritage Bank account online with quick and simple registration.">
     <meta property="og:type" content="website">
     <title>Open Account - Heritage Bank</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px;
+            color: #203b2d; background: #f7f6f0;
+            font-family: Inter, 'Segoe UI', sans-serif;
+        }
+        .redirect-shell {
+            width: min(100%, 510px); padding: clamp(28px, 6vw, 52px);
+            text-align: center; background: #fff; border: 1px solid #e8e9df;
+            border-radius: 24px; box-shadow: 0 24px 70px rgba(22, 52, 35, .11);
+        }
+        .redirect-brand { display: inline-flex; align-items: center; gap: 12px; margin-bottom: 30px; color: #183b2a; text-decoration: none; }
+        .redirect-brand img { width: 46px; height: 46px; object-fit: contain; border-radius: 12px; }
+        .redirect-brand span { font-weight: 700; letter-spacing: -.03em; font-size: 1.1rem; }
+        .redirect-mark {
+            width: 68px; height: 68px; margin: 0 auto 22px; display: grid; place-items: center;
+            border: 1px solid #dbe8da; border-radius: 22px; background: #eff5ee; color: #326345;
+            font-size: 1.65rem;
+        }
+        .redirect-shell h1 { margin: 0 0 12px; font-family: Georgia, 'Times New Roman', serif; font-size: clamp(2rem, 8vw, 2.65rem); font-weight: 500; letter-spacing: -.04em; }
+        .redirect-shell p { margin: 0 auto 26px; max-width: 360px; color: #69776c; line-height: 1.7; }
+        .redirect-action {
+            min-height: 48px; padding: 13px 20px; display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+            border-radius: 9px; background: #183b2a; color: #fff; font-weight: 650; text-decoration: none;
+            transition: transform .2s ease, background .2s ease;
+        }
+        .redirect-action:hover { background: #24543b; transform: translateY(-2px); }
+        .redirect-footnote { display: block; margin-top: 18px; color: #839087; font-size: .78rem; }
+        @media (prefers-reduced-motion: reduce) { .redirect-action { transition: none; } }
+    </style>
+
     <script>
         // Redirect authenticated users to dashboard, otherwise to enhanced signup
         if (localStorage.getItem('token')) {
@@ -24,7 +56,17 @@
     </script>
 </head>
 <body>
-    <p>Redirecting to account opening page...</p>
+    <main class="redirect-shell">
+        <a class="redirect-brand" href="index.html">
+            <img src="assets/logo.png" alt="">
+            <span>Heritage Bank</span>
+        </a>
+        <div class="redirect-mark" aria-hidden="true">↗</div>
+        <h1>Let’s get you started.</h1>
+        <p>Your account application is ready. Continue to the secure account-opening experience.</p>
+        <a class="redirect-action" href="open-account-enhanced.html">Continue to open an account <span aria-hidden="true">→</span></a>
+        <small class="redirect-footnote">Already have an account? <a href="signin.html">Sign in</a></small>
+    </main>
     <script src="cookie-consent.js"></script>
 </body>
 </html>
